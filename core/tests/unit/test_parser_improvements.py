@@ -137,7 +137,7 @@ end notes-db
         assert hasattr(genealogy.metadata, "database_notes")
         assert len(genealogy.metadata.database_notes) == 1
         assert (
-            "Ceci est une note de base de données avec plusieurs lignes"
+            "Ceci est une note de base de données\navec plusieurs lignes"
             in genealogy.metadata.database_notes[0]
         )
 

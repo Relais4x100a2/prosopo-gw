@@ -173,6 +173,26 @@ def _is_bang(token: Token) -> bool:
     return token.type == TokenType.UNKNOWN and token.value == "!"
 
 
+def _read_file_header(content: str) -> Tuple[bool, Optional[str]]:
+    """Lit l'en-tête du fichier : (``gwplus`` présent, valeur de ``encoding:``).
+
+    L'en-tête est la suite de lignes qui précède le premier bloc.
+    """
+    gwplus = False
+    encoding: Optional[str] = None
+    for ligne in content.split("\n", 20)[:20]:
+        mot = ligne.strip()
+        if not mot:
+            continue
+        if mot == "gwplus":
+            gwplus = True
+        elif mot.startswith("encoding:"):
+            encoding = mot.partition(":")[2].strip() or None
+        else:
+            break
+    return gwplus, encoding
+
+
 def _is_line_start_note(tokens: List[Token], i: int) -> bool:
     """Vrai si tokens[i] est un mot ``note`` en début de ligne (hors ``#``)."""
     tok = tokens[i]
@@ -533,7 +553,12 @@ class GeneWebParser:
                     f"Erreurs de validation détectées: {'; '.join(error_messages)}"
                 )
 
-        # Encoder la métadonnée d'encodage si fourni
+        # En-tête du fichier : ligne ``encoding:`` et marqueur ``gwplus``
+        entete = _read_file_header(content)
+        genealogy.metadata.is_gwplus = entete[0]
+        if entete[1]:
+            genealogy.metadata.encoding = entete[1]
+        # Un encodage explicitement fourni (détecté à la lecture) prime
         if encoding:
             genealogy.metadata.encoding = encoding
         return genealogy
@@ -3366,38 +3391,51 @@ class GeneWebParser:
         """Parse un bloc notes de base de données et l'ajoute aux métadonnées"""
         tokens = node.tokens
 
-        # Extraire le contenu des notes
-        notes_content: List[str] = []
-        notes_agg = 0
-        in_content = False
-
-        for token in tokens:
-            if token.type == TokenType.NOTES_DB:
-                in_content = True
-                continue
-            elif token.type == TokenType.END_NOTES_DB:
-                break
-            elif in_content and token.type not in [
-                TokenType.NEWLINE,
-                TokenType.WHITESPACE,
-            ]:
-                notes_agg, stop = _bounded_append_text_fragment(
-                    notes_content,
-                    notes_agg,
-                    token.value,
-                    inter_fragment_sep_len=1,
-                    max_fragments=_TEXT_AGGREGATE_MAX_FRAGMENTS,
-                    max_aggregate_chars=_TEXT_AGGREGATE_MAX_CHARS,
-                    log_context="Bloc notes-db",
-                )
-                if stop:
+        debut = next((t for t in tokens if t.type == TokenType.NOTES_DB), None)
+        fin = next((t for t in tokens if t.type == TokenType.END_NOTES_DB), None)
+        source = self._source
+        if source is not None and debut is not None and fin is not None:
+            # Texte relu tel quel dans la source (retours à la ligne compris)
+            texte = source[debut.position + len(debut.value) : fin.position]
+            texte = texte.replace("\r\n", "\n")
+            if texte.startswith("\n"):
+                texte = texte[1:]
+            if texte.endswith("\n"):
+                texte = texte[:-1]
+            texte = texte[:_TEXT_AGGREGATE_MAX_CHARS]  # garde-fou DoS
+        else:
+            # Mode streaming : reconstitution à partir des jetons
+            notes_content: List[str] = []
+            notes_agg = 0
+            in_content = False
+            for token in tokens:
+                if token.type == TokenType.NOTES_DB:
+                    in_content = True
+                    continue
+                elif token.type == TokenType.END_NOTES_DB:
                     break
+                elif in_content and token.type not in [
+                    TokenType.NEWLINE,
+                    TokenType.WHITESPACE,
+                ]:
+                    notes_agg, stop = _bounded_append_text_fragment(
+                        notes_content,
+                        notes_agg,
+                        token.value,
+                        inter_fragment_sep_len=1,
+                        max_fragments=_TEXT_AGGREGATE_MAX_FRAGMENTS,
+                        max_aggregate_chars=_TEXT_AGGREGATE_MAX_CHARS,
+                        log_context="Bloc notes-db",
+                    )
+                    if stop:
+                        break
+            texte = " ".join(notes_content)
 
-        if notes_content:
+        if texte.strip():
             # Stocker les notes de base de données dans les métadonnées
             if not hasattr(genealogy.metadata, "database_notes"):
                 genealogy.metadata.database_notes = []
-            genealogy.metadata.database_notes.append(" ".join(notes_content))
+            genealogy.metadata.database_notes.append(texte)
 
     def _parse_extended_page_block(
         self, node: SyntaxNode, persons: dict, genealogy: Genealogy
