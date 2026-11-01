@@ -2765,11 +2765,23 @@ class GeneWebParser:
                     )
                     continue
                 fevt_event_count += 1
-                current_event = self._family_event_from_token(token.type)
+                line_evt: Optional[FamilyEvent] = None
+                next_i = i
+                if self._source is not None:
+                    # Ligne brute : lieu et source gardés en entier (virgules,
+                    # chiffres en tête, URL…), comme pour les autres tags
+                    line_text, next_i = _tokens_line_text(tokens, i, self._source)
+                    line_evt = self._family_event_from_comment(line_text)
+                if line_evt is not None:
+                    current_event = line_evt
+                    i = next_i
+                else:
+                    current_event = self._family_event_from_token(token.type)
+                    i = self._consume_family_event_optional_fields(
+                        tokens, i + 1, current_event
+                    )
                 current_event.start_line = token.line_number
                 parsed_events.append(current_event)
-                i += 1
-                i = self._consume_family_event_optional_fields(tokens, i, current_event)
                 continue
 
             if token.type == TokenType.COMMENT and token.value.startswith("#"):
