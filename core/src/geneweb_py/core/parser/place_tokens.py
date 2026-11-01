@@ -68,6 +68,13 @@ QUALIFICATIFS_UNION = (
     TokenType.LICENSE,
 )
 EVENEMENTS_UNION = ("residence", "pacs")
+# Jetons par lesquels peut commencer la valeur d'un champ ``#bs``, ``#ps``… (un mot)
+MOT_DE_CHAMP = (
+    TokenType.IDENTIFIER,
+    TokenType.STRING,
+    TokenType.DATE,
+    TokenType.NUMBER,
+)
 
 
 def est_code_sexe(token: Token) -> bool:

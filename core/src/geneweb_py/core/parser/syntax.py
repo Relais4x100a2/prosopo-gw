@@ -13,6 +13,7 @@ from ..exceptions import GeneWebParseError
 from .lexical import Token, TokenType
 from .place_tokens import (
     EVENEMENTS_UNION,
+    MOT_DE_CHAMP,
     QUALIFICATIFS_UNION,
     death_marker,
     est_code_sexe,
@@ -205,17 +206,10 @@ class FamilyBlockParser(BlockParser):
             if token.type == TokenType.BP:
                 node.add_token(token)
                 i += 1
-                if i < len(tokens) and tokens[i].type == TokenType.BRACKET_OPEN:
-                    fin = place_run_end(tokens, i)
-                    for tok in tokens[i:fin]:
-                        node.add_token(tok)
-                    i = fin
-                while i < len(tokens) and tokens[i].type in [
-                    TokenType.IDENTIFIER,
-                    TokenType.UNKNOWN,
-                ]:
-                    node.add_token(tokens[i])
-                    i += 1
+                fin = place_run_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
                 continue
 
             if token.type == TokenType.OCCU:
@@ -235,20 +229,25 @@ class FamilyBlockParser(BlockParser):
             if token.type == TokenType.DP:
                 node.add_token(token)
                 i += 1
-                if i < len(tokens) and tokens[i].type == TokenType.BRACKET_OPEN:
-                    fin = place_run_end(tokens, i)
-                    for tok in tokens[i:fin]:
-                        node.add_token(tok)
-                    i = fin
-                while i < len(tokens) and tokens[i].type in [
-                    TokenType.IDENTIFIER,
-                    TokenType.UNKNOWN,
-                ]:
-                    node.add_token(tokens[i])
-                    i += 1
+                fin = place_run_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
                 continue
 
             if token.type in (TokenType.APUBL, TokenType.APRIV):
+                node.add_token(token)
+                i += 1
+                continue
+
+            # ``!`` qui précède la date de baptême
+            if token.type == TokenType.UNKNOWN and token.value == "!":
+                node.add_token(token)
+                i += 1
+                continue
+
+            # ``?`` isolé : date de décès inconnue (on ignore si la personne est vivante)
+            if token.type == TokenType.IDENTIFIER and token.value == "?":
                 node.add_token(token)
                 i += 1
                 continue
@@ -328,38 +327,12 @@ class FamilyBlockParser(BlockParser):
             ):
                 node.add_token(token)
                 i += 1
-                # Consume tokens until a known boundary
-                while i < len(tokens) and tokens[i].type not in (
-                    TokenType.NEWLINE,
-                    TokenType.EOF,
-                    TokenType.WIT,
-                    TokenType.SRC,
-                    TokenType.COMM,
-                    TokenType.NOTE,
-                ):
-                    # Stop at known modifiers
-                    if tokens[i].type in (
-                        TokenType.NICK,
-                        TokenType.SALIAS,
-                        TokenType.ALIAS,
-                        TokenType.BP,
-                        TokenType.DP,
-                        TokenType.OCCU,
-                        TokenType.APUBL,
-                        TokenType.APRIV,
-                        TokenType.BS,
-                        TokenType.DS,
-                        TokenType.PP,
-                        TokenType.PS,
-                        TokenType.RP,
-                        TokenType.RS,
-                        TokenType.IMAGE,
-                        TokenType.PLUS,
-                        TokenType.DATE,
-                    ):
-                        break
-                    node.add_token(tokens[i])
-                    i += 1
+                # La source / le lieu est un mot : jetons contigus de n'importe quel type
+                if i < len(tokens) and tokens[i].type in MOT_DE_CHAMP:
+                    fin = mot_end(tokens, i)
+                    for tok in tokens[i:fin]:
+                        node.add_token(tok)
+                    i = fin
                 continue
 
             # Public name (PublicName)

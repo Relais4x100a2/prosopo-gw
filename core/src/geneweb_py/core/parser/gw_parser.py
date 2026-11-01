@@ -30,6 +30,7 @@ from ..person import (
 from .lexical import LexicalParser, Token, TokenType
 from .place_tokens import (
     EVENEMENTS_UNION,
+    MOT_DE_CHAMP,
     QUALIFICATIFS_UNION,
     death_marker,
     est_code_sexe,
@@ -1331,6 +1332,15 @@ class GeneWebParser:
                 i += 1
                 continue
 
+            # ``?`` isolé après nom et prénom : date de décès inconnue
+            elif (
+                result[f"{current_person}_firstname"]
+                and token.type == TokenType.IDENTIFIER
+                and token.value == "?"
+            ):
+                i += 1
+                continue
+
             # Marqueurs de décès ``od`` / ``mj`` (natifs sans ``#``, ou ``#od`` / ``#mj``)
             # une fois nom et prénom lus : sinon ``od`` serait pris pour l'épouse.
             elif (
@@ -1990,10 +2000,7 @@ class GeneWebParser:
         self, tokens: List[Token], start_index: int
     ) -> Tuple[Optional[str], int]:
         """Source d'un champ de ligne de personne (``#bs``…) : un seul mot."""
-        if start_index < len(tokens) and tokens[start_index].type in (
-            TokenType.IDENTIFIER,
-            TokenType.STRING,
-        ):
+        if start_index < len(tokens) and tokens[start_index].type in MOT_DE_CHAMP:
             fin = mot_end(tokens, start_index)
             return _join_tokens_text(tokens[start_index:fin]), fin
         return None, start_index
