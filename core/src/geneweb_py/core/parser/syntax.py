@@ -18,6 +18,7 @@ from .place_tokens import (
     death_marker,
     est_code_sexe,
     mot_end,
+    nom_end,
     place_run_end,
 )
 
@@ -139,15 +140,13 @@ class FamilyBlockParser(BlockParser):
         """Parse les informations du mari"""
         i = start_index
 
-        # Nom de famille
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
-
-        # Prénom
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
+        # Nom de famille puis prénom : chacun est un mot (``MARTIN*``, ``Anne,_Autre``)
+        for _ in range(2):
+            if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
+                fin = nom_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
 
         # Numéro d'occurrence (optionnel)
         if i < len(tokens) and tokens[i].type == TokenType.NUMBER:
@@ -165,15 +164,13 @@ class FamilyBlockParser(BlockParser):
         """Parse les informations de la femme"""
         i = start_index
 
-        # Nom de famille
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
-
-        # Prénom
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
+        # Nom de famille puis prénom : chacun est un mot (``MARTIN*``, ``Anne,_Autre``)
+        for _ in range(2):
+            if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
+                fin = nom_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
 
         # Numéro d'occurrence (optionnel)
         if i < len(tokens) and tokens[i].type == TokenType.NUMBER:

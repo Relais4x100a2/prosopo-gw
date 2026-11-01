@@ -134,6 +134,23 @@ def mot_end(tokens: List[Token], start: int) -> int:
     return j
 
 
+def nom_end(tokens: List[Token], start: int) -> int:
+    """Fin d'un nom ou prénom qui commence à ``start``.
+
+    Comme ``mot_end`` (jetons contigus : ``MARTIN*``, ``Aa/_KAHN``,
+    ``_(Dit)_MARTIN``, ``Anne,_Autre``) mais s'arrête avant l'occurrence ``.N``
+    et avant un ``"alias"`` entre guillemets, qui ne font pas partie du nom.
+    """
+    fin = mot_end(tokens, start)
+    for j in range(start + 1, fin):
+        tok = tokens[j]
+        if tok.type == TokenType.STRING or (
+            tok.type == TokenType.NUMBER and tok.value.startswith(".")
+        ):
+            return j
+    return fin
+
+
 def texte_libre(tokens: List[Token], limite: int) -> str:
     """Texte d'une note : les ``limite`` premiers jetons utiles, à l'identique."""
     utiles = [

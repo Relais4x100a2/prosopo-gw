@@ -35,6 +35,7 @@ from .place_tokens import (
     death_marker,
     est_code_sexe,
     mot_end,
+    nom_end,
     place_run_end,
     texte_libre,
 )
@@ -1318,8 +1319,10 @@ class GeneWebParser:
                 token.type == TokenType.IDENTIFIER
                 and not result[f"{current_person}_name"]
             ):
-                result[f"{current_person}_name"] = token.value
-                i += 1
+                result[f"{current_person}_name"] = "".join(
+                    t.value for t in tokens[i : nom_end(tokens, i)]
+                )
+                i = nom_end(tokens, i)
                 continue
 
             # Prénom
@@ -1328,8 +1331,10 @@ class GeneWebParser:
                 and result[f"{current_person}_name"]
                 and not result[f"{current_person}_firstname"]
             ):
-                result[f"{current_person}_firstname"] = token.value
-                i += 1
+                result[f"{current_person}_firstname"] = "".join(
+                    t.value for t in tokens[i : nom_end(tokens, i)]
+                )
+                i = nom_end(tokens, i)
                 continue
 
             # ``?`` isolé après nom et prénom : date de décès inconnue
