@@ -965,7 +965,11 @@ class GeneWebParser:
                 i = next_i
                 continue
             if tok.type == TokenType.SEP:
-                family.marriage_status = MarriageStatus.SEPARATED
+                if family.marriage_status not in (
+                    MarriageStatus.NOT_MARRIED,
+                    MarriageStatus.ENGAGED,
+                ):
+                    family.marriage_status = MarriageStatus.SEPARATED
                 family.is_separated = True
                 i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.DASH:
@@ -1043,7 +1047,11 @@ class GeneWebParser:
                 continue
             if tok.type == TokenType.SEP_EVENT:
                 i += 1
-                family.marriage_status = MarriageStatus.SEPARATED
+                if family.marriage_status not in (
+                    MarriageStatus.NOT_MARRIED,
+                    MarriageStatus.ENGAGED,
+                ):
+                    family.marriage_status = MarriageStatus.SEPARATED
                 family.is_separated = True
                 if i < len(tokens) and tokens[i].type == TokenType.DATE:
                     family.divorce_date = Date.parse_with_fallback(tokens[i].value)
@@ -1198,7 +1206,12 @@ class GeneWebParser:
             while i_ < len(tokens):
                 tok = tokens[i_]
                 if tok.type == TokenType.SEP:
-                    result["marriage_status"] = MarriageStatus.SEPARATED
+                    # ``#nm`` / ``#eng`` priment : la séparation reste dans is_separated
+                    if result.get("marriage_status") not in (
+                        MarriageStatus.NOT_MARRIED,
+                        MarriageStatus.ENGAGED,
+                    ):
+                        result["marriage_status"] = MarriageStatus.SEPARATED
                     result["is_separated"] = True
                     i_ += 1
                     if i_ < len(tokens) and tokens[i_].type == TokenType.DASH:
@@ -1472,11 +1485,18 @@ class GeneWebParser:
             # Occupation (#occu)
             elif token.type == TokenType.OCCU:
                 i += 1
-                start_occu = i
                 occupation_parts: List[str] = []
                 occ_agg = 0
+                # La profession est un mot : jetons contigus de tout type (dates,
+                # tirets, parenthèses : ``Maire_(1850-1900)``)
+                fin_mot = (
+                    mot_end(tokens, i)
+                    if i < len(tokens) and tokens[i].type in MOT_DE_CHAMP
+                    else i
+                )
                 while i < len(tokens) and (
-                    tokens[i].type
+                    i < fin_mot
+                    or tokens[i].type
                     in [
                         TokenType.IDENTIFIER,
                         TokenType.STRING,
@@ -1484,13 +1504,6 @@ class GeneWebParser:
                         TokenType.PAREN_CLOSE,
                         TokenType.UNKNOWN,
                     ]
-                    # chiffres collés au mot précédent : ``Maire(1850),_percepteur``
-                    or (
-                        tokens[i].type in (TokenType.DATE, TokenType.NUMBER)
-                        and i > start_occu
-                        and tokens[i].position
-                        == tokens[i - 1].position + len(tokens[i - 1].value)
-                    )
                 ):
                     # Remplacer les underscores par des espaces pour l'affichage
                     occ_seg = tokens[i].value.replace("_", " ")

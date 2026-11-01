@@ -52,3 +52,14 @@ def test_date_d_inhumation_va_a_la_personne():
     g = _ok("fam DUPONT Jean 1/1/1900 #buri 5/1/1950 #rp Lieu + MARTIN Anne")
     p = g.persons["DUPONT_Jean_0"]
     assert p.burial_place == "Lieu"
+
+
+@pytest.mark.parametrize(
+    "occu", ["Maire_(1850-1900)_x", "a(1-2),_b", "ingénieur-chimiste", "a_(1-2)_b"]
+)
+def test_tiret_dans_la_profession_n_est_pas_un_divorce(occu):
+    g = _ok(f"fam DUPONT Jean #occu {occu} 1/1/1900 #bp V +1920 MARTIN Anne")
+    (f,) = g.families.values()
+    assert f.marriage_status.value == ""
+    assert f.divorce_date is None
+    assert g.persons["DUPONT_Jean_0"].occupation == occu.replace("_", " ")
