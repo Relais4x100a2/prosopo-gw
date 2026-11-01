@@ -33,6 +33,7 @@ from .place_tokens import (
     EVENEMENTS_UNION,
     MOT_DE_CHAMP,
     QUALIFICATIFS_UNION,
+    _fin_jeton,
     death_marker,
     est_code_sexe,
     mot_end,
@@ -48,8 +49,36 @@ from .streaming import (
     should_use_streaming,
 )
 from .syntax import BlockType, SyntaxNode, SyntaxParser
+from .words import MarriagePart, read_marriage_part, word_spans
 
 logger = logging.getLogger(__name__)
+
+# Qualificatifs d'union de la ligne fam, par tag (sans ``#``) et par jeton du lexeur
+_QUALIFICATIFS_PAR_TAG = {
+    "noment": FamilyQualifier.NO_MENTION,
+    "nsck": FamilyQualifier.NO_SEX_CHECK,
+    "nsckm": FamilyQualifier.NO_SEX_CHECK_MARRIAGE,
+    "banns": FamilyQualifier.BANNS,
+    "contract": FamilyQualifier.CONTRACT,
+    "license": FamilyQualifier.LICENSE,
+}
+_QUALIFICATIFS_PAR_JETON = {
+    TokenType.NOMENT: FamilyQualifier.NO_MENTION,
+    TokenType.NSCK: FamilyQualifier.NO_SEX_CHECK,
+    TokenType.NSCKM: FamilyQualifier.NO_SEX_CHECK_MARRIAGE,
+    TokenType.BANNS: FamilyQualifier.BANNS,
+    TokenType.CONTRACT: FamilyQualifier.CONTRACT,
+    TokenType.LICENSE: FamilyQualifier.LICENSE,
+}
+# Marqueurs de la partie mariage, lus par ``_parse_family_line`` sur la ligne fam
+_MARQUEURS_MARIAGE = (
+    TokenType.SEP,
+    TokenType.DIV,
+    TokenType.NM,
+    TokenType.ENG,
+    TokenType.MS,
+    *QUALIFICATIFS_UNION,
+)
 
 # Agrégats `comm` famille : borne mémoire (DoS lors d'une ligne ou séquence géante).
 _FAMILY_COMM_AGGREGATE_MAX_CHARS = 512 * 1024
@@ -109,6 +138,88 @@ def _tokens_line_text(
         prev_end = tok.position + len(tok.value)
         i += 1
     return "".join(parts), i
+
+
+def _line_words(
+    tokens: List[Token], start: int, source: Optional[str] = None
+) -> Tuple[List[Tuple[str, int, bool]], int]:
+    """Mots bruts d'une ligne, de ``tokens[start]`` à la fin de ligne.
+
+    Chaque mot vient avec l'index de son premier jeton et un drapeau « date » (le
+    mot est exactement un jeton ``DATE`` du lexeur). Avec ``source``, les mots sont
+    relus tels quels ; sinon (API sans texte source) ils sont recollés à partir des
+    jetons contigus, guillemets des chaînes rétablis.
+
+    Returns:
+        (mots, index du premier jeton après la ligne)
+    """
+    mots: List[Tuple[str, int, bool]] = []
+    if source is not None and start < len(tokens):
+        texte, fin_ligne = _tokens_line_text(tokens, start, source)
+        debut = tokens[start].position
+        j = start
+        for mot, decalage in word_spans(texte):
+            pos = debut + decalage
+            while j < fin_ligne and tokens[j].position < pos:
+                j += 1
+            k = j
+            while k < fin_ligne and tokens[k].position < pos + len(mot):
+                k += 1
+            est_date = (
+                k == j + 1
+                and tokens[j].type == TokenType.DATE
+                and tokens[j].position == pos
+                and _fin_jeton(tokens[j]) == pos + len(mot)
+            )
+            mots.append((mot, j, est_date))
+        return mots, fin_ligne
+    i = start
+    while i < len(tokens) and tokens[i].type not in (TokenType.NEWLINE, TokenType.EOF):
+        fin = i + 1
+        while (
+            fin < len(tokens)
+            and tokens[fin].type not in (TokenType.NEWLINE, TokenType.EOF)
+            and tokens[fin].position == _fin_jeton(tokens[fin - 1])
+        ):
+            fin += 1
+        est_date = fin == i + 1 and tokens[i].type == TokenType.DATE
+        mots.append((nom_text(tokens, i, fin), i, est_date))
+        i = fin
+    return mots, i
+
+
+def _apply_marriage_part(result: Dict[str, Any], part: MarriagePart) -> None:
+    """Reporte la partie mariage lue mot à mot dans le résultat de la ligne fam.
+
+    Les mots de lieu et de source restent bruts (``_`` compris), comme ailleurs.
+    ``#mn`` (note de mariage) n'a pas encore de champ dans le modèle.
+    """
+    if part.date and not result["marriage_date"]:
+        result["marriage_date"] = Date.parse_with_fallback(part.date)
+    for relation in part.relations:
+        if relation == "nm":
+            result["marriage_status"] = MarriageStatus.NOT_MARRIED
+        elif relation == "eng":
+            result["marriage_status"] = MarriageStatus.ENGAGED
+        elif relation in _QUALIFICATIFS_PAR_TAG:
+            result["family_qualifiers"].append(_QUALIFICATIFS_PAR_TAG[relation])
+    if part.place:
+        result["marriage_place"] = part.place
+    if part.source:
+        result["marriage_source"] = part.source
+    if part.separated:
+        # ``#nm`` / ``#eng`` priment : la séparation reste dans is_separated
+        if result["marriage_status"] not in (
+            MarriageStatus.NOT_MARRIED,
+            MarriageStatus.ENGAGED,
+        ):
+            result["marriage_status"] = MarriageStatus.SEPARATED
+        result["is_separated"] = True
+    if part.divorced:
+        result["marriage_status"] = MarriageStatus.DIVORCED
+    date_fin = part.divorce_date or part.separation_date
+    if date_fin:
+        result["divorce_date"] = Date.parse_with_fallback(date_fin)
 
 
 def _content_lines(tokens: List[Token], with_end: bool = False) -> List[int]:
@@ -966,6 +1077,8 @@ class GeneWebParser:
                 marriage_date=family_info["marriage_date"],
                 marriage_place=family_info["marriage_place"],
                 marriage_status=family_info["marriage_status"],
+                marriage_source=family_info["marriage_source"],
+                family_qualifiers=list(family_info["family_qualifiers"]),
                 divorce_date=family_info["divorce_date"],
                 is_separated=family_info["is_separated"],
             )
@@ -1021,8 +1134,13 @@ class GeneWebParser:
         i = 0
         en_tete = True  # avant le ``beg`` des enfants
         comm_fin = -1  # dernière ligne de commentaire
+        ligne_fam = tokens[0].line_number if tokens else None
         while i < len(tokens):
             tok = tokens[i]
+            if tok.type in _MARQUEURS_MARIAGE and tok.line_number == ligne_fam:
+                # Déjà lus par ``_parse_family_line`` (partie mariage de la ligne fam)
+                i += 1
+                continue
             if tok.type == TokenType.WIT:
                 next_i, witness_id, witness_type, witness_kind = (
                     self._parse_witness_person(tokens, i, persons, genealogy)
@@ -1071,23 +1189,8 @@ class GeneWebParser:
                     value, i = self._parse_short_source(tokens, i)
                     family.marriage_source = value
                 continue
-            if tok.type in (
-                TokenType.NSCK,
-                TokenType.NSCKM,
-                TokenType.NOMENT,
-                TokenType.BANNS,
-                TokenType.CONTRACT,
-                TokenType.LICENSE,
-            ):
-                qualifier_map = {
-                    TokenType.NSCK: FamilyQualifier.NO_SEX_CHECK,
-                    TokenType.NSCKM: FamilyQualifier.NO_SEX_CHECK_MARRIAGE,
-                    TokenType.NOMENT: FamilyQualifier.NO_MENTION,
-                    TokenType.BANNS: FamilyQualifier.BANNS,
-                    TokenType.CONTRACT: FamilyQualifier.CONTRACT,
-                    TokenType.LICENSE: FamilyQualifier.LICENSE,
-                }
-                family.family_qualifiers.append(qualifier_map[tok.type])
+            if tok.type in _QUALIFICATIFS_PAR_JETON:
+                family.family_qualifiers.append(_QUALIFICATIFS_PAR_JETON[tok.type])
                 i += 1
                 continue
             if tok.type == TokenType.MARR:
@@ -1255,6 +1358,8 @@ class GeneWebParser:
             "marriage_date": None,
             "marriage_place": None,
             "marriage_status": MarriageStatus.MARRIED,
+            "marriage_source": None,
+            "family_qualifiers": [],
             "divorce_date": None,
             "is_separated": False,
         }
@@ -1331,6 +1436,19 @@ class GeneWebParser:
 
             # Séparateur de mariage - passer à la femme
             elif token.type == TokenType.PLUS:
+                mots, fin_ligne = _line_words(tokens, i, self._source)
+                if current_person == "husband" and mots and mots[0][0][:1] == "+":
+                    # Partie mariage lue mot à mot sur la ligne brute, comme gwc :
+                    # ``+date``, relation, #mp / #mn / #ms, ``-date`` ou #sep
+                    current_person = "wife"
+                    dates = [m[2] for m in mots]
+                    part, k = read_marriage_part(
+                        [m[0] for m in mots], 0, dates.__getitem__
+                    )
+                    _apply_marriage_part(result, part)
+                    i = mots[k][1] if k < len(mots) else fin_ligne
+                    continue
+                # ``+`` répété : tolérance historique (date, #sep / #div)
                 current_person = "wife"
                 i += 1
                 # La date de mariage suit immédiatement le + (ex: +25/11/1728)
@@ -1384,6 +1502,8 @@ class GeneWebParser:
             # Qualificatif d'union (#noment, #nsck…) suivi d'un code de sexe facultatif
             # (mf, mm, ff…) : le code n'est jamais le nom du conjoint.
             elif token.type in QUALIFICATIFS_UNION:
+                # Hors position (avant le ``+``) : tolérance historique
+                result["family_qualifiers"].append(_QUALIFICATIFS_PAR_JETON[token.type])
                 i += 1
                 if i < len(tokens) and est_code_sexe(tokens[i]):
                     i += 1
@@ -1710,13 +1830,13 @@ class GeneWebParser:
                     result[f"{current_person}_burial_source"] = value.replace("_", " ")
                 continue
 
-            # Source du mariage (#ms) : un mot, jamais le nom de l'épouse
+            # Source du mariage (#ms) hors partie mariage : un mot brut, jamais le nom
+            # de l'épouse
             elif token.type == TokenType.MS:
                 i += 1
                 fin = mot_end(tokens, i)
                 if fin > i:
-                    value = _join_tokens_text(tokens[i:fin])
-                    result["marriage_source"] = value.replace("_", " ")
+                    result["marriage_source"] = nom_text(tokens, i, fin)
                     i = fin
                 continue
 
