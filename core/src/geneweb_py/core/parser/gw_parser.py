@@ -783,6 +783,7 @@ class GeneWebParser:
                             self._parse_child(
                                 child_node, current_family, persons, genealogy
                             )
+                        self._apply_common_children_values(current_family, persons)
                 else:
                     # Bloc famille sans indication claire, le traiter normalement
                     current_family = self._parse_family_block(
@@ -980,12 +981,29 @@ class GeneWebParser:
 
             # Modificateurs de ligne (#sep / #div), témoins, sources et commentaires
             self._apply_family_extra_tokens(family, tokens, persons, genealogy)
+            self._apply_common_children_values(family, persons)
 
             families[family_id] = family
             genealogy.add_family(family)
             return family
 
         return None
+
+    @staticmethod
+    def _apply_common_children_values(family: Family, persons: dict) -> None:
+        """Applique ``cbp`` / ``csrc`` aux enfants qui n'ont pas leur propre valeur."""
+        lieu = family.common_birth_place
+        source = family.common_children_source
+        if not lieu and not source:
+            return
+        for child in family.children:
+            person = persons.get(child.person_id)
+            if person is None:
+                continue
+            if lieu and person.birth_place is None:
+                person.birth_place = lieu
+            if source and person.person_source is None:
+                person.person_source = source
 
     def _apply_family_extra_tokens(
         self,
@@ -1108,6 +1126,22 @@ class GeneWebParser:
                     i += 1
                     if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
                         i += 1
+                continue
+            if (
+                tok.type in (TokenType.CBP, TokenType.CSRC)
+                or (
+                    tok.type == TokenType.IDENTIFIER
+                    and tok.value in ("cbp", "csrc")
+                    and i > 0
+                    and tokens[i - 1].type == TokenType.NEWLINE
+                )
+            ) and en_tete:
+                line_text, i = _tokens_line_text(tokens, i, self._source)
+                valeur = line_text.partition(" ")[2].strip() or None
+                if tok.value == "cbp":
+                    family.common_birth_place = valeur
+                else:
+                    family.common_children_source = valeur
                 continue
             if tok.type == TokenType.SRC:
                 line_text, i = _tokens_line_text(tokens, i, self._source)
