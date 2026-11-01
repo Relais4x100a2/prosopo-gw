@@ -13,6 +13,10 @@ from typing import Iterator, List, Optional, Pattern
 
 from ..exceptions import GeneWebParseError
 
+# Mot fait uniquement de « ? » (nom/prénom inconnu), suivi d'un blanc, de la fin
+# ou d'un numéro d'occurrence ``.N`` : ce n'est pas une date (``?1950``).
+_QUESTION_WORD = re.compile(r"\?+(?=\s|$|\.\d)")
+
 # Limites contre l'abus de ressources (commentaires bloc non fermés, etc.)
 _BLOCK_COMMENT_BODY_MAX_CHARS = 256 * 1024
 
@@ -457,6 +461,10 @@ class LexicalParser:
             if block_token:
                 return block_token
 
+        # Nom ou prénom inconnu écrit ``?``, ``???``… (hors date ``?1950``)
+        if char == "?" and _QUESTION_WORD.match(self.text, self.position):
+            return self._parse_identifier(start_line, start_col, start_pos)
+
         # Dates (commençant par un chiffre ou un préfixe)
         if char.isdigit() or char in "~?<>":
             return self._parse_date(start_line, start_col, start_pos)
@@ -712,7 +720,7 @@ class LexicalParser:
         value = ""
 
         while self.position < len(self.text) and (
-            self.text[self.position].isalnum() or self.text[self.position] in "_-'"
+            self.text[self.position].isalnum() or self.text[self.position] in "_-'?"
         ):
             value += self.text[self.position]
             self._advance_position()
