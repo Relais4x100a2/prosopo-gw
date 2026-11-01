@@ -66,3 +66,18 @@ def test_inconnus_a_point_d_interrogation_unique_ne_fusionnent_pas() -> None:
         (None, None)
     ] * 2
     assert not g.persons
+
+
+@pytest.mark.parametrize(
+    ("ligne", "attendu"),
+    [
+        ("fam DUPONT Paul + ? Anne", ("DUPONT_Paul_0", "?_Anne_0")),
+        ("fam DUPONT Paul +1750 ? Anne 1725 #bp Ville", ("DUPONT_Paul_0", "?_Anne_0")),
+        ("fam DUPONT Paul + #nm ? Anne #apriv", ("DUPONT_Paul_0", "?_Anne_0")),
+        ("fam DUPONT Paul + MARTIN ?", ("DUPONT_Paul_0", "MARTIN_?_0")),
+        ("fam ? Paul + MARTIN Anne", ("?_Paul_0", "MARTIN_Anne_0")),
+        ("fam DUPONT Paul + - ? ?", ("DUPONT_Paul_0", None)),
+    ],
+)
+def test_un_seul_point_d_interrogation_reste_une_personne(ligne, attendu):
+    assert _ids(ligne + "\n") == [attendu]

@@ -1719,12 +1719,12 @@ class GeneWebParser:
             else:
                 i += 1
 
-        # Convention GeneWeb : un nom ou un prénom valant exactement ``?`` n'est pas
-        # une clé de personne (``? ?``, ``? ?.0``…) : conjoint inconnu, aucune
-        # personne créée (sinon tous les inconnus fusionneraient en une seule).
-        # ``???``, ``_???`` ou ``???.1`` sont en revanche de vraies personnes.
+        # Convention GeneWeb : seul ``? ?`` (nom ET prénom valant exactement ``?``,
+        # avec ou sans occurrence : ``? ?.0``) désigne un conjoint inconnu, aucune
+        # personne créée. ``? Anne``, ``MARTIN ?``, ``???`` ou ``???.1`` sont de
+        # vraies personnes.
         for role in ("husband", "wife"):
-            if "?" in (result[f"{role}_name"], result[f"{role}_firstname"]):
+            if result[f"{role}_name"] == "?" and result[f"{role}_firstname"] == "?":
                 result[f"{role}_name"] = None
                 result[f"{role}_firstname"] = None
 
