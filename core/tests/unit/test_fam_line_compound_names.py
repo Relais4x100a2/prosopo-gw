@@ -63,3 +63,22 @@ def test_alias_entre_guillemets_colle_au_nom_de_l_epouse():
 def test_alias_de_l_epouse_apres_ms():
     _, f = _fam('fam DUPONT Jean +1900 #mp V #ms Reg(Pa MARTIN Anne"Dit"')
     assert f.wife_id == 'MARTIN_Anne"Dit"_0'
+
+
+@pytest.mark.parametrize(
+    ("temoin", "attendu"),
+    [
+        ("P Q", "P_Q_0"),
+        ('P Abraham_"Alb"', 'P_Abraham_"Alb"_0'),
+        ('P Abraham_"Alb".2', 'P_Abraham_"Alb"_2'),
+        ("P Thomas_W. 0", "P_Thomas_W._0"),
+        ("A/_B Q 1900", "A/_B_Q_0"),
+        ("DE_B Jacques_Marie.1 #occu x", "DE_B_Jacques_Marie_1"),
+    ],
+)
+def test_temoin_au_nom_compose_ne_masque_pas_les_suivants(temoin, attendu):
+    g = GeneWebParser(validate=False).parse_string(
+        f"fam A B +1900 C D\nwit m: {temoin}\nwit f: R S\nbeg\n- h X\nend\n"
+    )
+    (f,) = g.families.values()
+    assert [w["person_id"] for w in f.witnesses] == [attendu, "R_S_0"]

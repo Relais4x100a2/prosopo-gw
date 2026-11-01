@@ -3030,17 +3030,13 @@ class GeneWebParser:
 
         if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
             # un mot peut être découpé par le lexeur (``A/B``) : on le recolle
-            fin = mot_end(tokens, i)
-            if fin - 1 > i and tokens[fin - 1].type == TokenType.NUMBER:
-                fin -= 1  # ``.1`` collé = numéro d'occurrence, pas le nom
-            last_name = _join_tokens_text(tokens[i:fin])
+            fin = nom_end(tokens, i)
+            last_name = nom_text(tokens, i, fin)
             i = fin
 
         if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            fin = mot_end(tokens, i)
-            if fin - 1 > i and tokens[fin - 1].type == TokenType.NUMBER:
-                fin -= 1  # ``.1`` collé = numéro d'occurrence, pas le nom
-            first_name = _join_tokens_text(tokens[i:fin])
+            fin = nom_end(tokens, i)
+            first_name = nom_text(tokens, i, fin)
             i = fin
 
         # Numéro d'occurrence (après le prénom)
@@ -3316,14 +3312,12 @@ class GeneWebParser:
             # Sources (#src)
             elif token.type == TokenType.SRC:
                 i += 1
-                if i < len(tokens) and tokens[i].type in [
-                    TokenType.IDENTIFIER,
-                    TokenType.STRING,
-                ]:
+                if i < len(tokens) and tokens[i].type in MOT_DE_CHAMP:
+                    # La source est un mot (URL, ``3_E_041/472``…) que le lexeur découpe
+                    fin = mot_end(tokens, i)
                     # Par défaut, stocker en note pour compat; évitons de créer des personnes  # noqa: E501
-                    source_value = tokens[i].value
-                    person.add_note(f"Source: {source_value}")
-                    i += 1
+                    person.add_note(f"Source: {_join_tokens_text(tokens[i:fin])}")
+                    i = fin
 
             # Commentaires (#comm)
             elif token.type == TokenType.COMM:
