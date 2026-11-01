@@ -215,6 +215,13 @@ class FamilyBlockParser(BlockParser):
             if token.type == TokenType.OCCU:
                 node.add_token(token)
                 i += 1
+                # Premier mot de la profession : jetons contigus, de n'importe quel type
+                # (``Maire(1850),_percepteur`` contient une date et des parenthèses)
+                if i < len(tokens) and tokens[i].type in MOT_DE_CHAMP:
+                    fin = mot_end(tokens, i)
+                    for tok in tokens[i:fin]:
+                        node.add_token(tok)
+                    i = fin
                 while i < len(tokens) and tokens[i].type in [
                     TokenType.IDENTIFIER,
                     TokenType.STRING,
@@ -236,6 +243,12 @@ class FamilyBlockParser(BlockParser):
                 continue
 
             if token.type in (TokenType.APUBL, TokenType.APRIV):
+                node.add_token(token)
+                i += 1
+                continue
+
+            # Inhumation / crémation : le tag, la date et le lieu (``#rp``) suivent
+            if token.type in (TokenType.BURI, TokenType.CREM):
                 node.add_token(token)
                 i += 1
                 continue

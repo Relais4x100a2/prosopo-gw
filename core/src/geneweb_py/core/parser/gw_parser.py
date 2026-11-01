@@ -1466,15 +1466,26 @@ class GeneWebParser:
             # Occupation (#occu)
             elif token.type == TokenType.OCCU:
                 i += 1
+                start_occu = i
                 occupation_parts: List[str] = []
                 occ_agg = 0
-                while i < len(tokens) and tokens[i].type in [
-                    TokenType.IDENTIFIER,
-                    TokenType.STRING,
-                    TokenType.PAREN_OPEN,
-                    TokenType.PAREN_CLOSE,
-                    TokenType.UNKNOWN,
-                ]:
+                while i < len(tokens) and (
+                    tokens[i].type
+                    in [
+                        TokenType.IDENTIFIER,
+                        TokenType.STRING,
+                        TokenType.PAREN_OPEN,
+                        TokenType.PAREN_CLOSE,
+                        TokenType.UNKNOWN,
+                    ]
+                    # chiffres collés au mot précédent : ``Maire(1850),_percepteur``
+                    or (
+                        tokens[i].type in (TokenType.DATE, TokenType.NUMBER)
+                        and i > start_occu
+                        and tokens[i].position
+                        == tokens[i - 1].position + len(tokens[i - 1].value)
+                    )
+                ):
                     # Remplacer les underscores par des espaces pour l'affichage
                     occ_seg = tokens[i].value.replace("_", " ")
                     occ_agg, stop = _bounded_append_text_fragment(
