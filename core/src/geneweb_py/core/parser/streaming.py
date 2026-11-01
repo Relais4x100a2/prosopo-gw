@@ -7,7 +7,7 @@ lors du traitement de gros fichiers .gw (>10MB).
 
 import os
 from pathlib import Path
-from typing import Iterator, Optional, TextIO, Union
+from typing import Iterator, List, Optional, TextIO, Union
 
 import chardet
 
@@ -56,6 +56,9 @@ class StreamingLexicalParser:
         self.filename = filename or "<stream>"
         self.buffer_size = buffer_size
         self.line_number = 0
+        # Texte lu, morceau par morceau : les lecteurs de ligne brute du parser
+        # le relisent via les positions (globales) des jetons
+        self.source_parts: List[str] = []
         self.buffer = ""
         self.eof_reached = False
 
@@ -77,11 +80,16 @@ class StreamingLexicalParser:
         """
         accumulated_text = []
         block_start_line = 0
+        block_start_offset = 0
         current_block = None
         inside_multiline_block = False
+        offset = 0  # position, dans le texte lu, du début de la ligne courante
 
         for line in self.file_handle:
             self.line_number += 1
+            line_offset = offset
+            offset += len(line)
+            self.source_parts.append(line)
             line_stripped = line.strip()
 
             # Détecter les blocs multi-lignes (notes, notes-db, page-ext, wizard-note)
@@ -90,6 +98,7 @@ class StreamingLexicalParser:
             ):
                 inside_multiline_block = True
                 block_start_line = self.line_number
+                block_start_offset = line_offset
                 current_block = (
                     "notes" if line_stripped.startswith("notes ") else "notes-db"
                 )
@@ -98,12 +107,14 @@ class StreamingLexicalParser:
             elif line_stripped.startswith("page-ext "):
                 inside_multiline_block = True
                 block_start_line = self.line_number
+                block_start_offset = line_offset
                 current_block = "page-ext"
                 accumulated_text.append(line)
                 continue
             elif line_stripped.startswith("wizard-note "):
                 inside_multiline_block = True
                 block_start_line = self.line_number
+                block_start_offset = line_offset
                 current_block = "wizard-note"
                 accumulated_text.append(line)
                 continue
@@ -140,7 +151,7 @@ class StreamingLexicalParser:
                                 value=token.value,
                                 line_number=block_start_line + token.line_number - 1,
                                 column=token.column,
-                                position=token.position,
+                                position=block_start_offset + token.position,
                             )
                     accumulated_text = []
                     inside_multiline_block = False
@@ -159,7 +170,7 @@ class StreamingLexicalParser:
                             value=token.value,
                             line_number=self.line_number,
                             column=token.column,
-                            position=token.position,
+                            position=line_offset + token.position,
                         )
             else:
                 # Ligne vide : le lexeur complet émet un NEWLINE
@@ -167,8 +178,8 @@ class StreamingLexicalParser:
                     type=TokenType.NEWLINE,
                     value="\n",
                     line_number=self.line_number,
-                    column=1,
-                    position=0,
+                    column=len(line.rstrip("\r\n")) + 1,
+                    position=line_offset + len(line.rstrip("\r\n")),
                 )
 
         # Token EOF final
@@ -177,7 +188,7 @@ class StreamingLexicalParser:
             value="",
             line_number=self.line_number,
             column=1,
-            position=0,
+            position=offset,
         )
 
 
@@ -197,6 +208,7 @@ class StreamingGeneWebParser:
         """
         self.validate = validate
         self.buffer_size = buffer_size
+        self.source_text: Optional[str] = None  # texte lu, une fois le flux épuisé
 
     def parse_file_streaming(self, file_path: Union[str, Path]):
         """Parse un fichier .gw en mode streaming
@@ -223,6 +235,7 @@ class StreamingGeneWebParser:
         with open(file_path, encoding=encoding, buffering=self.buffer_size) as f:
             parser = StreamingLexicalParser(f, str(file_path), self.buffer_size)
             yield from parser.tokenize_lazy()
+            self.source_text = "".join(parser.source_parts)
 
     def _detect_encoding(self, file_path: Path) -> str:
         """Détecte l'encodage du fichier de manière optimisée

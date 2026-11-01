@@ -24,6 +24,10 @@ Ce document décrit les optimisations de performance implémentées dans geneweb
 - Tokenisation lazy via un générateur
 - Parser les blocs au fur et à mesure
 - Gestion spéciale des blocs multi-lignes (notes, notes-db, page-ext, wizard-note)
+- Le texte lu est conservé (`StreamingGeneWebParser.source_text`) et les positions des jetons sont globales,
+  comme en mode complet : les lecteurs de ligne brute (sources, lieux, notes…) donnent le même résultat
+  dans les deux modes. Coût mesuré : ~5 % de la mémoire des jetons (9 Mo de texte pour ~165 Mo de jetons
+  sur un fichier de 4,8 Mo).
 
 **Gains mesurés** :
 - Mémoire : ~80% de réduction pour fichiers >10MB

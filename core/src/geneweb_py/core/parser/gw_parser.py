@@ -372,11 +372,12 @@ class GeneWebParser:
         Returns:
             Instance de Genealogy
         """
-        self._source = None  # positions des jetons relatives aux blocs lus
         streaming_parser = StreamingGeneWebParser(validate=self.validate)
 
-        # Collecter les tokens en streaming
+        # Collecter les tokens en streaming ; le texte lu est conservé pour les
+        # lecteurs de ligne brute (positions des jetons globales, comme en mode complet)
         self.tokens = list(streaming_parser.parse_file_streaming(file_path))
+        self._source = streaming_parser.source_text
 
         # Parsing syntaxique (identique)
         self.syntax_nodes = self.syntax_parser.parse(self.tokens)
