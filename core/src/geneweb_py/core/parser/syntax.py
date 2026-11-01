@@ -1166,15 +1166,13 @@ class NotesBlockParser(BlockParser):
         node.add_token(tokens[i])
         i += 1
 
-        # Nom de famille
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
-
-        # Prénom
-        if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            node.add_token(tokens[i])
-            i += 1
+        # Nom puis prénom : chacun est un mot (``A/_B``, ``Anne_"Dit"``)
+        for _ in range(2):
+            if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
+                fin = nom_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
 
         # Numéro d'occurrence (optionnel)
         if i < len(tokens) and tokens[i].type == TokenType.NUMBER:

@@ -227,6 +227,8 @@ class GeneWebParser:
     - Parsing ligne par ligne au lieu de tout charger en mémoire
     """
 
+    _source: Optional[str] = None  # texte lu, pour les blocs à conserver tels quels
+
     def __init__(
         self,
         validate: bool = True,
@@ -331,6 +333,7 @@ class GeneWebParser:
         Returns:
             Instance de Genealogy
         """
+        self._source = None  # positions des jetons relatives aux blocs lus
         streaming_parser = StreamingGeneWebParser(validate=self.validate)
 
         # Collecter les tokens en streaming
@@ -463,6 +466,7 @@ class GeneWebParser:
                     )
 
         # Tokenisation lexicale
+        self._source = content
         self.lexical_parser = LexicalParser(content, filename)
         self.tokens = self.lexical_parser.tokenize()
 
@@ -1847,32 +1851,59 @@ class GeneWebParser:
             # Ajouter l'enfant à la famille
             family.add_child(child_id, sex)
 
+    def _raw_notes_text(self, tokens: List[Token]) -> Optional[str]:
+        """Texte brut entre ``beg`` et ``end notes`` lu dans la source (None si absente)."""
+        source = self._source
+        if source is None:
+            return None
+        debut = next((t for t in tokens if t.type == TokenType.BEG), None)
+        fin = next((t for t in tokens if t.type == TokenType.END_NOTES), None)
+        if debut is None or fin is None:
+            return None
+        brut = source[debut.position + len(debut.value) : fin.position]
+        brut = brut.replace("\r\n", "\n")
+        if brut.startswith("\n"):
+            brut = brut[1:]
+        if brut.endswith("\n"):
+            brut = brut[:-1]
+        return brut[:_TEXT_AGGREGATE_MAX_CHARS]  # garde-fou DoS
+
     def _parse_notes_block(
         self, node: SyntaxNode, persons: dict, genealogy: Genealogy
     ) -> None:
         """Parse un bloc notes et ajoute les notes à la personne correspondante"""
         tokens = node.tokens
 
-        # Extraire le nom de la personne
-        if (
-            len(tokens) >= 3
-            and tokens[1].type == TokenType.IDENTIFIER
-            and tokens[2].type == TokenType.IDENTIFIER
-        ):
-            last_name = tokens[1].value
-            first_name = tokens[2].value
+        # Nom et prénom = mots entiers, numéro d'occurrence ``.N`` optionnel
+        fin_nom = nom_end(tokens, 1) if len(tokens) > 1 else 1
+        fin_prenom = nom_end(tokens, fin_nom) if fin_nom > 1 else fin_nom
+        if fin_nom > 1 and fin_prenom > fin_nom:
+            last_name = nom_text(tokens, 1, fin_nom)
+            first_name = nom_text(tokens, fin_nom, fin_prenom)
+            occurrence = 0
+            if fin_prenom < len(tokens) and tokens[fin_prenom].type == TokenType.NUMBER:
+                occurrence = self._occurrence_from_token(tokens[fin_prenom])
 
-            person_id = f"{last_name}_{first_name}_0"
+            person_id = f"{last_name}_{first_name}_{occurrence}"
 
             # Créer la personne si elle n'existe pas
             if person_id not in persons:
                 person = Person(
-                    last_name=last_name, first_name=first_name, gender=Gender.UNKNOWN
+                    last_name=last_name,
+                    first_name=first_name,
+                    occurrence_number=occurrence,
+                    gender=Gender.UNKNOWN,
                 )
                 persons[person_id] = person
                 genealogy.add_or_update_person(person)
 
-            # Extraire le contenu des notes
+            brut = self._raw_notes_text(tokens)
+            if brut is not None:
+                if brut.strip():
+                    persons[person_id].add_note(brut)
+                return
+
+            # Repli (source indisponible, mode streaming) : reconstruction par jetons
             notes_content: List[str] = []
             notes_tokens: List[Token] = []
             notes_agg = 0
