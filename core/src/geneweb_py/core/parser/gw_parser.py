@@ -1396,29 +1396,17 @@ class GeneWebParser:
             # Lieu de naissance (#bp)
             elif token.type == TokenType.BP:
                 i += 1
-                fin = place_run_end(tokens, i)
-                if fin > i and tokens[i].type == TokenType.BRACKET_OPEN:
-                    result[f"{current_person}_birth_place"] = _join_tokens_text(
-                        tokens[i:fin]
-                    )
-                    i = fin
-                elif i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                    result[f"{current_person}_birth_place"] = tokens[i].value
-                    i += 1
+                value, i = self._parse_short_place(tokens, i)
+                if value:
+                    result[f"{current_person}_birth_place"] = value
                 continue
 
             # Lieu de décès (#dp)
             elif token.type == TokenType.DP:
                 i += 1
-                fin = place_run_end(tokens, i)
-                if fin > i and tokens[i].type == TokenType.BRACKET_OPEN:
-                    result[f"{current_person}_death_place"] = _join_tokens_text(
-                        tokens[i:fin]
-                    )
-                    i = fin
-                elif i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                    result[f"{current_person}_death_place"] = tokens[i].value
-                    i += 1
+                value, i = self._parse_short_place(tokens, i)
+                if value:
+                    result[f"{current_person}_death_place"] = value
                 continue
 
             # Occupation (#occu)
