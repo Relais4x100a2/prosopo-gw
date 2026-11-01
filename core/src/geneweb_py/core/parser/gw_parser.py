@@ -1933,7 +1933,7 @@ class GeneWebParser:
 
         # Regex: #eventtype [date] [#p place] [#s source]
         pattern = _re.compile(
-            r"^#([A-Za-z][A-Za-z0-9_-]*)"  # groupe 1: type (tags #strng inclus)
+            r"^#([^\s#]+)"  # groupe 1: tag = mot sans espace (accents, guillemets…)
             r"(?:\s+([^#]+?))?"  # groupe 2: date (optionnelle, avant #p ou #s)
             r"(?:\s+#p\s+([^#]+?))?"  # groupe 3: lieu (optionnel)
             r"(?:\s+#s\s+(.+?))?$",  # groupe 4: source (optionnelle)
@@ -2564,7 +2564,7 @@ class GeneWebParser:
         import re as _re
 
         m = _re.match(
-            r"^#([A-Za-z][A-Za-z0-9_-]*)"
+            r"^#([^\s#]+)"
             r"(?:\s+([^#]+?))?"
             r"(?:\s+#p\s+([^#]+?))?"
             r"(?:\s+#s\s+(.+?))?$",
