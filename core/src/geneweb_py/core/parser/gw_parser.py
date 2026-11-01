@@ -2137,22 +2137,25 @@ class GeneWebParser:
         """Parse un bloc événements personnels et met à jour la personne correspondante"""  # noqa: E501
         tokens = node.tokens
 
-        # Extraire le nom de la personne
-        if (
-            len(tokens) >= 3
-            and tokens[1].type == TokenType.IDENTIFIER
-            and tokens[2].type == TokenType.IDENTIFIER
-        ):
-            last_name = tokens[1].value
-            first_name = tokens[2].value
+        # Extraire le nom de la personne (nom et prénom = mots entiers, ``.N`` optionnel)
+        fin_nom = nom_end(tokens, 1) if len(tokens) > 1 else 1
+        fin_prenom = nom_end(tokens, fin_nom) if fin_nom > 1 else fin_nom
+        if fin_nom > 1 and fin_prenom > fin_nom:
+            last_name = nom_text(tokens, 1, fin_nom)
+            first_name = nom_text(tokens, fin_nom, fin_prenom)
+            occurrence = 0
+            if fin_prenom < len(tokens) and tokens[fin_prenom].type == TokenType.NUMBER:
+                occurrence = self._occurrence_from_token(tokens[fin_prenom])
+                fin_prenom += 1
 
-            person_id = f"{last_name}_{first_name}_0"
+            person_id = f"{last_name}_{first_name}_{occurrence}"
 
             # Créer la personne si elle n'existe pas
             if person_id not in persons:
                 person = Person(
                     last_name=last_name,
                     first_name=first_name,
+                    occurrence_number=occurrence,
                     gender=Gender.UNKNOWN,  # Sera déterminé plus tard
                 )
                 persons[person_id] = person
@@ -2163,7 +2166,7 @@ class GeneWebParser:
             events_before = len(person.events)
 
             # Parser les événements
-            i = 3  # Passer pevt, nom, prénom
+            i = fin_prenom  # Passer pevt, nom, prénom, occurrence
             # Garder une référence au dernier événement construit pour y rattacher les témoins  # noqa: E501
             last_event = None
             note_tail: Optional[Tuple[Any, int]] = (
