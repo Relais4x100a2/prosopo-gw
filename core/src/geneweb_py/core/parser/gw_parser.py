@@ -994,6 +994,8 @@ class GeneWebParser:
                 husband.burial_place = family_info["husband_burial_place"]
             if family_info["husband_burial_source"]:
                 husband.burial_source = family_info["husband_burial_source"]
+            if family_info["husband_person_source"]:
+                husband.person_source = family_info["husband_person_source"]
             if family_info["husband_occupation"]:
                 husband.occupation = family_info["husband_occupation"]
             if family_info["husband_access_level"]:
@@ -1051,6 +1053,8 @@ class GeneWebParser:
                 wife.burial_place = family_info["wife_burial_place"]
             if family_info["wife_burial_source"]:
                 wife.burial_source = family_info["wife_burial_source"]
+            if family_info["wife_person_source"]:
+                wife.person_source = family_info["wife_person_source"]
             if family_info["wife_occupation"]:
                 wife.occupation = family_info["wife_occupation"]
             if family_info["wife_access_level"]:
@@ -1249,6 +1253,11 @@ class GeneWebParser:
                 else:
                     family.common_children_source = valeur
                 continue
+            if tok.type == TokenType.SRC and tok.value == "#src":
+                # Source d'une personne (conjoint, témoin) : lue avec elle, jamais
+                # la source de la famille ; sauter son mot
+                i = mot_end(tokens, i + 1) if i + 1 < len(tokens) else i + 1
+                continue
             if tok.type == TokenType.SRC:
                 line_text, i = _tokens_line_text(tokens, i, self._source)
                 src_text = line_text.partition(" ")[2]
@@ -1323,6 +1332,7 @@ class GeneWebParser:
             "husband_baptism_source": None,
             "husband_burial_place": None,
             "husband_burial_source": None,
+            "husband_person_source": None,
             "husband_occupation": None,
             "husband_access_level": None,
             "husband_nickname": None,
@@ -1345,6 +1355,7 @@ class GeneWebParser:
             "wife_baptism_source": None,
             "wife_burial_place": None,
             "wife_burial_source": None,
+            "wife_person_source": None,
             "wife_occupation": None,
             "wife_access_level": None,
             "wife_nickname": None,
@@ -1496,9 +1507,15 @@ class GeneWebParser:
                         i += 1
                 continue
 
-            # Source de la personne (``#src mot``) : un mot, jamais un nom de conjoint
+            # Source de la personne (``#src mot``, ``get_sources`` de gwc) : un mot
+            # brut, source du conjoint en cours (pas de la famille), jamais son nom
             elif token.type == TokenType.SRC and token.value == "#src":
-                i = mot_end(tokens, i + 1) if i + 1 < len(tokens) else i + 1
+                mots, fin_ligne = _line_words(tokens, i + 1, self._source)
+                if mots:
+                    result[f"{current_person}_person_source"] = mots[0][0]
+                    i = mots[1][1] if len(mots) > 1 else fin_ligne
+                else:
+                    i += 1
                 continue
 
             # Qualificatif d'union (#noment, #nsck…) suivi d'un code de sexe facultatif
