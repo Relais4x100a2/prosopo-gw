@@ -31,6 +31,22 @@ def test_sans_cbp_rien_n_est_ajoute():
     assert f.common_birth_place is None
 
 
+def test_nom_enfant_prenom_puis_nom():
+    g = _parse(
+        "fam DUPONT Jean +1900 MARTIN Marie\nbeg\n"
+        "- f Julie,_Noémie,_Joséphine 23/9/1903\n"
+        "- h Jean-Marie.2 LEROY_DE_X 1/1/1950\n"
+        "- f Iris_Ayala DUPONT_LANDAU #apriv 3/9/2015\n- h Luc\nend\n"
+    )
+    ids = {p.unique_id for p in g.persons.values()}
+    assert {
+        "DUPONT_Julie,_Noémie,_Joséphine_0",
+        "LEROY_DE_X_Jean-Marie_2",
+        "DUPONT_LANDAU_Iris_Ayala_0",
+        "DUPONT_Luc_0",
+    } <= ids
+
+
 def test_csrc_cbp_appliques_apres_fevt():
     g = _parse(
         "fam DUPONT Jean +1900 MARTIN Marie\ncsrc Src_X\ncbp Ville_X\n"

@@ -18,8 +18,8 @@ class TestGeneWebParser:
         """Test parsing d'une famille simple depuis une chaîne"""
         content = """fam CORNO Joseph + THOMAS Marie
 beg
-- h CORNO Jean
-- f CORNO Sophie
+- h Jean CORNO
+- f Sophie CORNO
 end"""
 
         parser = GeneWebParser()
@@ -95,12 +95,12 @@ end notes"""
         """Test parsing de plusieurs familles"""
         content = """fam CORNO Joseph + THOMAS Marie
 beg
-- CORNO Jean
+- Jean CORNO
 end
 
 fam CORNO Jean + DUPONT Claire
 beg
-- CORNO Paul
+- Paul CORNO
 end"""
 
         parser = GeneWebParser()
@@ -120,7 +120,7 @@ end"""
         """Test parsing depuis un fichier"""
         content = """fam CORNO Joseph + THOMAS Marie
 beg
-- CORNO Jean
+- Jean CORNO
 end"""
 
         # Créer un fichier temporaire
@@ -148,7 +148,7 @@ end"""
         """Test parsing avec validation activée"""
         content = """fam CORNO Joseph + THOMAS Marie
 beg
-- CORNO Jean
+- Jean CORNO
 end"""
 
         parser = GeneWebParser(validate=True)
@@ -162,7 +162,7 @@ end"""
         """Test parsing sans validation"""
         content = """fam CORNO Joseph + THOMAS Marie
 beg
-- CORNO Jean
+- Jean CORNO
 end"""
 
         parser = GeneWebParser(validate=False)
@@ -202,8 +202,8 @@ end"""
             'src "Acte de mariage, mairie de Paris"\n'
             'comm "Mariage célébré en présence de nombreux témoins"\n'
             "beg\n"
-            "- h CORNO Jean_Baptiste 10/03/2016 #bp Paris\n"
-            "- f CORNO Sophie_Marie 05/07/2018 #bp Paris\n"
+            "- h Jean_Baptiste CORNO 10/03/2016 #bp Paris\n"
+            "- f Sophie_Marie CORNO 05/07/2018 #bp Paris\n"
             "end\n"
             "\n"
             "notes CORNO Joseph_Marie_Vincent\n"

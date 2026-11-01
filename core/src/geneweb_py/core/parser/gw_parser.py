@@ -1843,32 +1843,23 @@ class GeneWebParser:
                 sex = ChildSex.FEMALE
             i += 1
 
-        # Nom et prénom de l'enfant
-        # Si un seul IDENTIFIER: c'est le prénom, le nom vient du père
-        # Si deux IDENTIFIER: c'est NOM Prénom
+        # Enfant : « Prénom[.N] [NOM] » ; sans NOM, celui du père s'applique.
+        # Prénom et nom sont des mots entiers (virgules, apostrophes, guillemets).
         if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-            first_identifier_value = tokens[i].value
-            i += 1
+            fin_prenom = nom_end(tokens, i)
+            first_name = nom_text(tokens, i, fin_prenom)
+            i = fin_prenom
 
-            # Vérifier s'il y a un deuxième IDENTIFIER
-            if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                # Deux identifiants: NOM Prénom
-                last_name = first_identifier_value
-                first_name = tokens[i].value
+            # Numéro d'occurrence ``.N`` (collé au prénom)
+            if i < len(tokens) and tokens[i].type == TokenType.NUMBER:
+                occurrence_num = self._occurrence_from_token(tokens[i])
                 i += 1
-            else:
-                # Un seul identifiant: c'est le Prénom, pas le nom
-                first_name = first_identifier_value
-                last_name = None  # Sera pris du père
 
-        # Numéro d'occurrence (après le prénom)
-        if i < len(tokens) and tokens[i].type == TokenType.NUMBER:
-            occurrence_str = tokens[i].value.lstrip(".")
-            try:
-                occurrence_num = int(occurrence_str)
-            except ValueError:
-                occurrence_num = 0
-            i += 1
+            # Nom de famille explicite, s'il y en a un
+            if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
+                fin_nom = nom_end(tokens, i)
+                last_name = nom_text(tokens, i, fin_nom)
+                i = fin_nom
 
         if first_name:
             # Utiliser le nom de famille du père si pas spécifié
