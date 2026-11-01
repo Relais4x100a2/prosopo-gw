@@ -11,7 +11,14 @@ from typing import Any, Dict, List, Tuple
 
 from ..exceptions import GeneWebParseError
 from .lexical import Token, TokenType
-from .place_tokens import death_marker, mot_end, place_run_end
+from .place_tokens import (
+    EVENEMENTS_UNION,
+    QUALIFICATIFS_UNION,
+    death_marker,
+    est_code_sexe,
+    mot_end,
+    place_run_end,
+)
 
 _MOTS_CLES_BLOC = frozenset(
     {"notes-db", "page-ext", "wizard-note", "notes", "rel", "fevt", "pevt", "fam"}
@@ -438,17 +445,30 @@ class FamilyBlockParser(BlockParser):
                 i = fin
                 continue
 
-            # Qualificateurs de famille (#banns, #contract, #nsck, etc.)
-            if token.type in [
-                TokenType.BANNS,
-                TokenType.CONTRACT,
-                TokenType.NSCK,
-                TokenType.NSCKM,
-                TokenType.NOMENT,
-                TokenType.LICENSE,
-            ]:
+            # Qualificateurs de famille (#banns, #contract, #nsck, #noment, etc.),
+            # suivis d'un code de sexe facultatif (mf, mm, ff, m?…)
+            if token.type in QUALIFICATIFS_UNION:
                 node.add_token(token)
                 i += 1
+                if i < len(tokens) and est_code_sexe(tokens[i]):
+                    node.add_token(tokens[i])
+                    i += 1
+                continue
+
+            # Événements de relation ``#residence`` / ``#pacs`` (non tokenisés)
+            if (
+                token.type == TokenType.UNKNOWN
+                and token.value == "#"
+                and i + 1 < len(tokens)
+                and tokens[i + 1].type == TokenType.IDENTIFIER
+                and tokens[i + 1].value in EVENEMENTS_UNION
+            ):
+                node.add_token(token)
+                node.add_token(tokens[i + 1])
+                i += 2
+                if i < len(tokens) and est_code_sexe(tokens[i]):
+                    node.add_token(tokens[i])
+                    i += 1
                 continue
 
             # Source de mariage (#ms)

@@ -1,5 +1,6 @@
 """Lecture des jetons d'un lieu GeneWeb, crochets compris (``[complément]_-_lieu``)."""
 
+import re
 from typing import List, Optional
 
 from .lexical import Token, TokenType
@@ -55,6 +56,31 @@ def place_run_end(tokens: List[Token], start: int) -> int:
     else:
         return start
     return mot_end(tokens, j - 1)
+
+
+_CODE_SEXE = re.compile(r"[mf?]{2}")
+QUALIFICATIFS_UNION = (
+    TokenType.NSCK,
+    TokenType.NSCKM,
+    TokenType.NOMENT,
+    TokenType.BANNS,
+    TokenType.CONTRACT,
+    TokenType.LICENSE,
+)
+EVENEMENTS_UNION = ("residence", "pacs")
+
+
+def est_code_sexe(token: Token) -> bool:
+    """Code des sexes des conjoints (``mf``, ``mm``, ``ff``, ``m?``…) après un qualificatif.
+
+    ``??`` est exclu : c'est plutôt un nom inconnu. À n'appeler que juste après un
+    qualificatif d'union (``#noment``, ``#residence``…), jamais pour un nom.
+    """
+    return (
+        token.type in (TokenType.IDENTIFIER, TokenType.DATE, TokenType.UNKNOWN)
+        and token.value != "??"
+        and _CODE_SEXE.fullmatch(token.value) is not None
+    )
 
 
 def death_marker(token: Token) -> Optional[str]:

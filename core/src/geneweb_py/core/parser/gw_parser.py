@@ -28,7 +28,15 @@ from ..person import (
     Title,
 )
 from .lexical import LexicalParser, Token, TokenType
-from .place_tokens import death_marker, mot_end, place_run_end, texte_libre
+from .place_tokens import (
+    EVENEMENTS_UNION,
+    QUALIFICATIFS_UNION,
+    death_marker,
+    est_code_sexe,
+    mot_end,
+    place_run_end,
+    texte_libre,
+)
 from .place_tokens import join_tokens_text as _join_tokens_text
 from .streaming import (
     StreamingGeneWebParser,
@@ -1291,6 +1299,14 @@ class GeneWebParser:
                         i += 1
                 continue
 
+            # Qualificatif d'union (#noment, #nsck…) suivi d'un code de sexe facultatif
+            # (mf, mm, ff…) : le code n'est jamais le nom du conjoint.
+            elif token.type in QUALIFICATIFS_UNION:
+                i += 1
+                if i < len(tokens) and est_code_sexe(tokens[i]):
+                    i += 1
+                continue
+
             # Nom de famille
             elif (
                 token.type == TokenType.IDENTIFIER
@@ -1617,6 +1633,10 @@ class GeneWebParser:
             elif token.type == TokenType.UNKNOWN and token.value == "#":
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.IDENTIFIER:
                     i += 2  # sauter "#" et le nom du modificateur (ex: "ms")
+                    if tokens[i - 1].value in EVENEMENTS_UNION and (
+                        i < len(tokens) and est_code_sexe(tokens[i])
+                    ):
+                        i += 1  # code de sexe des conjoints (mf, mm, ff…)
                     while i < len(tokens):
                         t = tokens[i]
                         if t.type in (TokenType.NEWLINE, TokenType.EOF):
