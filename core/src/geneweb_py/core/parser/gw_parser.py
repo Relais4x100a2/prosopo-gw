@@ -6,6 +6,7 @@ et syntaxique pour créer une représentation complète des données généalogi
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -70,15 +71,33 @@ _PEVT_TAG_ALIASES = {"bapm": EventType.BAPTISM}
 _PEVT_DEDICATED_TOKENS = (TokenType.OCCU, TokenType.BURI, TokenType.CREM)
 
 
-def _tokens_line_text(tokens: List[Token], start: int) -> Tuple[str, int]:
-    """Reconstitue le texte d'une ligne à partir de ses tokens.
+def _tokens_line_text(
+    tokens: List[Token], start: int, source: Optional[str] = None
+) -> Tuple[str, int]:
+    """Texte d'une ligne, de ``tokens[start]`` à la fin de ligne.
 
-    Les espaces d'origine sont déduits des positions (un espace unique si les tokens
-    ne sont pas contigus), ce qui préserve la ponctuation collée aux mots.
+    Avec ``source``, la ligne est relue telle quelle (guillemets, espaces multiples
+    et mots-clés compris) et c'est la source, non les jetons, qui en marque la fin
+    (un mot-clé comme ``wit`` en plein texte peut avoir englouti le ``NEWLINE``).
+    Sinon (mode streaming) elle est reconstituée à partir des jetons : les espaces
+    d'origine sont déduits des positions.
 
     Returns:
-        (texte de la ligne, index du NEWLINE/fin de bloc qui la termine)
+        (texte de la ligne, index du premier jeton après la ligne)
     """
+    if source is not None and start < len(tokens):
+        debut = tokens[start].position
+        fin = source.find("\n", debut)
+        if fin < 0:
+            fin = len(source)
+        i = start
+        while (
+            i < len(tokens)
+            and tokens[i].position < fin
+            and (tokens[i].type != TokenType.EOF)
+        ):
+            i += 1
+        return source[debut:fin].rstrip("\r")[:_TEXT_AGGREGATE_MAX_CHARS], i
     parts: List[str] = []
     prev_end = -1
     i = start
@@ -1066,43 +1085,21 @@ class GeneWebParser:
                         i += 1
                 continue
             if tok.type == TokenType.SRC:
-                i += 1
-                src_start = i
-                while i < len(tokens) and tokens[i].type not in (
-                    TokenType.NEWLINE,
-                    TokenType.EOF,
-                ):
-                    i += 1
-                if i > src_start:
-                    family.family_source = _join_tokens_text(tokens[src_start:i])
+                line_text, i = _tokens_line_text(tokens, i, self._source)
+                src_text = line_text.partition(" ")[2]
+                if src_text.strip():
+                    family.family_source = src_text
                 continue
             if tok.type == TokenType.COMM:
-                i += 1
-                parts: List[str] = []
-                agg_len = 0
-                comm_debut = i
-                while i < len(tokens) and tokens[i].type not in (
-                    TokenType.NEWLINE,
-                    TokenType.WIT,
-                    TokenType.SRC,
-                    TokenType.BEG,
-                    TokenType.END,
-                ):
-                    frag = tokens[i].value
-                    agg_len, stop = _bounded_append_text_fragment(
-                        parts,
-                        agg_len,
-                        frag,
-                        inter_fragment_sep_len=1,
-                        max_fragments=_FAMILY_COMM_MAX_FRAGMENTS,
-                        max_aggregate_chars=_FAMILY_COMM_AGGREGATE_MAX_CHARS,
-                        log_context="Commentaire famille `comm`",
-                    )
-                    if stop:
-                        break
-                    i += 1
-                if parts:
-                    family.add_comment(texte_libre(tokens[comm_debut:i], len(parts)))
+                line_text, i = _tokens_line_text(tokens, i, self._source)
+                comm_text = line_text.partition(" ")[2]
+                fragments = comm_text.split()
+                if len(fragments) > _FAMILY_COMM_MAX_FRAGMENTS:
+                    # Garde-fou DoS : au plus N fragments conservés
+                    mots = list(re.finditer(r"\S+", comm_text))
+                    comm_text = comm_text[: mots[_FAMILY_COMM_MAX_FRAGMENTS - 1].end()]
+                if comm_text.strip():
+                    family.add_comment(comm_text)
                     comm_fin = tokens[i - 1].line_number
                 continue
             if tok.type == TokenType.BEG:
@@ -1122,7 +1119,7 @@ class GeneWebParser:
                 # Texte nu (R13) : suite du commentaire de la ligne d'avant, sinon
                 # nouveau commentaire de famille
                 ligne = tok.line_number
-                texte, i = _tokens_line_text(tokens, i)
+                texte, i = _tokens_line_text(tokens, i, self._source)
                 if tok.type == TokenType.WNOTE and _attach_wnote(
                     family.witnesses, texte
                 ):
@@ -2329,43 +2326,18 @@ class GeneWebParser:
                         baptism_event.start_line = token.line_number
 
                 elif token.type == TokenType.NOTE:
-                    i += 1
-                    # Contenu de la note
-                    note_content: List[str] = []
-                    note_agg = 0
-                    note_debut = i
-                    while i < len(tokens) and tokens[i].type not in [
-                        TokenType.NEWLINE,
-                        TokenType.END_PEVT,
-                        TokenType.BIRT,
-                        TokenType.DEAT,
-                        TokenType.BAPT,
-                        TokenType.NOTE,
-                        TokenType.WIT,
-                    ]:
-                        note_agg, stop = _bounded_append_text_fragment(
-                            note_content,
-                            note_agg,
-                            tokens[i].value,
-                            inter_fragment_sep_len=1,
-                            max_fragments=_TEXT_AGGREGATE_MAX_FRAGMENTS,
-                            max_aggregate_chars=_TEXT_AGGREGATE_MAX_CHARS,
-                            log_context="Note pevt",
-                        )
-                        i += 1
-                        if stop:
-                            break
-                    if note_content:
-                        note_text = texte_libre(tokens[note_debut:i], len(note_content))
-                        # Associer la note à l'événement courant si disponible, sinon à la personne
-                        if last_event is not None:
-                            last_event.add_note(note_text)
-                        else:
-                            person.add_note(note_text)
-                        note_tail = (last_event or person, tokens[i - 1].line_number)
+                    # Ligne ``note texte`` relue telle quelle
+                    line_text, i = _tokens_line_text(tokens, i, self._source)
+                    note_text = line_text.partition(" ")[2]
+                    # Associer la note à l'événement courant, sinon à la personne
+                    if last_event is not None:
+                        last_event.add_note(note_text)
+                    else:
+                        person.add_note(note_text)
+                    note_tail = (last_event or person, tokens[i - 1].line_number)
 
                 elif token.type == TokenType.WIT:
-                    # Parser les témoins avec informations complètes et les rattacher à l'événement courant  # noqa: E501
+                    # Parser les témoins avec informations complètes et les rattacher à l'événement courant
                     next_i, witness_id, witness_type, witness_kind = (
                         self._parse_witness_person(tokens, i, persons, genealogy)
                     )
@@ -2387,7 +2359,7 @@ class GeneWebParser:
                     # #occu / #buri / #crem : tokens dédiés du lexer, reconstitués
                     # en ligne puis traités comme les autres événements
                     event_line = token.line_number
-                    line_text, i = _tokens_line_text(tokens, i)
+                    line_text, i = _tokens_line_text(tokens, i, self._source)
                     evt = self._parse_pevt_comment_line(line_text, person.unique_id)
                     if evt is not None:
                         evt.start_line = event_line
@@ -2396,15 +2368,13 @@ class GeneWebParser:
 
                 elif _is_line_start_note(tokens, i):
                     # "note ..." sans '#' : lexé en IDENTIFIER, rattaché à l'événement
-                    line_text, i = _tokens_line_text(tokens, i)
-                    _, _, note_text = line_text.partition(" ")
-                    note_text = note_text.strip()
-                    if note_text:
-                        if last_event is not None:
-                            last_event.add_note(note_text)
-                        else:
-                            person.add_note(note_text)
-                        note_tail = (last_event or person, token.line_number)
+                    line_text, i = _tokens_line_text(tokens, i, self._source)
+                    note_text = line_text.partition(" ")[2]
+                    if last_event is not None:
+                        last_event.add_note(note_text)
+                    else:
+                        person.add_note(note_text)
+                    note_tail = (last_event or person, token.line_number)
 
                 elif token.type not in (
                     TokenType.NEWLINE,
@@ -2415,7 +2385,7 @@ class GeneWebParser:
                     # Texte nu (R13) : suite de la note précédente si elle occupe la
                     # ligne d'avant, sinon note de l'événement courant
                     line_no = token.line_number
-                    line_text, i = _tokens_line_text(tokens, i)
+                    line_text, i = _tokens_line_text(tokens, i, self._source)
                     holder = last_event or person
                     if (
                         token.type == TokenType.WNOTE
@@ -2790,42 +2760,17 @@ class GeneWebParser:
 
             if _is_line_start_note(tokens, i):
                 # "note ..." sans '#' : lexé en IDENTIFIER, rattaché à l'événement courant
-                line_text, i = _tokens_line_text(tokens, i)
-                _, _, note_text = line_text.partition(" ")
-                if note_text.strip() and current_event is not None:
-                    current_event.add_note(note_text.strip())
+                line_text, i = _tokens_line_text(tokens, i, self._source)
+                note_text = line_text.partition(" ")[2]
+                if current_event is not None:
+                    current_event.add_note(note_text)
                 continue
 
             if token.type == TokenType.NOTE:
-                i += 1
-                note_content: List[str] = []
-                note_agg = 0
-                note_debut = i
-                while i < len(tokens) and tokens[i].type not in [
-                    TokenType.NEWLINE,
-                    TokenType.END_FEVT,
-                    TokenType.MARR,
-                    TokenType.DIV_EVENT,
-                    TokenType.SEP_EVENT,
-                    TokenType.ENGA,
-                    TokenType.WIT,
-                ]:
-                    note_agg, stop = _bounded_append_text_fragment(
-                        note_content,
-                        note_agg,
-                        tokens[i].value,
-                        inter_fragment_sep_len=1,
-                        max_fragments=_TEXT_AGGREGATE_MAX_FRAGMENTS,
-                        max_aggregate_chars=_TEXT_AGGREGATE_MAX_CHARS,
-                        log_context="Note fevt",
-                    )
-                    i += 1
-                    if stop:
-                        break
-                if note_content and current_event is not None:
-                    current_event.add_note(
-                        texte_libre(tokens[note_debut:i], len(note_content))
-                    )
+                line_text, i = _tokens_line_text(tokens, i, self._source)
+                note_text = line_text.partition(" ")[2]
+                if current_event is not None:
+                    current_event.add_note(note_text)
                 continue
 
             if token.type in (
@@ -2836,7 +2781,7 @@ class GeneWebParser:
             ) and (i == 0 or tokens[i - 1].type == TokenType.NEWLINE):
                 # Texte nu ou ``wnote`` (R13) : ligne gardée telle quelle
                 est_wnote = token.type == TokenType.WNOTE
-                line_text, i = _tokens_line_text(tokens, i)
+                line_text, i = _tokens_line_text(tokens, i, self._source)
                 if current_event is not None and not (
                     est_wnote and _attach_wnote(current_event.witnesses, line_text)
                 ):

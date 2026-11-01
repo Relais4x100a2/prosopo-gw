@@ -374,6 +374,10 @@ class LexicalParser:
             if self.position >= len(self.text):
                 break
 
+            # Espaces en fin de ligne : laisser la boucle émettre le NEWLINE
+            if self.text[self.position] == "\n":
+                continue
+
             token = self._next_token()
             if token:
                 self.tokens.append(token)
