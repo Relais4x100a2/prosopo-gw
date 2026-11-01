@@ -5,6 +5,11 @@ from typing import List, Optional
 from .lexical import Token, TokenType
 
 
+def _fin_jeton(tok: Token) -> int:
+    """Position après le jeton dans la source (guillemets d'un ``STRING`` compris)."""
+    return tok.position + len(tok.value) + (2 if tok.type == TokenType.STRING else 0)
+
+
 def join_tokens_text(tokens: List[Token], par_ligne: bool = False) -> str:
     """Recolle des jetons en un texte, avec un espace là où la source en avait un.
 
@@ -22,7 +27,7 @@ def join_tokens_text(tokens: List[Token], par_ligne: bool = False) -> str:
             parts.append(" ")
         prev_line = tok.line_number
         parts.append(tok.value)
-        prev_end = tok.position + len(tok.value)
+        prev_end = _fin_jeton(tok)
     return "".join(parts)
 
 
@@ -81,9 +86,7 @@ def mot_end(tokens: List[Token], start: int) -> int:
         tok = tokens[j]
         if tok.type in (TokenType.NEWLINE, TokenType.EOF):
             break
-        collé = j == start or (
-            tok.position == tokens[j - 1].position + len(tokens[j - 1].value)
-        )
+        collé = j == start or tok.position == _fin_jeton(tokens[j - 1])
         if collé:
             j += 1
         elif (

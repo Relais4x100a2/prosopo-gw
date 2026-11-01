@@ -432,25 +432,10 @@ class FamilyBlockParser(BlockParser):
             if token.type in [TokenType.MP, TokenType.P]:
                 node.add_token(token)
                 i += 1
-                if i < len(tokens) and tokens[i].type == TokenType.BRACKET_OPEN:
-                    fin = place_run_end(tokens, i)
-                    for tok in tokens[i:fin]:
-                        node.add_token(tok)
-                    i = fin
-                elif i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                    node.add_token(tokens[i])
-                    i += 1
-                    while (
-                        i < len(tokens)
-                        and tokens[i].type == TokenType.UNKNOWN
-                        and tokens[i].value == ","
-                        and i + 1 < len(tokens)
-                        and tokens[i + 1].type == TokenType.IDENTIFIER
-                    ):
-                        node.add_token(tokens[i])  # ","
-                        i += 1
-                        node.add_token(tokens[i])  # segment suivant
-                        i += 1
+                fin = place_run_end(tokens, i)
+                for tok in tokens[i:fin]:
+                    node.add_token(tok)
+                i = fin
                 continue
 
             # Qualificateurs de famille (#banns, #contract, #nsck, etc.)
@@ -470,12 +455,14 @@ class FamilyBlockParser(BlockParser):
             if token.type == TokenType.MS:
                 node.add_token(token)
                 i += 1
-                if i < len(tokens) and tokens[i].type in (
-                    TokenType.IDENTIFIER,
-                    TokenType.STRING,
+                if i < len(tokens) and tokens[i].type not in (
+                    TokenType.NEWLINE,
+                    TokenType.EOF,
                 ):
-                    node.add_token(tokens[i])
-                    i += 1
+                    fin = mot_end(tokens, i)
+                    for tok in tokens[i:fin]:
+                        node.add_token(tok)
+                    i = fin
                 continue
 
             # Modificateurs de statut (#sep / #div + date optionnelle ou '-')

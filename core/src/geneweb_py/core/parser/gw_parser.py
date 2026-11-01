@@ -1591,9 +1591,11 @@ class GeneWebParser:
             # Source du mariage (#ms) : un mot, jamais le nom de l'épouse
             elif token.type == TokenType.MS:
                 i += 1
-                value, i = self._parse_short_source(tokens, i)
-                if value:
+                fin = mot_end(tokens, i)
+                if fin > i:
+                    value = _join_tokens_text(tokens[i:fin])
                     result["marriage_source"] = value.replace("_", " ")
+                    i = fin
                 continue
 
             # Lieu de mariage (#mp)
@@ -1603,23 +1605,9 @@ class GeneWebParser:
                 i += 1
                 place_parts: List[str] = []
                 fin = place_run_end(tokens, i)
-                if fin > i and tokens[i].type == TokenType.BRACKET_OPEN:
+                if fin > i:
                     place_parts.append(_join_tokens_text(tokens[i:fin]))
                     i = fin
-                elif i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                    place_parts.append(tokens[i].value)
-                    i += 1
-                    while (
-                        i < len(tokens)
-                        and tokens[i].type == TokenType.UNKNOWN
-                        and tokens[i].value == ","
-                        and i + 1 < len(tokens)
-                        and tokens[i + 1].type == TokenType.IDENTIFIER
-                    ):
-                        place_parts.append(tokens[i].value)  # ","
-                        i += 1
-                        place_parts.append(tokens[i].value)  # segment suivant
-                        i += 1
                 if place_parts:
                     result["marriage_place"] = "".join(place_parts)
                 continue
