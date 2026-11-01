@@ -45,6 +45,8 @@ class FamilyQualifier(str, Enum):
     BANNS = "banns"
     CONTRACT = "contract"
     LICENSE = "license"
+    PACS = "pacs"
+    RESIDENCE = "residence"
 
 
 @dataclass

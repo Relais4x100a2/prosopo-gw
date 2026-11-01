@@ -63,6 +63,8 @@ def test_source_de_mariage_apres_la_source_du_mari():
         ("banns", FamilyQualifier.BANNS),
         ("contract", FamilyQualifier.CONTRACT),
         ("license", FamilyQualifier.LICENSE),
+        ("pacs", FamilyQualifier.PACS),
+        ("residence", FamilyQualifier.RESIDENCE),
     ],
 )
 def test_qualificatif_lu_une_seule_fois(tag, qualificatif):
@@ -75,6 +77,21 @@ def test_qualificatif_avant_le_plus_reste_lu():
     # Ordre hors grammaire gwc, accepté par tolérance (tests historiques)
     f = _famille("fam DUPONT Jean #banns #contract + MARTIN Marie")
     assert f.family_qualifiers == [FamilyQualifier.BANNS, FamilyQualifier.CONTRACT]
+
+
+@pytest.mark.parametrize("mode", ["complet", "streaming"])
+@pytest.mark.parametrize(
+    ("tag", "qualificatif"),
+    [("pacs", FamilyQualifier.PACS), ("residence", FamilyQualifier.RESIDENCE)],
+)
+def test_pacs_et_residence_sont_des_qualificatifs(tag, qualificatif, mode, tmp_path):
+    f = _famille(
+        f"fam DUPONT Jean +1858 #{tag} ff #mp _[rue_X]_-_Ville MARTIN Anne",
+        tmp_path if mode == "streaming" else None,
+    )
+    assert f.family_qualifiers == [qualificatif]
+    assert f.marriage_place == "_[rue_X]_-_Ville"
+    assert f.wife_id == "MARTIN_Anne_0"
 
 
 def test_date_de_mariage_texte_avec_soulignes():

@@ -61,6 +61,8 @@ _QUALIFICATIFS_PAR_TAG = {
     "banns": FamilyQualifier.BANNS,
     "contract": FamilyQualifier.CONTRACT,
     "license": FamilyQualifier.LICENSE,
+    "pacs": FamilyQualifier.PACS,
+    "residence": FamilyQualifier.RESIDENCE,
 }
 _QUALIFICATIFS_PAR_JETON = {
     TokenType.NOMENT: FamilyQualifier.NO_MENTION,
