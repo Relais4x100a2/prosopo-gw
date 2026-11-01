@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Tuple
 
 from ..exceptions import GeneWebParseError
 from .lexical import Token, TokenType
-from .place_tokens import mot_end, place_run_end
+from .place_tokens import death_marker, mot_end, place_run_end
 
 _MOTS_CLES_BLOC = frozenset(
     {"notes-db", "page-ext", "wizard-note", "notes", "rel", "fevt", "pevt", "fam"}
@@ -242,6 +242,12 @@ class FamilyBlockParser(BlockParser):
                 continue
 
             if token.type in (TokenType.APUBL, TokenType.APRIV):
+                node.add_token(token)
+                i += 1
+                continue
+
+            # Marqueurs de décès od / mj (nus ou avec #)
+            if death_marker(token) is not None:
                 node.add_token(token)
                 i += 1
                 continue

@@ -1,6 +1,6 @@
 """Lecture des jetons d'un lieu GeneWeb, crochets compris (``[complément]_-_lieu``)."""
 
-from typing import List
+from typing import List, Optional
 
 from .lexical import Token, TokenType
 
@@ -50,6 +50,22 @@ def place_run_end(tokens: List[Token], start: int) -> int:
     else:
         return start
     return mot_end(tokens, j - 1)
+
+
+def death_marker(token: Token) -> Optional[str]:
+    """``"od"`` ou ``"mj"`` si le jeton est un marqueur de décès, sinon ``None``.
+
+    Le format natif écrit ``od`` / ``mj`` nus après la date de naissance ; la
+    documentation les note ``#od`` / ``#mj``. À n'appeler qu'une fois nom et prénom
+    lus, pour qu'un nom ``od`` reste un nom.
+    """
+    if token.type == TokenType.OD:
+        return "od"
+    if token.type == TokenType.MJ:
+        return "mj"
+    if token.type == TokenType.IDENTIFIER and token.value in ("od", "mj"):
+        return token.value
+    return None
 
 
 def mot_end(tokens: List[Token], start: int) -> int:

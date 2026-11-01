@@ -28,8 +28,8 @@ from ..person import (
     Title,
 )
 from .lexical import LexicalParser, Token, TokenType
+from .place_tokens import death_marker, mot_end, place_run_end, texte_libre
 from .place_tokens import join_tokens_text as _join_tokens_text
-from .place_tokens import mot_end, place_run_end, texte_libre
 from .streaming import (
     StreamingGeneWebParser,
     estimate_memory_usage,
@@ -798,6 +798,10 @@ class GeneWebParser:
                 husband.birth_date = family_info["husband_birth_date"]
             if family_info["husband_death_date"]:
                 husband.death_date = family_info["husband_death_date"]
+            if family_info["husband_obviously_dead"]:
+                husband.is_obviously_dead = True
+            if family_info["husband_young_death"]:
+                husband.is_young_death = True
             if family_info["husband_birth_place"]:
                 husband.birth_place = family_info["husband_birth_place"]
             if family_info["husband_death_place"]:
@@ -851,6 +855,10 @@ class GeneWebParser:
                 wife.birth_date = family_info["wife_birth_date"]
             if family_info["wife_death_date"]:
                 wife.death_date = family_info["wife_death_date"]
+            if family_info["wife_obviously_dead"]:
+                wife.is_obviously_dead = True
+            if family_info["wife_young_death"]:
+                wife.is_young_death = True
             if family_info["wife_birth_place"]:
                 wife.birth_place = family_info["wife_birth_place"]
             if family_info["wife_death_place"]:
@@ -1158,6 +1166,10 @@ class GeneWebParser:
             "wife_surname_alias": None,
             "wife_general_alias": None,
             "wife_image_path": None,
+            "husband_obviously_dead": False,
+            "husband_young_death": False,
+            "wife_obviously_dead": False,
+            "wife_young_death": False,
             "husband_titles": [],
             "wife_titles": [],
             "marriage_date": None,
@@ -1295,6 +1307,17 @@ class GeneWebParser:
                 and not result[f"{current_person}_firstname"]
             ):
                 result[f"{current_person}_firstname"] = token.value
+                i += 1
+                continue
+
+            # Marqueurs de décès ``od`` / ``mj`` (natifs sans ``#``, ou ``#od`` / ``#mj``)
+            # une fois nom et prénom lus : sinon ``od`` serait pris pour l'épouse.
+            elif (
+                result[f"{current_person}_firstname"]
+                and death_marker(token) is not None
+            ):
+                key = "obviously_dead" if death_marker(token) == "od" else "young_death"
+                result[f"{current_person}_{key}"] = True
                 i += 1
                 continue
 
