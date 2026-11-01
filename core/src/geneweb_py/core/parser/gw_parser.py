@@ -2265,8 +2265,9 @@ class GeneWebParser:
                         person.birth_date = birth_date
                         i += 1
                     else:
-                        # Pas de date -> date inconnue
-                        person.birth_date = Date(is_unknown=True)
+                        # Pas de date -> date inconnue, sans effacer une date connue
+                        if person.birth_date is None:
+                            person.birth_date = Date(is_unknown=True)
                         birth_date = Date(is_unknown=True)
 
                     # Lieu de naissance (optionnel)
@@ -2306,8 +2307,9 @@ class GeneWebParser:
                         person.death_date = death_date
                         i += 1
                     else:
-                        # Pas de date -> date inconnue
-                        person.death_date = Date(is_unknown=True)
+                        # Pas de date -> date inconnue, sans effacer une date connue
+                        if person.death_date is None:
+                            person.death_date = Date(is_unknown=True)
                         death_date = Date(is_unknown=True)
 
                     # Lieu de décès (optionnel)
