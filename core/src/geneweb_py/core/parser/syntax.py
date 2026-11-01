@@ -253,6 +253,21 @@ class FamilyBlockParser(BlockParser):
                 i += 1
                 continue
 
+            # Source de la personne (``#src mot``) ; le ``src`` nu d'une ligne
+            # de bloc est la source de la famille et n'est pas lu ici.
+            if token.type == TokenType.SRC and token.value == "#src":
+                node.add_token(token)
+                i += 1
+                if i < len(tokens) and tokens[i].type not in (
+                    TokenType.NEWLINE,
+                    TokenType.EOF,
+                ):
+                    fin = mot_end(tokens, i)
+                    for tok in tokens[i:fin]:
+                        node.add_token(tok)
+                    i = fin
+                continue
+
             # Marqueurs de décès od / mj (nus ou avec #)
             if death_marker(token) is not None:
                 node.add_token(token)

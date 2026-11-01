@@ -1299,6 +1299,11 @@ class GeneWebParser:
                         i += 1
                 continue
 
+            # Source de la personne (``#src mot``) : un mot, jamais un nom de conjoint
+            elif token.type == TokenType.SRC and token.value == "#src":
+                i = mot_end(tokens, i + 1) if i + 1 < len(tokens) else i + 1
+                continue
+
             # Qualificatif d'union (#noment, #nsck…) suivi d'un code de sexe facultatif
             # (mf, mm, ff…) : le code n'est jamais le nom du conjoint.
             elif token.type in QUALIFICATIFS_UNION:
