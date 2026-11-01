@@ -40,6 +40,26 @@ def test_occurrence_reste_separee_du_prenom():
     assert (f.husband_id, f.wife_id) == ("DUPONT_Jean_3", "MARTIN_Anne_5")
 
 
-def test_alias_entre_guillemets_ne_masque_pas_l_epouse():
-    _, f = _fam('fam DUPONT Jean + MARTIN Anne"Dite" #apubl')
+@pytest.mark.parametrize(
+    ("husband", "attendu"),
+    [
+        ('Jean"Dit"', 'DUPONT_Jean"Dit"_0'),
+        ('Jean"Dit".2', 'DUPONT_Jean"Dit"_2'),
+        ('Jean"Dit"_Joseph', 'DUPONT_Jean"Dit"_Joseph_0'),
+        ('_"Dit"_Charles', 'DUPONT__"Dit"_Charles_0'),
+    ],
+)
+def test_alias_entre_guillemets_colle_au_prenom(husband, attendu):
+    _, f = _fam(f"fam DUPONT {husband} #apubl + MARTIN Anne")
+    assert f.husband_id == attendu
     assert f.wife_id == "MARTIN_Anne_0"
+
+
+def test_alias_entre_guillemets_colle_au_nom_de_l_epouse():
+    _, f = _fam('fam DUPONT Jean + MARTIN"Dit" Anne #apubl')
+    assert f.wife_id == 'MARTIN"Dit"_Anne_0'
+
+
+def test_alias_de_l_epouse_apres_ms():
+    _, f = _fam('fam DUPONT Jean +1900 #mp V #ms Reg(Pa MARTIN Anne"Dit"')
+    assert f.wife_id == 'MARTIN_Anne"Dit"_0'

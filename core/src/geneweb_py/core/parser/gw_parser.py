@@ -36,6 +36,7 @@ from .place_tokens import (
     est_code_sexe,
     mot_end,
     nom_end,
+    nom_text,
     place_run_end,
     texte_libre,
 )
@@ -1319,8 +1320,8 @@ class GeneWebParser:
                 token.type == TokenType.IDENTIFIER
                 and not result[f"{current_person}_name"]
             ):
-                result[f"{current_person}_name"] = "".join(
-                    t.value for t in tokens[i : nom_end(tokens, i)]
+                result[f"{current_person}_name"] = nom_text(
+                    tokens, i, nom_end(tokens, i)
                 )
                 i = nom_end(tokens, i)
                 continue
@@ -1331,8 +1332,8 @@ class GeneWebParser:
                 and result[f"{current_person}_name"]
                 and not result[f"{current_person}_firstname"]
             ):
-                result[f"{current_person}_firstname"] = "".join(
-                    t.value for t in tokens[i : nom_end(tokens, i)]
+                result[f"{current_person}_firstname"] = nom_text(
+                    tokens, i, nom_end(tokens, i)
                 )
                 i = nom_end(tokens, i)
                 continue

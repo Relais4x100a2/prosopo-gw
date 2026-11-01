@@ -35,3 +35,15 @@ def test_lieu_de_mariage_avec_points_virgules():
 def test_source_seule_sans_lieu():
     f = _famille("fam DUPONT Jean +2/1894 #ms Registre MARTIN Anne")
     assert f.wife_id == "MARTIN_Anne_0"
+
+
+@pytest.mark.parametrize(
+    "lieu", ["9th_Ave_Presby_Ch", "9e_Arrondissement_-_Paris,_75,_Paris,_FRANCE"]
+)
+def test_lieu_de_mariage_commencant_par_un_chiffre(lieu):
+    g = GeneWebParser(validate=False).parse_string(
+        f"fam DUPONT Jean +1900 #mp {lieu} #ms Reg(Pa MARTIN Anne\n"
+    )
+    (f,) = g.families.values()
+    assert f.wife_id == "MARTIN_Anne_0"
+    assert f.marriage_place == lieu

@@ -53,6 +53,15 @@ def place_run_end(tokens: List[Token], start: int) -> int:
         j += 1
     elif j < n and tokens[j].type == TokenType.IDENTIFIER:
         j += 1
+    elif (
+        j + 1 < n
+        and tokens[j].type in (TokenType.DATE, TokenType.NUMBER)
+        and tokens[j + 1].position == _fin_jeton(tokens[j])
+        and tokens[j + 1].type not in (TokenType.NEWLINE, TokenType.EOF)
+    ):
+        # Lieu commençant par un chiffre collé au reste du mot (``9th_Ave``) ;
+        # un nombre isolé reste une date.
+        j += 1
     else:
         return start
     return mot_end(tokens, j - 1)
@@ -138,17 +147,23 @@ def nom_end(tokens: List[Token], start: int) -> int:
     """Fin d'un nom ou prénom qui commence à ``start``.
 
     Comme ``mot_end`` (jetons contigus : ``MARTIN*``, ``Aa/_KAHN``,
-    ``_(Dit)_MARTIN``, ``Anne,_Autre``) mais s'arrête avant l'occurrence ``.N``
-    et avant un ``"alias"`` entre guillemets, qui ne font pas partie du nom.
+    ``_(Dit)_MARTIN``, ``Anne,_Autre``, ``Anne"Dit"``) mais s'arrête avant
+    l'occurrence ``.N``, qui ne fait pas partie du nom.
     """
     fin = mot_end(tokens, start)
     for j in range(start + 1, fin):
         tok = tokens[j]
-        if tok.type == TokenType.STRING or (
-            tok.type == TokenType.NUMBER and tok.value.startswith(".")
-        ):
+        if tok.type == TokenType.NUMBER and tok.value.startswith("."):
             return j
     return fin
+
+
+def nom_text(tokens: List[Token], start: int, end: int) -> str:
+    """Texte d'un nom lu par ``nom_end`` (les guillemets des chaînes sont rétablis)."""
+    return "".join(
+        f'"{t.value}"' if t.type == TokenType.STRING else t.value
+        for t in tokens[start:end]
+    )
 
 
 def texte_libre(tokens: List[Token], limite: int) -> str:
