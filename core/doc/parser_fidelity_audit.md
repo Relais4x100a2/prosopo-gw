@@ -552,3 +552,15 @@ chaque type pour les personnes) ; sans bloc, les événements sont fabriqués de
 
 Reste : un événement de décès (1 personne sur 6 923) que `gwc` déduit d'un état « mort » non porté par
 notre modèle, et deux dates de naissance et de décès divergentes (déjà présentes en 6.1).
+
+### 6.5 Mesure de fin de phase 1 (2 novembre 2026)
+
+Mêmes commandes que 6.1, modes complet et streaming identiques, sur le grand arbre réel.
+
+- Tous les champs comparés (famille, personne, `fevt`, `pevt`) sont à 99,9 % ou plus. Les seuls écarts restants
+  sont une date de naissance et une date de décès (1 personne chacune).
+- Familles et personnes non appariées : 0. Événements non appariés : 1 (décès que `gwu` écrit sans état de décès
+  côté source).
+- Autres changements de la phase 1 : ids de personnes contenant `/` adressables dans l'API, `is_anonymous` dans
+  `Person.to_dict`, `Person.is_alive` présume décédée toute personne née il y a plus de 120 ans, GEDCOM sans doublon
+  BIRT/DEAT.
