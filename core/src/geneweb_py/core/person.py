@@ -254,11 +254,11 @@ class Person:
             return False
 
         if self.birth_date and self.birth_date.year:
-            # Personnes nées il y a plus de 150 ans sont probablement décédées
+            # Née il y a plus de 120 ans (avant 1906 en 2026) : considérée décédée
             from datetime import datetime
 
             current_year = datetime.now().year
-            if current_year - self.birth_date.year > 150:
+            if current_year - self.birth_date.year > 120:
                 return False
 
         return True  # Par défaut, on assume vivant si inconnu
