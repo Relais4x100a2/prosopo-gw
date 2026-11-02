@@ -524,6 +524,9 @@ Constats à traiter en phase 1 :
   familles et ses événements, parce que son identifiant contient un `/` (forme masquée
   `aaa_aaaaaa_/_aaaaaaaaa_aaaaa_9`). Même avec l'encodage URL, le routage ne le retrouve pas. Les trois
   autres cas de la première passe venaient d'un encodage manquant dans la sonde (`?` dans l'identifiant).
-- **Interface à trois onglets** (personne, famille, événements) : l'application du monorepo n'a que les pages
-  d'annotation d'événements personnalisés. Le chemin de cette interface n'a pas été fourni, donc l'observation
-  du responsable ne peut être rejouée que par l'API REST (conception § 9.2).
+- **Interface à trois onglets** : c'est le front statique servi par l'API sur le port 8000
+  (`core/src/geneweb_py/api/static`). La sonde exerce toutes ses routes : statistiques, personne, familles,
+  apparentés, événements (filtres par type et par lieu), recherche par nom, famille et enfants (320 familles
+  échantillonnées sur 2 875), exports JSON, GEDCOM et XML. Résultat : aucune erreur 500, seulement le 404
+  des identifiants à `/`. Le plantage vu avant les 26 commits ne se reproduit donc pas sur le code actuel.
+  Les enfants et conjoints manquants relèvent des pertes de lecture mesurées en 6.1, pas d'un plantage.

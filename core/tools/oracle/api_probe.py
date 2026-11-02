@@ -166,7 +166,73 @@ def _probe(client: TestClient, path: str) -> int:
         headers=headers,
     )
     _sweep(client, headers)
+    _sweep_misc(client, headers)
     return 0
+
+
+def _count(
+    client: TestClient, label: str, url: str, headers: dict[str, str], **kw: Any
+) -> None:
+    try:
+        resp = client.get(url, headers=headers, **kw)
+        print(f"{label} | {resp.status_code}")
+        if resp.status_code >= 400:
+            print(f"  corps masqué : {mask(resp.text)}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"{label} | EXCEPTION")
+        _print_trace(exc)
+
+
+def _sweep_misc(client: TestClient, headers: dict[str, str]) -> None:
+    """Routes de l'interface web : statistiques, familles, filtres d'événements, exports."""
+    print("\nroutes de l'interface")
+    _count(client, "genealogy/stats", f"{BASE}/genealogy/stats", headers)
+    for fmt in ("json", "gedcom", "xml"):
+        _count(
+            client, f"genealogy/export/{fmt}", f"{BASE}/genealogy/export/{fmt}", headers
+        )
+    for etype in ("birth", "marriage", "death", "baptism", "occupation"):
+        _count(
+            client,
+            f"events?event_type={etype}",
+            f"{BASE}/events/",
+            headers,
+            params={"event_type": etype, "size": 100},
+        )
+    _count(
+        client,
+        "events?place=a",
+        f"{BASE}/events/",
+        headers,
+        params={"place": "a", "size": 100},
+    )
+    fams: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        resp = client.get(
+            f"{BASE}/families/", params={"page": page, "size": 100}, headers=headers
+        )
+        items = (resp.json() or {}).get("items") or []
+        fams.extend(i for i in items if isinstance(i, dict))
+        if len(items) < 100:
+            break
+        page += 1
+    status: dict[str, collections.Counter[str]] = collections.defaultdict(
+        collections.Counter
+    )
+    for f in fams[:: max(1, len(fams) // SWEEP_SIZE)]:
+        fid = quote(str(f.get("id") or f.get("family_id")), safe="")
+        for name, url in (
+            ("families/{id}", f"{BASE}/families/{fid}"),
+            ("families/{id}/children", f"{BASE}/families/{fid}/children"),
+        ):
+            try:
+                status[name][str(client.get(url, headers=headers).status_code)] += 1
+            except Exception as exc:  # noqa: BLE001
+                status[name]["EXCEPTION " + type(exc).__name__] += 1
+    print(f"familles listées : {len(fams)}")
+    for name, counter in status.items():
+        print(f"  {name}: {dict(counter)}")
 
 
 SWEEP_SIZE = 300
@@ -208,6 +274,16 @@ def _sweep(client: TestClient, headers: dict[str, str]) -> None:
             "persons/{id}/events": ("GET", f"{BASE}/persons/{qpid}/events", {}),
             "events?person_id": ("GET", f"{BASE}/events/", {"person_id": pid}),
             "events?query=prénom": ("GET", f"{BASE}/events/", {"query": fn}),
+            "persons/{id}/related": (
+                "GET",
+                f"{BASE}/persons/{qpid}/related",
+                {"degree": 2},
+            ),
+            "persons?query=prénom": (
+                "GET",
+                f"{BASE}/persons/",
+                {"query": fn, "size": 10},
+            ),
         }
         for name, (method, url, params) in routes.items():
             try:
