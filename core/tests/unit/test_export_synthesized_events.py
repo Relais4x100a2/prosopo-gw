@@ -5,7 +5,9 @@ from geneweb_py.formats.gedcom import GEDCOMExporter
 from geneweb_py.formats.json import JSONExporter
 from geneweb_py.formats.xml import XMLExporter
 
-TEXTE = "fam DUPONT Jean +1900 #mp Ville MARTIN Anne\nbeg\n- h Paul 1925 #bp Lyon\nend\n"
+TEXTE = (
+    "fam DUPONT Jean +1900 #mp Ville MARTIN Anne\nbeg\n- h Paul 1925 #bp Lyon\nend\n"
+)
 
 
 def _export(cls, tmp_path, ext):
