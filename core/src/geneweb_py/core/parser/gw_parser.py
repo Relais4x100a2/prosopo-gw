@@ -49,7 +49,7 @@ from .streaming import (
     should_use_streaming,
 )
 from .syntax import BlockType, SyntaxNode, SyntaxParser
-from .words import MarriagePart, read_marriage_part, word_spans
+from .words import MarriagePart, decode_word, read_marriage_part, word_spans
 
 logger = logging.getLogger(__name__)
 
@@ -1591,7 +1591,7 @@ class GeneWebParser:
                 parts: List[str] = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.PAREN_CLOSE:
-                    parts.append(tokens[i].value.replace("_", " "))
+                    parts.append(decode_word(tokens[i].value))
                     i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.PAREN_CLOSE:
                     i += 1
@@ -1607,7 +1607,7 @@ class GeneWebParser:
                 parts = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.BRACE_CLOSE:
-                    parts.append(tokens[i].value.replace("_", " "))
+                    parts.append(decode_word(tokens[i].value))
                     i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.BRACE_CLOSE:
                     i += 1
@@ -1706,7 +1706,7 @@ class GeneWebParser:
                     ]
                 ):
                     # Remplacer les underscores par des espaces pour l'affichage
-                    occ_seg = tokens[i].value.replace("_", " ")
+                    occ_seg = decode_word(tokens[i].value)
                     occ_agg, stop = _bounded_append_text_fragment(
                         occupation_parts,
                         occ_agg,
@@ -1806,7 +1806,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    result[f"{current_person}_birth_source"] = value.replace("_", " ")
+                    result[f"{current_person}_birth_source"] = decode_word(value)
                 continue
 
             # Source décès (#ds)
@@ -1814,7 +1814,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    result[f"{current_person}_death_source"] = value.replace("_", " ")
+                    result[f"{current_person}_death_source"] = decode_word(value)
                 continue
 
             # Lieu baptême (#pp)
@@ -1822,7 +1822,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    result[f"{current_person}_baptism_place"] = value.replace("_", " ")
+                    result[f"{current_person}_baptism_place"] = decode_word(value)
                 continue
 
             # Source baptême (#ps)
@@ -1830,7 +1830,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    result[f"{current_person}_baptism_source"] = value.replace("_", " ")
+                    result[f"{current_person}_baptism_source"] = decode_word(value)
                 continue
 
             # Lieu inhumation (#rp)
@@ -1838,7 +1838,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    result[f"{current_person}_burial_place"] = value.replace("_", " ")
+                    result[f"{current_person}_burial_place"] = decode_word(value)
                 continue
 
             # Source inhumation (#rs)
@@ -1846,7 +1846,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    result[f"{current_person}_burial_source"] = value.replace("_", " ")
+                    result[f"{current_person}_burial_source"] = decode_word(value)
                 continue
 
             # Source du mariage (#ms) hors partie mariage : un mot brut, jamais le nom
@@ -2324,7 +2324,7 @@ class GeneWebParser:
 
         def field_str(idx: int) -> str:
             if idx < len(fields):
-                return " ".join(fields[idx]).replace("_", " ")
+                return decode_word(" ".join(fields[idx]))
             return ""
 
         title_name = field_str(0).strip()
@@ -3305,7 +3305,7 @@ class GeneWebParser:
                 ]:
                     # Remplacer les underscores par des espaces pour l'affichage
                     # Garder les virgules et apostrophes telles quelles
-                    fragment = tokens[i].value.replace("_", " ")
+                    fragment = decode_word(tokens[i].value)
                     occ_agg, stop = _bounded_append_text_fragment(
                         occupation_parts,
                         occ_agg,
@@ -3328,7 +3328,7 @@ class GeneWebParser:
                     TokenType.IDENTIFIER,
                     TokenType.STRING,
                 ):
-                    person.nickname = tokens[i].value.replace("_", " ")
+                    person.nickname = decode_word(tokens[i].value)
                     i += 1
 
             # Alias de nom de famille (#salias)
@@ -3386,49 +3386,49 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    person.birth_source = value.replace("_", " ")
+                    person.birth_source = decode_word(value)
 
             # Source décès (#ds)
             elif token.type == TokenType.DS:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    person.death_source = value.replace("_", " ")
+                    person.death_source = decode_word(value)
 
             # Lieu baptême (#pp)
             elif token.type == TokenType.PP:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    person.baptism_place = value.replace("_", " ")
+                    person.baptism_place = decode_word(value)
 
             # Source baptême (#ps)
             elif token.type == TokenType.PS:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    person.baptism_source = value.replace("_", " ")
+                    person.baptism_source = decode_word(value)
 
             # Lieu inhumation (#rp)
             elif token.type == TokenType.RP:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    person.burial_place = value.replace("_", " ")
+                    person.burial_place = decode_word(value)
 
             # Source inhumation (#rs)
             elif token.type == TokenType.RS:
                 i += 1
                 value, i = self._parse_short_source(tokens, i)
                 if value:
-                    person.burial_source = value.replace("_", " ")
+                    person.burial_source = decode_word(value)
 
             # Nom public (PublicName)
             elif token.type == TokenType.PAREN_OPEN:
                 parts: List[str] = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.PAREN_CLOSE:
-                    parts.append(tokens[i].value.replace("_", " "))
+                    parts.append(decode_word(tokens[i].value))
                     i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.PAREN_CLOSE:
                     i += 1
@@ -3440,7 +3440,7 @@ class GeneWebParser:
                 parts = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.BRACE_CLOSE:
-                    parts.append(tokens[i].value.replace("_", " "))
+                    parts.append(decode_word(tokens[i].value))
                     i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.BRACE_CLOSE:
                     i += 1
