@@ -332,6 +332,7 @@ class Person:
             "nickname": self.nickname,
             "gender": self.gender.value,
             "occupation": self.occupation,
+            "is_anonymous": self.is_anonymous,
             "birth_date": self.birth_date.display_text if self.birth_date else None,
             "death_date": self.death_date.display_text if self.death_date else None,
             "birth_place": self.birth_place,

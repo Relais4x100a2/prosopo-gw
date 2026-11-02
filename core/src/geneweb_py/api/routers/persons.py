@@ -64,97 +64,6 @@ async def create_person(
         )
 
 
-@router.get("/{person_id}", response_model=SuccessResponse)
-async def get_person(
-    person_id: str, service: GenealogyService = Depends(get_session_service)
-) -> SuccessResponse:
-    """
-    Récupère une personne par son ID.
-
-    Args:
-        person_id: Identifiant de la personne
-        service: Service de généalogie
-
-    Returns:
-        SuccessResponse: Réponse de succès avec les données de la personne
-    """
-    person = service.get_person(person_id)
-
-    if person is None:
-        raise HTTPException(
-            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
-        )
-
-    person_schema = person_to_person_schema(person)
-
-    return SuccessResponse(
-        message="Personne récupérée avec succès", data=person_schema.model_dump()
-    )
-
-
-@router.put(
-    "/{person_id}",
-    response_model=SuccessResponse,
-    dependencies=[Depends(require_write_mode)],
-)
-async def update_person(
-    person_id: str,
-    person_data: PersonUpdateSchema,
-    service: GenealogyService = Depends(get_session_service),
-) -> SuccessResponse:
-    """
-    Met à jour une personne.
-
-    Args:
-        person_id: Identifiant de la personne
-        person_data: Nouvelles données de la personne
-        service: Service de généalogie
-
-    Returns:
-        SuccessResponse: Réponse de succès avec les données mises à jour
-    """
-    person = service.update_person(person_id, person_data)
-
-    if person is None:
-        raise HTTPException(
-            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
-        )
-
-    person_schema = person_to_person_schema(person)
-
-    return SuccessResponse(
-        message="Personne mise à jour avec succès", data=person_schema.model_dump()
-    )
-
-
-@router.delete(
-    "/{person_id}",
-    response_model=SuccessResponse,
-    dependencies=[Depends(require_write_mode)],
-)
-async def delete_person(
-    person_id: str, service: GenealogyService = Depends(get_session_service)
-) -> SuccessResponse:
-    """
-    Supprime une personne.
-
-    Args:
-        person_id: Identifiant de la personne
-        service: Service de généalogie
-
-    Returns:
-        SuccessResponse: Réponse de succès
-    """
-    success = service.delete_person(person_id)
-
-    if not success:
-        raise HTTPException(
-            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
-        )
-
-    return SuccessResponse(message="Personne supprimée avec succès")
-
-
 @router.get("/", response_model=PaginatedResponse)
 async def list_persons(
     page: int = Query(1, ge=1, description="Numéro de page"),
@@ -250,7 +159,7 @@ async def list_persons(
     return PaginatedResponse(items=person_list, pagination=pagination)
 
 
-@router.get("/{person_id}/families", response_model=SuccessResponse)
+@router.get("/{person_id:path}/families", response_model=SuccessResponse)
 async def get_person_families(
     person_id: str, service: GenealogyService = Depends(get_session_service)
 ) -> SuccessResponse:
@@ -281,7 +190,7 @@ async def get_person_families(
     return SuccessResponse(message="Familles récupérées avec succès", data=families_out)
 
 
-@router.get("/{person_id}/events", response_model=SuccessResponse)
+@router.get("/{person_id:path}/events", response_model=SuccessResponse)
 async def get_person_events(
     person_id: str, service: GenealogyService = Depends(get_session_service)
 ) -> SuccessResponse:
@@ -325,7 +234,7 @@ async def get_person_events(
     return SuccessResponse(message="Événements récupérés avec succès", data=events_out)
 
 
-@router.get("/{person_id}/related", response_model=SuccessResponse)
+@router.get("/{person_id:path}/related", response_model=SuccessResponse)
 async def get_related_persons(
     person_id: str,
     degree: int = Query(1, ge=1, le=3, description="Degré de lien (1, 2 ou 3)"),
@@ -381,3 +290,95 @@ async def get_person_stats(
     return SuccessResponse(
         message="Statistiques récupérées avec succès", data=person_stats.model_dump()
     )
+
+
+# Routes à segment libre en dernier : un id peut contenir « / » (%2F décodé).
+@router.get("/{person_id:path}", response_model=SuccessResponse)
+async def get_person(
+    person_id: str, service: GenealogyService = Depends(get_session_service)
+) -> SuccessResponse:
+    """
+    Récupère une personne par son ID.
+
+    Args:
+        person_id: Identifiant de la personne
+        service: Service de généalogie
+
+    Returns:
+        SuccessResponse: Réponse de succès avec les données de la personne
+    """
+    person = service.get_person(person_id)
+
+    if person is None:
+        raise HTTPException(
+            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
+        )
+
+    person_schema = person_to_person_schema(person)
+
+    return SuccessResponse(
+        message="Personne récupérée avec succès", data=person_schema.model_dump()
+    )
+
+
+@router.put(
+    "/{person_id:path}",
+    response_model=SuccessResponse,
+    dependencies=[Depends(require_write_mode)],
+)
+async def update_person(
+    person_id: str,
+    person_data: PersonUpdateSchema,
+    service: GenealogyService = Depends(get_session_service),
+) -> SuccessResponse:
+    """
+    Met à jour une personne.
+
+    Args:
+        person_id: Identifiant de la personne
+        person_data: Nouvelles données de la personne
+        service: Service de généalogie
+
+    Returns:
+        SuccessResponse: Réponse de succès avec les données mises à jour
+    """
+    person = service.update_person(person_id, person_data)
+
+    if person is None:
+        raise HTTPException(
+            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
+        )
+
+    person_schema = person_to_person_schema(person)
+
+    return SuccessResponse(
+        message="Personne mise à jour avec succès", data=person_schema.model_dump()
+    )
+
+
+@router.delete(
+    "/{person_id:path}",
+    response_model=SuccessResponse,
+    dependencies=[Depends(require_write_mode)],
+)
+async def delete_person(
+    person_id: str, service: GenealogyService = Depends(get_session_service)
+) -> SuccessResponse:
+    """
+    Supprime une personne.
+
+    Args:
+        person_id: Identifiant de la personne
+        service: Service de généalogie
+
+    Returns:
+        SuccessResponse: Réponse de succès
+    """
+    success = service.delete_person(person_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=404, detail=f"Personne avec l'ID '{person_id}' non trouvée"
+        )
+
+    return SuccessResponse(message="Personne supprimée avec succès")
