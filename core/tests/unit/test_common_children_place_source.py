@@ -13,15 +13,15 @@ def test_cbp_et_csrc_appliques_aux_enfants_sans_valeur_propre():
         "beg\n- h E 1/1/1930\n- f F #bp Autre\n- h G\nend\n"
     )
     (f,) = g.families.values()
-    assert f.common_birth_place == "Ville,_75000,_France"
-    assert f.common_children_source == "Site_(Web)  v2"
+    assert f.common_birth_place == "Ville, 75000, France"
+    assert f.common_children_source == "Site (Web)  v2"
     e, fl, h = (g.persons[c.person_id] for c in f.children)
     assert (e.birth_place, fl.birth_place, h.birth_place) == (
-        "Ville,_75000,_France",
+        "Ville, 75000, France",
         "Autre",
-        "Ville,_75000,_France",
+        "Ville, 75000, France",
     )
-    assert all(p.person_source == "Site_(Web)  v2" for p in (e, fl, h))
+    assert all(p.person_source == "Site (Web)  v2" for p in (e, fl, h))
 
 
 def test_sans_cbp_rien_n_est_ajoute():
@@ -53,5 +53,5 @@ def test_csrc_cbp_appliques_apres_fevt():
         "fevt\n#marr 1900\nend fevt\nbeg\n- f Sylvie\nend\n"
     )
     enfant = next(p for p in g.persons.values() if p.first_name == "Sylvie")
-    assert enfant.person_source == "Src_X"
-    assert enfant.birth_place == "Ville_X"
+    assert enfant.person_source == "Src X"
+    assert enfant.birth_place == "Ville X"

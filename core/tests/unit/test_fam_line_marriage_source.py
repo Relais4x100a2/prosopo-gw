@@ -3,6 +3,7 @@
 import pytest
 
 from geneweb_py import GeneWebParser
+from geneweb_py.core.parser.words import decode_word
 
 SOURCES = {
     "url": "https://www.example.org/a4/doc.php?x=Y&k=0&q=Aa%20Bb&z=A%C3%A9#t",
@@ -46,4 +47,4 @@ def test_lieu_de_mariage_commencant_par_un_chiffre(lieu):
     )
     (f,) = g.families.values()
     assert f.wife_id == "MARTIN_Anne_0"
-    assert f.marriage_place == lieu
+    assert f.marriage_place == decode_word(lieu)

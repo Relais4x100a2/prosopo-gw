@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-# "[Atelier_Rose]_-_Lyon" ou "Ecole_primaire_-_Lyon" (séparateur "_-_" ou " - ")
+# "[Atelier Rose] - Lyon" (lieu décodé par le parser ; séparateur " - ", ou "_-_" brut)
 _COMPLEMENT_RE = re.compile(r"^(?P<complement>.+?)(?:_-_|\s+-\s+)(?P<name>.+)$")
 
 
@@ -18,8 +18,8 @@ class ParsedPlace:
 
 
 def _humanize(text: str) -> str:
-    """Remplace les ``_`` GeneWeb par des espaces."""
-    return text.replace("_", " ").strip()
+    """Retire les espaces de bord ; le parser a déjà décodé les ``_`` GeneWeb."""
+    return text.strip()
 
 
 def parse_place(raw: Optional[str]) -> Optional[ParsedPlace]:

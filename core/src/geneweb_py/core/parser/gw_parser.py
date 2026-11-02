@@ -59,6 +59,12 @@ from .words import (
 
 logger = logging.getLogger(__name__)
 
+
+def _lieu(value: str) -> str:
+    """Valeur d'un lieu : mot brut décodé comme gwc (``_`` → espace, ``\\_`` → ``_``)."""
+    return cut_space(decode_word(value))
+
+
 # Qualificatifs d'union de la ligne fam, par tag (sans ``#``) et par jeton du lexeur
 _QUALIFICATIFS_PAR_TAG = {
     "noment": FamilyQualifier.NO_MENTION,
@@ -212,9 +218,9 @@ def _apply_marriage_part(result: Dict[str, Any], part: MarriagePart) -> None:
         elif relation in _QUALIFICATIFS_PAR_TAG:
             result["family_qualifiers"].append(_QUALIFICATIFS_PAR_TAG[relation])
     if part.place:
-        result["marriage_place"] = part.place
+        result["marriage_place"] = _lieu(part.place)
     if part.source:
-        result["marriage_source"] = part.source
+        result["marriage_source"] = _lieu(part.source)
     if part.separated:
         # ``#nm`` / ``#eng`` priment : la séparation reste dans is_separated
         if result["marriage_status"] not in (
@@ -1199,7 +1205,7 @@ class GeneWebParser:
                     TokenType.STRING,
                 ):
                     value, i = self._parse_short_source(tokens, i)
-                    family.marriage_source = value
+                    family.marriage_source = _lieu(value) if value else None
                 continue
             if tok.type in _QUALIFICATIFS_PAR_JETON:
                 family.family_qualifiers.append(_QUALIFICATIFS_PAR_JETON[tok.type])
@@ -1213,7 +1219,7 @@ class GeneWebParser:
                 if i < len(tokens) and tokens[i].type == TokenType.P:
                     i += 1
                     if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                        family.marriage_place = tokens[i].value
+                        family.marriage_place = _lieu(tokens[i].value)
                         i += 1
                 continue
             if tok.type == TokenType.DIV_EVENT:
@@ -1255,9 +1261,9 @@ class GeneWebParser:
                 line_text, i = _tokens_line_text(tokens, i, self._source)
                 valeur = line_text.partition(" ")[2].strip() or None
                 if tok.value == "cbp":
-                    family.common_birth_place = valeur
+                    family.common_birth_place = _lieu(valeur) if valeur else None
                 else:
-                    family.common_children_source = valeur
+                    family.common_children_source = _lieu(valeur) if valeur else None
                 continue
             if tok.type == TokenType.SRC and tok.value == "#src":
                 # Source d'une personne (conjoint, témoin) : lue avec elle, jamais
@@ -1509,7 +1515,7 @@ class GeneWebParser:
                 if i < len(tokens) and tokens[i].type == TokenType.P:
                     i += 1
                     if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                        result["marriage_place"] = tokens[i].value
+                        result["marriage_place"] = _lieu(tokens[i].value)
                         i += 1
                 continue
 
@@ -1830,7 +1836,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    result[f"{current_person}_baptism_place"] = decode_word(value)
+                    result[f"{current_person}_baptism_place"] = value
                 continue
 
             # Source baptême (#ps)
@@ -1846,7 +1852,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    result[f"{current_person}_burial_place"] = decode_word(value)
+                    result[f"{current_person}_burial_place"] = value
                 continue
 
             # Source inhumation (#rs)
@@ -1863,7 +1869,7 @@ class GeneWebParser:
                 i += 1
                 fin = mot_end(tokens, i)
                 if fin > i:
-                    result["marriage_source"] = nom_text(tokens, i, fin)
+                    result["marriage_source"] = _lieu(nom_text(tokens, i, fin))
                     i = fin
                 continue
 
@@ -1878,7 +1884,7 @@ class GeneWebParser:
                     place_parts.append(_join_tokens_text(tokens[i:fin]))
                     i = fin
                 if place_parts:
-                    result["marriage_place"] = "".join(place_parts)
+                    result["marriage_place"] = _lieu("".join(place_parts))
                 continue
 
             # Modificateur GW Plus inconnu (ex: #ms url, #ps url) :
@@ -2202,7 +2208,7 @@ class GeneWebParser:
             event_type=evt_type,
             event_type_raw=type_raw,
             date=evt_date,
-            place=place_str if place_str else None,
+            place=_lieu(place_str) if place_str else None,
             source=source_str if source_str else None,
             person_id=person_id,
         )
@@ -2245,7 +2251,7 @@ class GeneWebParser:
 
         if place_parts:
             # Joindre les parties en préservant les espaces et caractères spéciaux
-            place_value = "".join(place_parts)
+            place_value = _lieu("".join(place_parts))
             return place_value, i
 
         return None, start_index
@@ -2257,7 +2263,7 @@ class GeneWebParser:
         fin = place_run_end(tokens, start_index)
         if fin == start_index:
             return None, start_index
-        return _join_tokens_text(tokens[start_index:fin]), fin
+        return _lieu(_join_tokens_text(tokens[start_index:fin])), fin
 
     def _parse_short_source(
         self, tokens: List[Token], start_index: int
@@ -2735,7 +2741,7 @@ class GeneWebParser:
             if tok.type == TokenType.P:
                 i += 1
                 if i < len(tokens) and tokens[i].type == TokenType.IDENTIFIER:
-                    event.place = tokens[i].value
+                    event.place = _lieu(tokens[i].value)
                     i += 1
                 continue
             if tok.type == TokenType.S:
@@ -2800,7 +2806,7 @@ class GeneWebParser:
             family_event_type=fet,
             event_type_raw=type_raw,
             date=Date.parse_with_fallback(date_str) if date_str else None,
-            place=(m.group(3) or "").strip() or None,
+            place=_lieu((m.group(3) or "").strip()) or None,
             source=(m.group(4) or "").strip() or None,
         )
         return evt
@@ -3392,7 +3398,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    person.baptism_place = decode_word(value)
+                    person.baptism_place = value
 
             # Source baptême (#ps)
             elif token.type == TokenType.PS:
@@ -3406,7 +3412,7 @@ class GeneWebParser:
                 i += 1
                 value, i = self._parse_short_place(tokens, i)
                 if value:
-                    person.burial_place = decode_word(value)
+                    person.burial_place = value
 
             # Source inhumation (#rs)
             elif token.type == TokenType.RS:

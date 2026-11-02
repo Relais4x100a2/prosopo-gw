@@ -5,6 +5,7 @@ import pytest
 from geneweb_py import GeneWebParser
 from geneweb_py.core.family import FamilyQualifier, MarriageStatus
 from geneweb_py.core.parser.lexical import LexicalParser
+from geneweb_py.core.parser.words import cut_space, decode_word
 
 
 def _famille(ligne: str, tmp_path=None):
@@ -33,14 +34,14 @@ def test_source_de_mariage_lue_telle_quelle(source, mode, tmp_path):
         f"fam DUPONT Jean +1/2/1900 #mp Ville,_80000 #ms {source} MARTIN Anne",
         tmp_path if mode == "streaming" else None,
     )
-    assert f.marriage_source == source
-    assert f.marriage_place == "Ville,_80000"
+    assert f.marriage_source == cut_space(decode_word(source))
+    assert f.marriage_place == "Ville, 80000"
     assert f.wife_id == "MARTIN_Anne_0"
 
 
 def test_lieu_de_mariage_avec_guillemets_garde_le_mot_brut():
     f = _famille('fam DUPONT Jean +1900 #mp Le_"Clos"_-_Ville MARTIN Anne')
-    assert f.marriage_place == 'Le_"Clos"_-_Ville'
+    assert f.marriage_place == 'Le "Clos" - Ville'
 
 
 def test_qualificatif_apres_la_source_du_mari():
@@ -51,7 +52,7 @@ def test_qualificatif_apres_la_source_du_mari():
 
 def test_source_de_mariage_apres_la_source_du_mari():
     f = _famille("fam DUPONT Jean #src Reg +1900 #ms Acte_12 MARTIN Anne")
-    assert f.marriage_source == "Acte_12"
+    assert f.marriage_source == "Acte 12"
 
 
 @pytest.mark.parametrize(
@@ -90,7 +91,7 @@ def test_pacs_et_residence_sont_des_qualificatifs(tag, qualificatif, mode, tmp_p
         tmp_path if mode == "streaming" else None,
     )
     assert f.family_qualifiers == [qualificatif]
-    assert f.marriage_place == "_[rue_X]_-_Ville"
+    assert f.marriage_place == "[rue X] - Ville"
     assert f.wife_id == "MARTIN_Anne_0"
 
 
@@ -119,6 +120,6 @@ def test_sans_texte_source_les_mots_viennent_des_jetons():
     parser = GeneWebParser(validate=False)
     parser._source = None
     info = parser._parse_family_line(LexicalParser(ligne).tokenize())
-    assert info["marriage_source"] == "3_E_041/472"
+    assert info["marriage_source"] == "3 E 041/472"
     assert info["family_qualifiers"] == [FamilyQualifier.NO_MENTION]
     assert (info["wife_name"], info["wife_firstname"]) == ("MARTIN", 'Anne"Dit"')

@@ -7,6 +7,7 @@ les restes du lieu étaient lus comme nom/prénom de l'épouse. Données synthé
 import pytest
 
 from geneweb_py import GeneWebParser
+from geneweb_py.core.parser.words import decode_word
 
 
 def _parse(texte: str):  # type: ignore[no-untyped-def]
@@ -29,7 +30,7 @@ def test_lieu_naissance_a_virgules_du_mari_ne_cree_pas_d_epouse(lieu: str) -> No
     (famille,) = g.families.values()
     assert famille.husband_id == "DUPONT_Jean_0"
     assert famille.wife_id == "MARTIN_Marie_0"
-    assert g.persons["DUPONT_Jean_0"].birth_place == lieu
+    assert g.persons["DUPONT_Jean_0"].birth_place == decode_word(lieu)
 
 
 def test_lieu_deces_a_virgules_de_l_epouse_est_complet() -> None:
@@ -38,4 +39,4 @@ def test_lieu_deces_a_virgules_de_l_epouse_est_complet() -> None:
     )
     (famille,) = g.families.values()
     assert famille.wife_id == "MARTIN_Marie_0"
-    assert g.persons["MARTIN_Marie_0"].death_place == "Ville,_Ville,_Pays"
+    assert g.persons["MARTIN_Marie_0"].death_place == "Ville, Ville, Pays"

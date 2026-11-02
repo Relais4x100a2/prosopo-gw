@@ -69,7 +69,7 @@ class TestOrganization:
         assert Organization.create("Club Sportif").id == "club_sportif"
 
     def test_place_parts_reuse_place_parser(self):
-        org = Organization(id="o", name="Atelier", place="[Atelier_Rose]_-_Lyon")
+        org = Organization(id="o", name="Atelier", place="[Atelier Rose] - Lyon")
         assert org.place_parts.complement == "Atelier Rose"
         assert org.place_parts.name == "Lyon"
         assert Organization(id="o", name="X").place_parts is None

@@ -23,7 +23,7 @@ def test_enfant_naissance_bapteme_deces_avec_lieux_et_sources():
         "1790 #dp Dreux #ds Reg_D\nend\n"
     )["DUPONT_Luc_0"]
     assert _d(p.birth_date) == "3/3/1751"
-    assert p.birth_place == "[Moulin]_-_Dreux"
+    assert p.birth_place == "[Moulin] - Dreux"
     assert p.birth_source == "Reg N"
     assert _d(p.baptism_date) == "5/3/1751"
     assert (p.baptism_place, p.baptism_source) == ("Chartres", "Reg B")
@@ -74,5 +74,5 @@ def test_lieu_avec_balises_html_collees_reste_un_seul_mot():
         "fam DUPONT Paul +1750 MARTIN Anne\nbeg\n"
         "- h Luc 1751 #bp [Eglise]_-_Dreux<br>Chartres 1790\nend\n"
     )["DUPONT_Luc_0"]
-    assert p.birth_place == "[Eglise]_-_Dreux<br>Chartres"
+    assert p.birth_place == "[Eglise] - Dreux<br>Chartres"
     assert _d(p.birth_date) == "1751" and _d(p.death_date) == "1790"

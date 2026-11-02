@@ -145,20 +145,25 @@ class TestStructuredPlace:
     """Défaut 4 : ``[complément]_-_lieu`` décomposé, chaîne brute préservée."""
 
     def test_bracketed_complement(self):
-        parsed = parse_place("[Atelier_Rose]_-_Lyon")
+        parsed = parse_place("[Atelier Rose] - Lyon")
         assert parsed == ParsedPlace(
-            raw="[Atelier_Rose]_-_Lyon", complement="Atelier Rose", name="Lyon"
+            raw="[Atelier Rose] - Lyon", complement="Atelier Rose", name="Lyon"
         )
 
     def test_plain_place(self):
         parsed = parse_place("Paris")
         assert (parsed.complement, parsed.name, parsed.raw) == (None, "Paris", "Paris")
 
-    def test_underscores_become_spaces(self):
-        assert parse_place("Saint-Denis_(93)").name == "Saint-Denis (93)"
+    def test_hyphenated_toponyms_are_not_altered(self):
+        for nom in ("Saint-Maur-des-Fossés", "Saint-Denis (93)", "Aix-en-Provence"):
+            parsed = parse_place(nom)
+            assert (parsed.name, parsed.complement) == (nom, None)
+
+    def test_literal_underscore_is_kept(self):
+        assert parse_place("Lieu_dit").name == "Lieu_dit"
 
     def test_complement_without_brackets(self):
-        parsed = parse_place("Ecole_primaire_-_Lyon")
+        parsed = parse_place("Ecole primaire - Lyon")
         assert (parsed.complement, parsed.name) == ("Ecole primaire", "Lyon")
 
     def test_empty_or_none(self):
@@ -167,7 +172,7 @@ class TestStructuredPlace:
 
     def test_event_exposes_parts_and_keeps_raw_place(self):
         events, _ = _pevt_events("#Cours_peinture 1990 #p [Atelier_Rose]_-_Lyon\n")
-        assert events[0].place == "[Atelier_Rose]_-_Lyon"
+        assert events[0].place == "[Atelier Rose] - Lyon"
         assert events[0].place_parts.complement == "Atelier Rose"
         assert events[0].place_parts.name == "Lyon"
 

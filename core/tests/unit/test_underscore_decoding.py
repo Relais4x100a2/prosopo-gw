@@ -39,3 +39,18 @@ def test_child_line_reads_person_source_and_occupation_as_words() -> None:
     assert anne.person_source == "http://x.example/a-b/12"
     assert anne.occupation == "Menuisier, chef"
     assert str(anne.birth_date) == "1905"
+
+
+def test_places_are_decoded_at_parse_and_hyphenated_toponyms_survive() -> None:
+    g = _parse(
+        "fam DUPONT Jean 1900 #bp Saint-Maur-des-Fossés_(94) +1925 #mp [Atelier\\_Rose]_-_Lyon "
+        "MARTIN Marie 1902 #dp Aix-en-Provence\nbeg\n- h Pierre 1930 #bp Lieu\\_dit\nend\n"
+    )
+    jean = next(p for p in g.persons.values() if p.first_name == "Jean")
+    marie = next(p for p in g.persons.values() if p.first_name == "Marie")
+    pierre = next(p for p in g.persons.values() if p.first_name == "Pierre")
+    (famille,) = g.families.values()
+    assert jean.birth_place == "Saint-Maur-des-Fossés (94)"
+    assert marie.death_place == "Aix-en-Provence"
+    assert pierre.birth_place == "Lieu_dit"
+    assert famille.marriage_place == "[Atelier_Rose] - Lyon"

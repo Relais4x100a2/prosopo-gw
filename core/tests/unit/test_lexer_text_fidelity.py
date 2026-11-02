@@ -10,7 +10,7 @@ def _parse(texte: str):
 def test_lieu_entre_crochets_sur_la_ligne_fam():
     g = _parse("fam DUPONT Paul +1750 #mp [Eglise]_-_Chartres MARTIN Anne\n")
     (fam,) = g.families.values()
-    assert fam.marriage_place == "[Eglise]_-_Chartres"
+    assert fam.marriage_place == "[Eglise] - Chartres"
     assert fam.wife_id == "MARTIN_Anne_0"
 
 
@@ -19,8 +19,8 @@ def test_lieu_entre_crochets_naissance_et_deces():
         "fam DUPONT Paul 1720 #bp [Moulin]_-_Dreux 1790 #dp [Hospice]_-_Chartres +1750 MARTIN Anne\n"
     )
     p = g.persons["DUPONT_Paul_0"]
-    assert p.birth_place == "[Moulin]_-_Dreux"
-    assert p.death_place == "[Hospice]_-_Chartres"
+    assert p.birth_place == "[Moulin] - Dreux"
+    assert p.death_place == "[Hospice] - Chartres"
 
 
 def test_note_de_personne_garde_ponctuation_et_crochets():
