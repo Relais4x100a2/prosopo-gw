@@ -506,3 +506,24 @@ contrôle naïf (rt.gw) : #bp=3394, #bs=1027, #dp=3147, #ds=1168, #occu=2723, #s
   est ce que `gwu` synthétise depuis les lignes. À analyser en phase 1.
 - **Dates de personne** : un écart de naissance et un de décès, à examiner.
 - **Base de comparaison pour les phases suivantes** : ce tableau. Chaque phase le rejoue et le publie ici.
+
+### 6.3 Trace du plantage de l'application (phase 0, 2 novembre 2026)
+
+Le plantage signalé par le responsable (recherche d'une personne dans l'onglet événements) n'a **pas été
+reproduit** avec la version actuelle du dépôt. Deux sondes rejouables, sur le grand arbre :
+
+- `app/docker/geneweb-app/tests/smoke_real_base.py` : l'accueil et les sept pages Streamlit s'exécutent
+  sans erreur (`AppTest`), avec les 454 événements personnalisés extraits en 9 s.
+- `core/tools/oracle/api_probe.py` : création de session (201, 9 s) puis balayage de 309 personnes réparties
+  sur 8 017. Les routes personne, familles, événements d'une personne, événements par personne et
+  événements par prénom répondent sans erreur serveur (aucun 500).
+
+Constats à traiter en phase 1 :
+
+- **Identifiants non routables** : une personne sur 309 est listée mais renvoie 404 sur sa fiche, ses
+  familles et ses événements, parce que son identifiant contient un `/` (forme masquée
+  `aaa_aaaaaa_/_aaaaaaaaa_aaaaa_9`). Même avec l'encodage URL, le routage ne le retrouve pas. Les trois
+  autres cas de la première passe venaient d'un encodage manquant dans la sonde (`?` dans l'identifiant).
+- **Interface à trois onglets** (personne, famille, événements) : l'application du monorepo n'a que les pages
+  d'annotation d'événements personnalisés. Le chemin de cette interface n'a pas été fourni, donc l'observation
+  du responsable ne peut être rejouée que par l'API REST (conception § 9.2).
