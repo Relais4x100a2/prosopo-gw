@@ -13,6 +13,7 @@ import sys
 from dataclasses import dataclass, field
 
 from geneweb_py import GeneWebParser
+from geneweb_py.core.event import Event
 from geneweb_py.core.family import Family
 from geneweb_py.core.genealogy import Genealogy
 from geneweb_py.core.person import Person
@@ -134,16 +135,15 @@ def _family_fields(f: Family) -> dict[str, str]:
     }
 
 
-def compare_families(got: Genealogy, ref: Genealogy, stats: Stats) -> int:
-    """Apparie les familles par ordre d'apparition (clés des conjoints vérifiées).
-
-    Renvoie le nombre de familles de ``ref`` sans équivalent.
-    """
+def _match_families(
+    got: Genealogy, ref: Genealogy
+) -> tuple[list[tuple[Family, Family]], int]:
+    """Apparie les familles par ordre d'apparition (clés des conjoints vérifiées)."""
     g_list = list(got.families.values())
-    r_list = list(ref.families.values())
+    pairs: list[tuple[Family, Family]] = []
     unmatched = 0
     i = 0
-    for r in r_list:
+    for r in ref.families.values():
         rk = _family_key(ref, r)
         window = range(i, min(i + 3, len(g_list)))
         hit = next((k for k in window if _family_key(got, g_list[k]) == rk), None)
@@ -151,10 +151,139 @@ def compare_families(got: Genealogy, ref: Genealogy, stats: Stats) -> int:
             unmatched += 1
             continue
         i = hit + 1
-        gf = _family_fields(g_list[hit])
-        for name, ref_value in _family_fields(r).items():
-            _stat(stats, name).add(ref_value, gf[name])
+        pairs.append((g_list[hit], r))
+    return pairs, unmatched
+
+
+def compare_families(got: Genealogy, ref: Genealogy, stats: Stats) -> int:
+    """Compare les champs des familles ; renvoie le nombre de familles de ``ref`` sans équivalent."""
+    pairs, unmatched = _match_families(got, ref)
+    for gf, rf in pairs:
+        gvals = _family_fields(gf)
+        for name, ref_value in _family_fields(rf).items():
+            _stat(stats, name).add(ref_value, gvals[name])
     return unmatched
+
+
+PERSON_FIELDS: list[tuple[str, str, bool]] = [
+    ("birth_date", "birth_date", True),
+    ("birth_place", "birth_place", False),
+    ("birth_source", "birth_source", False),
+    ("baptism_date", "baptism_date", True),
+    ("baptism_place", "baptism_place", False),
+    ("baptism_source", "baptism_source", False),
+    ("death_date", "death_date", True),
+    ("death_place", "death_place", False),
+    ("death_source", "death_source", False),
+    ("burial_place", "burial_place", False),
+    ("burial_source", "burial_source", False),
+    ("occupation", "occupation", False),
+    ("person_source", "person_source", False),
+]
+
+
+def _persons_by_key(g: Genealogy) -> dict[tuple[str, str, int], Person]:
+    out: dict[tuple[str, str, int], Person] = {}
+    for p in g.persons.values():
+        out.setdefault(person_key(p), p)
+    return out
+
+
+def _person_value(p: Person, attr: str, is_date: bool) -> str:
+    value = getattr(p, attr, None)
+    return _raw_date(value) if is_date else (value or "")
+
+
+def compare_persons(got: Genealogy, ref: Genealogy, stats: Stats) -> int:
+    """Compare les champs des personnes appariées par clé ; renvoie les personnes de ``ref`` sans équivalent."""
+    g_by_key = _persons_by_key(got)
+    unmatched = 0
+    for key, rp in _persons_by_key(ref).items():
+        gp = g_by_key.get(key)
+        if gp is None:
+            unmatched += 1
+            continue
+        for name, attr, is_date in PERSON_FIELDS:
+            _stat(stats, f"pers.{name}").add(
+                _person_value(rp, attr, is_date), _person_value(gp, attr, is_date)
+            )
+    return unmatched
+
+
+def _event_kind(e: Event) -> str:
+    fam_type = getattr(e, "family_event_type", None)
+    if getattr(e, "event_type_raw", None):
+        return str(e.event_type_raw)
+    if fam_type is not None:
+        return str(fam_type.value)
+    return str(e.event_type.value)
+
+
+def _events_by_key(events: list[Event]) -> dict[tuple[str, str], Event]:
+    out: dict[tuple[str, str], Event] = {}
+    for e in events:
+        out.setdefault((_event_kind(e), norm(_raw_date(e.date))), e)
+    return out
+
+
+def _compare_event_lists(
+    prefix: str, got: list[Event], ref: list[Event], stats: Stats
+) -> int:
+    g_by_key = _events_by_key(got)
+    unmatched = 0
+    for key, re_ in _events_by_key(ref).items():
+        ge = g_by_key.get(key)
+        if ge is None:
+            unmatched += 1
+            continue
+        _stat(stats, f"{prefix}.place").add(re_.place or "", ge.place or "")
+        _stat(stats, f"{prefix}.source").add(re_.source or "", ge.source or "")
+        _stat(stats, f"{prefix}.witnesses").add(
+            str(len(re_.witnesses)) if re_.witnesses else "", str(len(ge.witnesses))
+        )
+    return unmatched
+
+
+def compare_events(got: Genealogy, ref: Genealogy, stats: Stats) -> int:
+    """Compare les événements ``pevt`` (personnes appariées) et ``fevt`` (familles appariées)."""
+    g_by_key = _persons_by_key(got)
+    unmatched = 0
+    for key, rp in _persons_by_key(ref).items():
+        gp = g_by_key.get(key)
+        if gp is not None:
+            unmatched += _compare_event_lists(
+                "pevt", list(gp.events), list(rp.events), stats
+            )
+    pairs, _ = _match_families(got, ref)
+    for gf, rf in pairs:
+        unmatched += _compare_event_lists(
+            "fevt", list(gf.events), list(rf.events), stats
+        )
+    return unmatched
+
+
+NAIVE_TAGS = ("#bp", "#bs", "#dp", "#ds", "#occu", "#src", "#mp", "#ms")
+
+
+def naive_tag_counts(text: str) -> dict[str, int]:
+    """Contrôle indépendant de notre lecture : découpage naïf sur les espaces, hors blocs de notes."""
+    counts = dict.fromkeys((*NAIVE_TAGS, "wit"), 0)
+    in_notes = False
+    for line in text.split("\n"):
+        if line.startswith(("begin notes", "notes-db", "page-ext", "wizard-note")):
+            in_notes = True
+            continue
+        if line.startswith("end ") and in_notes:
+            in_notes = False
+            continue
+        if in_notes:
+            continue
+        if line.startswith("wit "):
+            counts["wit"] += 1
+        for word in line.split(" "):
+            if word in NAIVE_TAGS:
+                counts[word] += 1
+    return counts
 
 
 def render_table(stats: Stats, unmatched: dict[str, int]) -> str:
@@ -182,8 +311,17 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     got, ref = load(args.source, args.stream), load(args.rt, args.stream)
     stats: Stats = {}
-    unmatched = {"familles": compare_families(got, ref, stats)}
+    unmatched = {
+        "familles": compare_families(got, ref, stats),
+        "personnes": compare_persons(got, ref, stats),
+        "événements": compare_events(got, ref, stats),
+    }
     print(render_table(stats, unmatched))
+    with open(args.rt, encoding="utf-8") as f:
+        naive = naive_tag_counts(f.read())
+    print(
+        "\ncontrôle naïf (rt.gw) : " + ", ".join(f"{k}={v}" for k, v in naive.items())
+    )
     if args.examples:
         for name in sorted(stats):
             for r, g in stats[name].examples:
