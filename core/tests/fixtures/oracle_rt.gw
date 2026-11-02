@@ -1,0 +1,56 @@
+encoding: utf-8
+gwplus
+
+fam DUPONT Jean #occu Menuisier 1870 #bp Lyon +1900 #mp Lyon #ms Registre_12 MARTIN Marie 1875 #bp Nantes
+wit m: DURAND Paul 0
+src Acte_de_mariage_1900
+fevt
+#marr 1900 #p Lyon #s Registre_12
+wit m: DURAND Paul
+end fevt
+beg
+- h Louis #occu Notaire #src Etat_civil 1901 #bp Paris
+- f Anne 1903
+end
+
+pevt DUPONT Louis
+#birt 1901 #p Paris
+end pevt
+
+pevt DUPONT Anne
+#birt 1903
+end pevt
+
+pevt MARTIN Marie
+#birt 1875 #p Nantes
+end pevt
+
+pevt DUPONT Jean
+#educ 1880 #p Lyon #s Registre_scolaire
+wit m: DURAND Paul
+end pevt
+
+fam BERNARD Paul 1860 +1888 #mp Rennes PETIT Marie #occu Institutrice 1865
+fevt
+#marr 1888 #p Rennes
+end fevt
+beg
+- h Pierre 1890 #bp Rennes
+end
+
+pevt BERNARD Pierre
+#birt 1890 #p Rennes
+end pevt
+
+pevt PETIT Marie
+#birt 1865
+end pevt
+
+pevt BERNARD Paul
+#birt 1860
+end pevt
+
+fam MOREAU Luc 0 +1920 ? ?
+fevt
+#marr 1920
+end fevt
