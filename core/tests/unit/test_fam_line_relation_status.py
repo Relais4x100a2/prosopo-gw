@@ -41,5 +41,5 @@ def test_non_marie_et_separe_garde_les_deux_informations(ligne):
 @pytest.mark.parametrize("ligne", ["fam A B + - ? ?", "fam A B + - 1950 ? ?"])
 def test_divorce_avec_conjoint_inconnu_garde_le_statut(ligne):
     f = _fam(ligne)
-    assert f.wife_id is None
+    assert f.wife_id == "?_?_0"
     assert f.marriage_status == S.DIVORCED

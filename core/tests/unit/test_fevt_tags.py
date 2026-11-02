@@ -59,11 +59,12 @@ def test_famille_sans_aucun_conjoint_connu_garde_enfants_et_evenements():
         "fam ? ? + ? ?\nbeg\n- h Pierre 1700\nend\nfevt\n#marr 1699\nend fevt\n"
     )
     (f,) = g.families.values()
-    assert f.husband_id is None and f.wife_id is None
+    assert (f.husband_id, f.wife_id) == ("?_?_0", "?_?_1")
     assert len(f.children) == 1
     assert [e.family_event_type for e in f.events] == [FamilyEventType.MARRIAGE]
     assert f.validation_errors == []
-    assert len(g.persons) == 1
+    assert len(g.persons) == 3
+    assert [p.is_anonymous for p in g.persons.values()].count(True) == 2
 
 
 def test_fevt_apres_famille_sans_conjoint_ne_se_rattache_pas_a_la_famille_precedente():

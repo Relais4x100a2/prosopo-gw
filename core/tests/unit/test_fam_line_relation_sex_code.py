@@ -33,9 +33,9 @@ def test_qualificatif_sans_code():
     assert f.wife_id == "MARTIN_Anne_0"
 
 
-def test_epouse_inconnue_apres_qualificatif_reste_absente():
+def test_epouse_inconnue_apres_qualificatif_devient_anonyme():
     f = _famille("fam DUPONT Jean 0 + #noment mf ? ?")
-    assert f.wife_id is None
+    assert f.wife_id == "?_?_0"
 
 
 def test_conjoint_dont_le_nom_ressemble_a_un_code_sans_qualificatif():

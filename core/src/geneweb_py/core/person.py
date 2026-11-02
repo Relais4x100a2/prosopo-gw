@@ -147,6 +147,7 @@ class Person:
     is_deceased: Optional[bool] = None  # ? pour inconnu
     is_obviously_dead: bool = False  # #od tag
     is_young_death: bool = False  # #mj tag
+    is_anonymous: bool = False  # conjoint ``? ?`` : personne créée, identité inconnue
     burial_type: Optional[str] = None  # #buri ou #crem
 
     # Contrôle d'accès

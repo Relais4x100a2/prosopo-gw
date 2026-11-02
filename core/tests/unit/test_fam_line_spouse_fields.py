@@ -67,5 +67,5 @@ def test_deces_inconnu_de_l_epouse():
     _ok("fam DUPONT Jean +1/1/2020 MARTIN Anne 7/6/1992 #bp Ville ?")
 
 
-def test_epouse_inconnue_reste_absente():
-    assert _famille("fam DUPONT Jean 1/1/1900 ? + ? ?").wife_id is None
+def test_epouse_inconnue_devient_anonyme():
+    assert _famille("fam DUPONT Jean 1/1/1900 ? + ? ?").wife_id == "?_?_0"

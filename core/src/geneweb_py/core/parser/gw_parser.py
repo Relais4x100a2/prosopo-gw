@@ -428,6 +428,8 @@ class GeneWebParser:
         from ..exceptions import GeneWebErrorCollector
 
         self.error_collector = GeneWebErrorCollector(strict=strict)
+        # Prochain rang libre des conjoints ``? ?`` par dictionnaire de personnes
+        self._anonymous_next: Dict[int, int] = {}
 
     def parse_file(self, file_path: Union[str, Path]) -> Genealogy:
         """Parse un fichier .gw avec optimisation automatique
@@ -699,6 +701,29 @@ class GeneWebParser:
             if isinstance(err, GeneWebError):
                 genealogy.add_validation_error(err)
 
+    def _create_anonymous_person(
+        self, persons: dict, genealogy: Genealogy, gender: Gender
+    ) -> str:
+        """Crée un conjoint ``? ?`` : une personne distincte à chaque occurrence (gwc).
+
+        L'identifiant est ``?_?_N`` (N = premier rang libre) et ``is_anonymous`` vaut
+        True ; le lien avec le conjoint connu est ainsi conservé.
+        """
+        n = self._anonymous_next.get(id(persons), 0)
+        while f"?_?_{n}" in persons:
+            n += 1
+        self._anonymous_next[id(persons)] = n + 1
+        person = Person(
+            last_name="?",
+            first_name="?",
+            occurrence_number=n,
+            gender=gender,
+            is_anonymous=True,
+        )
+        persons[person.unique_id] = person
+        genealogy.add_or_update_person(person)
+        return person.unique_id
+
     def _get_or_create_person(
         self,
         last_name: str,
@@ -965,7 +990,9 @@ class GeneWebParser:
         husband_id = None
         wife_id = None
 
-        if family_info["husband_name"] and family_info["husband_firstname"]:
+        if family_info["husband_anonymous"]:
+            husband_id = self._create_anonymous_person(persons, genealogy, Gender.MALE)
+        elif family_info["husband_name"] and family_info["husband_firstname"]:
             husband_id = self._get_or_create_person(
                 family_info["husband_name"],
                 family_info["husband_firstname"],
@@ -1024,7 +1051,9 @@ class GeneWebParser:
                 for title in family_info["husband_titles"]:
                     husband.add_title(title)
 
-        if family_info["wife_name"] and family_info["wife_firstname"]:
+        if family_info["wife_anonymous"]:
+            wife_id = self._create_anonymous_person(persons, genealogy, Gender.FEMALE)
+        elif family_info["wife_name"] and family_info["wife_firstname"]:
             wife_id = self._get_or_create_person(
                 family_info["wife_name"],
                 family_info["wife_firstname"],
@@ -1329,6 +1358,7 @@ class GeneWebParser:
         """
         result: Dict[str, Any] = {
             "husband_name": None,
+            "husband_anonymous": False,
             "husband_firstname": None,
             "husband_occurrence": None,
             "husband_public_name": None,
@@ -1352,6 +1382,7 @@ class GeneWebParser:
             "husband_general_alias": None,
             "husband_image_path": None,
             "wife_name": None,
+            "wife_anonymous": False,
             "wife_firstname": None,
             "wife_occurrence": None,
             "wife_public_name": None,
@@ -1964,9 +1995,9 @@ class GeneWebParser:
         # personne créée. ``? Anne``, ``MARTIN ?``, ``???`` ou ``???.1`` sont de
         # vraies personnes.
         for role in ("husband", "wife"):
-            if result[f"{role}_name"] == "?" and result[f"{role}_firstname"] == "?":
-                result[f"{role}_name"] = None
-                result[f"{role}_firstname"] = None
+            result[f"{role}_anonymous"] = (
+                result[f"{role}_name"] == "?" and result[f"{role}_firstname"] == "?"
+            )
 
         return result
 

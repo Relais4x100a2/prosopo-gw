@@ -29,9 +29,9 @@ def _ids(texte: str) -> list:  # type: ignore[type-arg]
         ("fam DUPONT Paul + MARTIN ???", ("DUPONT_Paul_0", "MARTIN_???_0")),
         ("fam _??? Paul + MARTIN Anne", ("_???_Paul_0", "MARTIN_Anne_0")),
         ("fam ??? ???.1 + MARTIN Anne", ("???_???_1", "MARTIN_Anne_0")),
-        ("fam ? ? + MARTIN Anne", (None, "MARTIN_Anne_0")),
-        ("fam ? ?.0 + MARTIN Anne", (None, "MARTIN_Anne_0")),
-        ("fam DUPONT Paul + ? ?.0", ("DUPONT_Paul_0", None)),
+        ("fam ? ? + MARTIN Anne", ("?_?_0", "MARTIN_Anne_0")),
+        ("fam ? ?.0 + MARTIN Anne", ("?_?_0", "MARTIN_Anne_0")),
+        ("fam DUPONT Paul + ? ?.0", ("DUPONT_Paul_0", "?_?_0")),
         (
             "fam DUPONT Paul +1950 #mp Lieu,_France ??? ???",
             ("DUPONT_Paul_0", "???_???_0"),
@@ -63,9 +63,12 @@ def test_les_dates_incertaines_restent_des_dates(date: str) -> None:
 def test_inconnus_a_point_d_interrogation_unique_ne_fusionnent_pas() -> None:
     g = _parse("fam ? ?.0 + #noment ? ?.0\nfam ? ?.0 + #noment ? ?.0\n")
     assert [(f.husband_id, f.wife_id) for f in g.families.values()] == [
-        (None, None)
-    ] * 2
-    assert not g.persons
+        ("?_?_0", "?_?_1"),
+        ("?_?_2", "?_?_3"),
+    ]
+    assert len(g.persons) == 4
+    assert all(p.is_anonymous for p in g.persons.values())
+    assert g.persons["?_?_0"].gender.value != g.persons["?_?_1"].gender.value
 
 
 @pytest.mark.parametrize(
@@ -76,8 +79,20 @@ def test_inconnus_a_point_d_interrogation_unique_ne_fusionnent_pas() -> None:
         ("fam DUPONT Paul + #nm ? Anne #apriv", ("DUPONT_Paul_0", "?_Anne_0")),
         ("fam DUPONT Paul + MARTIN ?", ("DUPONT_Paul_0", "MARTIN_?_0")),
         ("fam ? Paul + MARTIN Anne", ("?_Paul_0", "MARTIN_Anne_0")),
-        ("fam DUPONT Paul + - ? ?", ("DUPONT_Paul_0", None)),
+        ("fam DUPONT Paul + - ? ?", ("DUPONT_Paul_0", "?_?_0")),
     ],
 )
 def test_un_seul_point_d_interrogation_reste_une_personne(ligne, attendu):
     assert _ids(ligne + "\n") == [attendu]
+
+
+def test_conjoint_anonyme_identique_en_mode_streaming(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    texte = "fam DUPONT Paul + ? ?\nbeg\n- h Luc\nend\nfam ? ? + MARTIN Anne\n"
+    fichier = tmp_path / "base.gw"
+    fichier.write_text(texte, encoding="utf-8")
+    g = GeneWebParser(validate=False, stream_mode=True).parse_file(str(fichier))
+    assert [(f.husband_id, f.wife_id) for f in g.families.values()] == [
+        ("DUPONT_Paul_0", "?_?_0"),
+        ("?_?_1", "MARTIN_Anne_0"),
+    ]
+    assert g.persons["?_?_0"].is_anonymous
