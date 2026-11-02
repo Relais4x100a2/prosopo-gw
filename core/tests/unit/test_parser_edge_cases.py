@@ -123,6 +123,11 @@ class TestParserValidation:
             parser.parse_string(content)
 
 
+def _lus(famille):
+    """Événements lus dans un bloc fevt (hors événements fabriqués depuis la ligne)."""
+    return [e for e in famille.events if not e.metadata.get("synthesized")]
+
+
 class TestParserBlockParsing:
     """Tests de parsing de blocs spécifiques (lignes 296-297, 320-350, 460)"""
 
@@ -227,7 +232,7 @@ end fevt"""
 
         fams = list(genealogy.families.values())
         assert len(fams) == 2
-        assert all(len(f.events) == 0 for f in fams)
+        assert all(not _lus(f) for f in fams)
         assert any(
             isinstance(e, ParseWarning) and e.context == "fevt" and "époux" in e.message
             for e in genealogy.validation_errors
@@ -325,7 +330,7 @@ end fevt"""
 
         fams = list(genealogy.families.values())
         assert len(fams) == 2
-        assert all(len(f.events) == 0 for f in fams)
+        assert all(not _lus(f) for f in fams)
         assert any(
             isinstance(e, ParseWarning) and e.context == "fevt" and "époux" in e.message
             for e in genealogy.validation_errors

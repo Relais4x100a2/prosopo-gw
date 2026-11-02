@@ -82,9 +82,8 @@ def test_compare_unmatched_person_counted(tmp_path):
 def test_compare_events_pairs_pevt_by_type_and_date():
     got, ref = _pair()
     stats: dict[str, FieldStat] = {}
-    # gwu synthétise 6 naissances (pevt) et 3 mariages (fevt) que le parser ne crée pas encore
-    # (règle de réconciliation de la phase 1) : valeur de départ, à ramener à 0.
-    assert compare_events(got, ref, stats) == 9
+    # le parser fabrique les événements comme gwc : plus aucun événement de gwu sans équivalent
+    assert compare_events(got, ref, stats) == 0
     assert stats["pevt.place"].present >= 1
 
 

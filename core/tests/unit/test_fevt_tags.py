@@ -72,5 +72,5 @@ def test_fevt_apres_famille_sans_conjoint_ne_se_rattache_pas_a_la_famille_preced
         "fam MARTIN Pierre + DUBOIS Marie\nfam ? ? + ? ?\nfevt\n#marr 1699\nend fevt\n"
     )
     premiere, seconde = g.families.values()
-    assert premiere.events == []
+    assert [e for e in premiere.events if not e.metadata.get("synthesized")] == []
     assert len(seconde.events) == 1

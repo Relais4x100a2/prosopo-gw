@@ -530,3 +530,25 @@ Constats à traiter en phase 1 :
   échantillonnées sur 2 875), exports JSON, GEDCOM et XML. Résultat : aucune erreur 500, seulement le 404
   des identifiants à `/`. Le plantage vu avant les 26 commits ne se reproduit donc pas sur le code actuel.
   Les enfants et conjoints manquants relèvent des pertes de lecture mesurées en 6.1, pas d'un plantage.
+
+### 6.4 Avancement de la phase 1 (2 novembre 2026)
+
+Mesures sur le grand arbre réel, mêmes commandes que 6.1, modes complet et streaming identiques.
+
+| étape | `fam.kind` | `fam.marriage_date` | `fam.marriage_place` | `fam.marriage_source` | `fam.witnesses` | événements non appariés |
+|---|---|---|---|---|---|---|
+| départ (6.1) | 58,1 % | 92,9 % | 91,6 % | 94,9 % | 94,5 % | 209 |
+| après le sujet 6 (réconciliation `fevt`/`pevt`) | 100 % | 100 % | 100 % | 100 % | 100 % | 1 |
+
+Sujet 6 : la passe `core/parser/reconcile.py` applique la règle de `gwc` en fin de parse. Un bloc
+`fevt` ou `pevt` fait foi (dernier mariage et dernier divorce pour les familles, premier événement de
+chaque type pour les personnes) ; sans bloc, les événements sont fabriqués depuis la ligne
+(`metadata["synthesized"]` sur l'événement, `metadata["events_synthesized"]` sur l'entité).
+
+Écarts assumés par rapport à `gwc` :
+
+- l'ordre des événements d'un bloc est celui du fichier (`gwc` trie par date puis par type) ;
+- une date absente d'un `#birt`/`#bapt` de bloc `pevt` n'efface pas une date déjà lue sur la ligne.
+
+Reste : un événement de décès (1 personne sur 6 923) que `gwc` déduit d'un état « mort » non porté par
+notre modèle, et deux dates de naissance et de décès divergentes (déjà présentes en 6.1).

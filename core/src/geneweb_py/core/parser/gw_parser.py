@@ -43,6 +43,7 @@ from .place_tokens import (
     texte_libre,
 )
 from .place_tokens import join_tokens_text as _join_tokens_text
+from .reconcile import reconcile_genealogy
 from .streaming import (
     StreamingGeneWebParser,
     estimate_memory_usage,
@@ -968,6 +969,9 @@ class GeneWebParser:
 
         if second_cross_ref_pass:
             genealogy._update_cross_references()
+
+        # Règle de gwc : le bloc d'événements fait foi, sinon on le fabrique
+        reconcile_genealogy(genealogy)
 
         return genealogy
 
