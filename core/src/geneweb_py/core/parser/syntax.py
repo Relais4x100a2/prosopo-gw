@@ -239,6 +239,30 @@ class FamilyBlockParser(BlockParser):
                 i = fin
                 continue
 
+            # Qualificatif d'union placé avant le ``+`` (tolérance), avec son code de sexe
+            if token.type in QUALIFICATIFS_UNION:
+                node.add_token(token)
+                i += 1
+                if i < len(tokens) and est_code_sexe(tokens[i]):
+                    node.add_token(tokens[i])
+                    i += 1
+                continue
+
+            if (
+                token.type == TokenType.UNKNOWN
+                and token.value == "#"
+                and i + 1 < len(tokens)
+                and tokens[i + 1].type == TokenType.IDENTIFIER
+                and tokens[i + 1].value in EVENEMENTS_UNION
+            ):
+                node.add_token(token)
+                node.add_token(tokens[i + 1])
+                i += 2
+                if i < len(tokens) and est_code_sexe(tokens[i]):
+                    node.add_token(tokens[i])
+                    i += 1
+                continue
+
             if token.type in (TokenType.APUBL, TokenType.APRIV):
                 node.add_token(token)
                 i += 1

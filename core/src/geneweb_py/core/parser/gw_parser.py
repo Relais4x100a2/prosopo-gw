@@ -1886,6 +1886,11 @@ class GeneWebParser:
             elif token.type == TokenType.UNKNOWN and token.value == "#":
                 if i + 1 < len(tokens) and tokens[i + 1].type == TokenType.IDENTIFIER:
                     i += 2  # sauter "#" et le nom du modificateur (ex: "ms")
+                    if tokens[i - 1].value in _QUALIFICATIFS_PAR_TAG:
+                        # ``#pacs`` / ``#residence`` avant le ``+`` (tolérance)
+                        result["family_qualifiers"].append(
+                            _QUALIFICATIFS_PAR_TAG[tokens[i - 1].value]
+                        )
                     if tokens[i - 1].value in EVENEMENTS_UNION and (
                         i < len(tokens) and est_code_sexe(tokens[i])
                     ):
@@ -1896,6 +1901,8 @@ class GeneWebParser:
                             break
                         if t.type == TokenType.UNKNOWN and t.value == "#":
                             break  # prochain modificateur inconnu
+                        if t.type == TokenType.PLUS:
+                            break  # la partie mariage reprend la lecture
                         if t.type in (
                             TokenType.MP,
                             TokenType.NM,
