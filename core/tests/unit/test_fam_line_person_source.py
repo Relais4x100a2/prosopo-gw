@@ -4,6 +4,7 @@ import pytest
 
 from geneweb_py import GeneWebParser
 from geneweb_py.core.parser.lexical import LexicalParser
+from geneweb_py.core.parser.words import cut_space, decode_word
 
 
 def _base(texte: str, tmp_path=None):
@@ -44,14 +45,14 @@ SOURCES = {
 
 @pytest.mark.parametrize("mode", ["complet", "streaming"])
 @pytest.mark.parametrize("source", SOURCES.values(), ids=SOURCES.keys())
-def test_source_des_conjoints_lue_telle_quelle(source, mode, tmp_path):
+def test_source_des_conjoints_decodee_comme_gwc(source, mode, tmp_path):
     g = _base(
         f"fam DUPONT Jean #src Reg_1 +1900 #mp V MARTIN Anne #src {source}\n",
         tmp_path if mode == "streaming" else None,
     )
     (f,) = g.families.values()
-    assert g.persons["DUPONT_Jean_0"].person_source == "Reg_1"
-    assert g.persons["MARTIN_Anne_0"].person_source == source
+    assert g.persons["DUPONT_Jean_0"].person_source == "Reg 1"
+    assert g.persons["MARTIN_Anne_0"].person_source == cut_space(decode_word(source))
     assert f.family_source is None
     assert f.marriage_place == "V"
 
@@ -60,7 +61,7 @@ def test_source_de_l_epouse_seule():
     g = _base("fam DUPONT Jean +1900 MARTIN Anne #src Acte_12\n")
     (f,) = g.families.values()
     assert g.persons["DUPONT_Jean_0"].person_source is None
-    assert g.persons["MARTIN_Anne_0"].person_source == "Acte_12"
+    assert g.persons["MARTIN_Anne_0"].person_source == "Acte 12"
     assert f.family_source is None
 
 
@@ -83,7 +84,7 @@ def test_sans_texte_source_le_mot_vient_des_jetons():
     parser = GeneWebParser(validate=False)
     parser._source = None
     info = parser._parse_family_line(LexicalParser(ligne).tokenize())
-    assert info["husband_person_source"] == "3_E_041/472"
+    assert info["husband_person_source"] == "3 E 041/472"
     assert info["wife_person_source"] == "Reg(Pa)"
     assert (info["wife_name"], info["wife_firstname"]) == ("MARTIN", "Anne")
 

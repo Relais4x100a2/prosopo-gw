@@ -49,7 +49,13 @@ from .streaming import (
     should_use_streaming,
 )
 from .syntax import BlockType, SyntaxNode, SyntaxParser
-from .words import MarriagePart, decode_word, read_marriage_part, word_spans
+from .words import (
+    MarriagePart,
+    cut_space,
+    decode_word,
+    read_marriage_part,
+    word_spans,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1512,7 +1518,9 @@ class GeneWebParser:
             elif token.type == TokenType.SRC and token.value == "#src":
                 mots, fin_ligne = _line_words(tokens, i + 1, self._source)
                 if mots:
-                    result[f"{current_person}_person_source"] = mots[0][0]
+                    result[f"{current_person}_person_source"] = cut_space(
+                        decode_word(mots[0][0])
+                    )
                     i = mots[1][1] if len(mots) > 1 else fin_ligne
                 else:
                     i += 1
@@ -3291,35 +3299,12 @@ class GeneWebParser:
                 if value:
                     person.death_place = value
 
-            # Occupation (#occu)
+            # Occupation (#occu) : un mot brut (``get_occu`` de gwc)
             elif token.type == TokenType.OCCU:
                 i += 1
-                occupation_parts: List[str] = []
-                occ_agg = 0
-                while i < len(tokens) and tokens[i].type in [
-                    TokenType.IDENTIFIER,
-                    TokenType.STRING,
-                    TokenType.PAREN_OPEN,
-                    TokenType.PAREN_CLOSE,
-                    TokenType.UNKNOWN,
-                ]:
-                    # Remplacer les underscores par des espaces pour l'affichage
-                    # Garder les virgules et apostrophes telles quelles
-                    fragment = decode_word(tokens[i].value)
-                    occ_agg, stop = _bounded_append_text_fragment(
-                        occupation_parts,
-                        occ_agg,
-                        fragment,
-                        inter_fragment_sep_len=0,
-                        max_fragments=_TEXT_AGGREGATE_MAX_FRAGMENTS,
-                        max_aggregate_chars=_TEXT_AGGREGATE_MAX_CHARS,
-                        log_context="Occupation inline",
-                    )
-                    i += 1
-                    if stop:
-                        break
-                if occupation_parts:
-                    person.occupation = "".join(occupation_parts)
+                value, i = self._read_raw_word(tokens, i)
+                if value:
+                    person.occupation = value
 
             # Surnom (#nick)
             elif token.type == TokenType.NICK:
@@ -3492,15 +3477,12 @@ class GeneWebParser:
                         texte_libre(tokens[note_debut:i], len(note_content))
                     )
 
-            # Sources (#src)
+            # Source de la personne (#src) : un mot brut (``get_sources`` de gwc)
             elif token.type == TokenType.SRC:
                 i += 1
-                if i < len(tokens) and tokens[i].type in MOT_DE_CHAMP:
-                    # La source est un mot (URL, ``3_E_041/472``…) que le lexeur découpe
-                    fin = mot_end(tokens, i)
-                    # Par défaut, stocker en note pour compat; évitons de créer des personnes  # noqa: E501
-                    person.add_note(f"Source: {_join_tokens_text(tokens[i:fin])}")
-                    i = fin
+                value, i = self._read_raw_word(tokens, i)
+                if value:
+                    person.person_source = value
 
             # Commentaires (#comm)
             elif token.type == TokenType.COMM:
@@ -3525,6 +3507,18 @@ class GeneWebParser:
                 i += 1
 
         return i
+
+    def _read_raw_word(self, tokens: List[Token], start: int) -> Tuple[str, int]:
+        """Décode le mot brut qui commence à ``tokens[start]`` (un mot, comme gwc).
+
+        Returns:
+            (valeur décodée, index du premier jeton après le mot)
+        """
+        mots, fin_ligne = _line_words(tokens, start, self._source)
+        if not mots:
+            return "", start
+        suivant = mots[1][1] if len(mots) > 1 else fin_ligne
+        return cut_space(decode_word(mots[0][0])), suivant
 
     def _find_person_info_start(
         self, tokens: List[Token], last_name: str, first_name: str
