@@ -1,0 +1,5 @@
+*.gw
+*.gwb/
+*.log
+*.json
+out/

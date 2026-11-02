@@ -35,10 +35,10 @@ jobs:
         run: uv lock --check
 
       - name: Ruff lint
-        run: uv run --package geneweb-py ruff check core/src core/tests --ignore E501 --output-format=github
+        run: uv run --package geneweb-py ruff check core/src core/tests core/tools --ignore E501 --output-format=github
 
       - name: Ruff format
-        run: uv run --package geneweb-py ruff format --check core/src core/tests
+        run: uv run --package geneweb-py ruff format --check core/src core/tests core/tools
 
       - name: Mypy (ensemble de core)
         run: uv run --package geneweb-py mypy core/src/geneweb_py
