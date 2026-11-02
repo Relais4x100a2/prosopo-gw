@@ -180,7 +180,13 @@ class GEDCOMExporter(BaseExporter):
             lines.append(f"1 SEX {sex_code}")
 
         # Naissance : un seul bloc BIRT (DATE + PLAC au niveau 2)
-        if (person.birth_date and person.birth_date.year) or person.birth_place:
+        has_birt = bool(
+            (person.birth_date and person.birth_date.year) or person.birth_place
+        )
+        has_deat = bool(
+            (person.death_date and person.death_date.year) or person.death_place
+        )
+        if has_birt:
             lines.append("1 BIRT")
             if person.birth_date and person.birth_date.year:
                 lines.append(f"2 DATE {self._format_gedcom_date(person.birth_date)}")
@@ -188,7 +194,7 @@ class GEDCOMExporter(BaseExporter):
                 lines.append(f"2 PLAC {person.birth_place}")
 
         # Décès : un seul bloc DEAT
-        if (person.death_date and person.death_date.year) or person.death_place:
+        if has_deat:
             lines.append("1 DEAT")
             if person.death_date and person.death_date.year:
                 lines.append(f"2 DATE {self._format_gedcom_date(person.death_date)}")
@@ -212,9 +218,13 @@ class GEDCOMExporter(BaseExporter):
         # Événements personnels
         if person.events:
             for event in person.events:
-                if event.event_type:
-                    event_lines = self._export_event(event)
-                    lines.extend(event_lines)
+                if not event.event_type:
+                    continue
+                # Naissance/décès déjà écrits depuis les champs : pas de doublon
+                gtag = self._map_event_type(event.event_type.value)
+                if (gtag == "BIRT" and has_birt) or (gtag == "DEAT" and has_deat):
+                    continue
+                lines.extend(self._export_event(event))
 
         # Liens retour vers les familles (le format les exige des deux côtés)
         lines.extend(
