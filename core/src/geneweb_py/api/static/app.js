@@ -609,6 +609,7 @@ async function showFamilyDetail(familyId, btnEl) {
 }
 
 // ==================== ÉVÉNEMENTS ====================
+// Types courants : cases à cocher visibles dans le formulaire.
 const EVENT_TYPES = [
   { value: 'birt', label: 'Naissance' },
   { value: 'deat', label: 'Décès' },
@@ -622,16 +623,80 @@ const EVENT_TYPES = [
   { value: 'oth',  label: 'Autre' },
 ];
 
-const EVENT_TYPE_MAP = Object.fromEntries(EVENT_TYPES.map(t => [t.value, t.label]));
+// Autres types (EventType / FamilyEventType du moteur), regroupés sous « Plus de types ».
+const EXTRA_EVENT_TYPES = [
+  { value: 'resi', label: 'Résidence' },
+  { value: 'occu', label: 'Profession' },
+  { value: 'educ', label: 'Éducation' },
+  { value: 'grad', label: 'Diplôme obtenu' },
+  { value: 'degr', label: 'Diplôme' },
+  { value: 'mser', label: 'Service militaire' },
+  { value: 'mdis', label: 'Libération militaire' },
+  { value: 'mpro', label: 'Promotion militaire' },
+  { value: 'mobm', label: 'Mobilisation militaire' },
+  { value: 'demm', label: 'Démobilisation' },
+  { value: 'natu', label: 'Naturalisation' },
+  { value: 'emig', label: 'Émigration' },
+  { value: 'immi', label: 'Immigration' },
+  { value: 'cens', label: 'Recensement' },
+  { value: 'crem', label: 'Crémation' },
+  { value: 'fune', label: 'Funérailles' },
+  { value: 'conf', label: 'Confirmation' },
+  { value: 'fcom', label: 'Première communion' },
+  { value: 'ordn', label: 'Ordination' },
+  { value: 'exco', label: 'Excommunication' },
+  { value: 'bles', label: 'Bénédiction' },
+  { value: 'barm', label: 'Bar-mitsva' },
+  { value: 'basm', label: 'Bat-mitsva' },
+  { value: 'circ', label: 'Circoncision' },
+  { value: 'adhe', label: 'Adhésion' },
+  { value: 'acco', label: 'Réalisation' },
+  { value: 'acqu', label: 'Acquisition' },
+  { value: 'prop', label: 'Propriété' },
+  { value: 'reti', label: 'Retraite' },
+  { value: 'elec', label: 'Élection' },
+  { value: 'vteb', label: 'Vote' },
+  { value: 'awar', label: 'Décoration' },
+  { value: 'dist', label: 'Distinction' },
+  { value: 'endl', label: 'Dotation' },
+  { value: 'hosp', label: 'Hospitalisation' },
+  { value: 'illn', label: 'Maladie' },
+  { value: 'chgn', label: 'Changement de nom' },
+  { value: 'will', label: 'Testament' },
+  { value: 'lpas', label: 'Dernier passage' },
+  { value: 'bapl', label: 'Baptême (SDJ)' },
+  { value: 'conl', label: 'Confirmation (SDJ)' },
+  { value: 'dotl', label: 'Dotation (SDJ)' },
+  { value: 'flkl', label: 'Lien familial (SDJ)' },
+  { value: 'slgc', label: 'Scellement enfant (SDJ)' },
+  { value: 'slgp', label: 'Scellement parents (SDJ)' },
+  { value: 'slgs', label: 'Scellement conjoints (SDJ)' },
+  { value: 'anul', label: 'Annulation de mariage' },
+  { value: 'marb', label: 'Bans de mariage' },
+  { value: 'marc', label: 'Contrat de mariage' },
+  { value: 'marl', label: 'Licence de mariage' },
+  { value: 'nmar', label: 'Non marié' },
+  { value: 'nmen', label: 'Sans mention' },
+  { value: 'strng', label: 'Texte libre' },
+  { value: 'other', label: 'Autre' },
+];
+
+const EVENT_TYPE_MAP = Object.fromEntries(
+  [...EVENT_TYPES, ...EXTRA_EVENT_TYPES].map(t => [t.value, t.label])
+);
+const eventTypeLabel = code => EVENT_TYPE_MAP[code] || code || '?';
 
 let eventsTable = null;
 
 function initEventsTab() {
   const container = document.getElementById('evt-types');
   if (container) {
-    container.innerHTML = EVENT_TYPES.map(t =>
-      `<label style="margin-right:0.5rem;font-size:0.82rem"><input type="checkbox" value="${escHtml(t.value)}" class="evt-type-cb"> ${escHtml(t.label)}</label>`
-    ).join('');
+    const cb = t =>
+      `<label><input type="checkbox" value="${escHtml(t.value)}" class="evt-type-cb"> ${escHtml(t.label)}</label>`;
+    const extras = [...EXTRA_EVENT_TYPES].sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+    container.innerHTML = EVENT_TYPES.map(cb).join('')
+      + `<details class="evt-more-types"><summary>Plus de types…</summary>`
+      + `<div class="event-type-checkboxes">${extras.map(cb).join('')}</div></details>`;
   }
 
   const filterInputs = document.querySelectorAll('.evt-filter-input');
@@ -749,13 +814,17 @@ function buildEventsTable(data) {
         // Tabulator 6 : l'éditeur « select » n'existe plus, c'est « list ».
         headerFilter: 'list',
         headerFilterParams: {
-          values: EVENT_TYPE_MAP,
+          values: Object.fromEntries(
+            [...new Set(data.map(d => d.event_type).filter(Boolean))]
+              .map(c => [c, eventTypeLabel(c)])
+              .sort((a, b) => a[1].localeCompare(b[1], 'fr'))
+          ),
           clearable: true,
           placeholderEmpty: 'Aucun type',
         },
         headerFilterPlaceholder: 'Tous',
         headerFilterFunc: '=',
-        formatter: cell => escHtml(EVENT_TYPE_MAP[cell.getValue()] || cell.getValue() || '?'),
+        formatter: cell => escHtml(eventTypeLabel(cell.getValue())),
       },
       {
         title: 'Date',

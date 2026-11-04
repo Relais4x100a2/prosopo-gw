@@ -65,3 +65,13 @@ def test_empty_state_hidden_when_detail_panel_open():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "#persons-list:has(#person-detail-panel) .list-empty" in css
     assert js.count('class="text-muted list-empty"') == 2
+
+
+def test_every_event_type_code_has_a_french_label():
+    """Aucun code brut (« resi »…) ne doit s'afficher dans l'onglet Événements."""
+    from geneweb_py.core.event import EventType, FamilyEventType
+
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    labelled = set(re.findall(r"\{ value: '(\w+)',\s*label:", js))
+    codes = {t.value for t in EventType} | {t.value for t in FamilyEventType}
+    assert codes - labelled == set()

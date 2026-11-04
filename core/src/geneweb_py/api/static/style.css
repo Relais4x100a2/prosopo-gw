@@ -413,3 +413,7 @@ body {
 #persons-list:has(#person-detail-panel) .list-empty,
 #families-list:has(#family-detail-panel) .list-empty { display: none; }
 .pagination-bar[hidden] { display: none; }
+
+.evt-more-types { flex-basis: 100%; margin-top: 0.2rem; }
+.evt-more-types summary { cursor: pointer; font-size: 0.85rem; color: var(--accent); }
+.evt-more-types .event-type-checkboxes { margin-top: 0.4rem; }
