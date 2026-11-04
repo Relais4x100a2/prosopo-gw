@@ -742,10 +742,15 @@ function buildEventsTable(data) {
         field: 'event_type',
         width: 120,
         sorter: 'string',
-        headerFilter: 'select',
+        // Tabulator 6 : l'éditeur « select » n'existe plus, c'est « list ».
+        headerFilter: 'list',
         headerFilterParams: {
-          values: Object.assign({ '': 'Tous' }, EVENT_TYPE_MAP),
+          values: EVENT_TYPE_MAP,
+          clearable: true,
+          placeholderEmpty: 'Aucun type',
         },
+        headerFilterPlaceholder: 'Tous',
+        headerFilterFunc: '=',
         formatter: cell => escHtml(EVENT_TYPE_MAP[cell.getValue()] || cell.getValue() || '?'),
       },
       {

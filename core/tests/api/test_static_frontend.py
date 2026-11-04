@@ -41,3 +41,9 @@ def test_tabulator_assets_are_served_with_self_only_csp():
             r = client.get(path)
             assert r.status_code == 200
             assert "default-src 'self'" in r.headers["content-security-policy"]
+
+
+def test_app_js_uses_no_removed_tabulator_editors():
+    """Tabulator 6 a retiré l'éditeur « select » (remplacé par « list »)."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert not re.search(r"headerFilter:\s*['\"]select['\"]", js)
