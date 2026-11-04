@@ -122,3 +122,66 @@ def test_session_token_not_logged(caplog):
         assert secret_token not in record.getMessage(), (
             f"Token found in log record: {record.getMessage()}"
         )
+
+
+class TestLoggingPrivacy:
+    """Aucune donnée du fichier téléversé ne doit atteindre les journaux."""
+
+    SECRET = "DUPONT_Jean_Secret_0"
+
+    @staticmethod
+    def _api_logs(caplog) -> str:
+        """Journaux de l'API seuls (le client de test httpx écrit sa propre URL)."""
+        return "\n".join(
+            r.getMessage() + (r.exc_text or "")
+            for r in caplog.records
+            if r.name.startswith("geneweb_py")
+        )
+
+    def _app(self):
+        app = FastAPI()
+        setup_error_handlers(app)
+        setup_logging_middleware(app)
+
+        @app.get("/api/v1/persons/{person_id}")
+        async def person(person_id: str):
+            return {"id": person_id}
+
+        @app.get("/api/v1/boom/{person_id}")
+        async def boom(person_id: str):
+            raise ValueError(f"échec pour {person_id}")
+
+        return app
+
+    def test_logs_route_template_not_real_url(self, caplog):
+        caplog.set_level("DEBUG")
+        client = TestClient(self._app())
+        assert (
+            client.get(f"/api/v1/persons/{self.SECRET}?query=Secret").status_code == 200
+        )
+        logs = self._api_logs(caplog)
+        assert "DUPONT" not in logs
+        assert "Secret" not in logs
+        assert "/api/v1/persons/{person_id}" in logs
+
+    def test_unmatched_path_is_not_logged(self, caplog):
+        caplog.set_level("DEBUG")
+        client = TestClient(self._app())
+        assert client.get(f"/inconnu/{self.SECRET}").status_code == 404
+        assert "DUPONT" not in self._api_logs(caplog)
+
+    def test_exception_message_and_url_not_logged(self, caplog):
+        caplog.set_level("DEBUG")
+        client = TestClient(self._app(), raise_server_exceptions=False)
+        assert client.get(f"/api/v1/boom/{self.SECRET}").status_code == 500
+        logs = self._api_logs(caplog)
+        assert "DUPONT" not in logs
+        assert "ValueError" in logs
+
+    def test_client_ip_and_user_agent_not_logged(self, caplog):
+        caplog.set_level("DEBUG")
+        client = TestClient(self._app())
+        client.get("/api/v1/persons/x", headers={"User-Agent": "UA-Secret-Marker"})
+        logs = self._api_logs(caplog)
+        assert "UA-Secret-Marker" not in logs
+        assert "testclient" not in logs

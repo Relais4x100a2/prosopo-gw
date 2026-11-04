@@ -1,8 +1,12 @@
 """
 Middleware de logging pour l'API geneweb-py.
 
-Ce module fournit un logging détaillé des requêtes et réponses pour
-le monitoring et le debugging.
+Ce module journalise les requêtes et réponses pour le monitoring, sans jamais
+écrire de donnée issue du fichier téléversé (privacy by design) : ni l'URL réelle
+(les identifiants de personnes contiennent noms et prénoms), ni la chaîne de
+requête, ni le message des exceptions, ni l'adresse IP du client. Seuls la méthode,
+le gabarit de la route (ex. ``/api/v1/persons/{person_id}``), le statut et la durée
+sont écrits.
 """
 
 import logging
@@ -13,6 +17,18 @@ from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
+
+UNROUTED = "<non-routé>"
+
+
+def route_template(request: Request) -> str:
+    """Gabarit de la route appelée, jamais l'URL réelle.
+
+    Renvoie ``UNROUTED`` quand aucune route ne correspond (404, fichier statique).
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) and path else UNROUTED
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -29,59 +45,35 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: Réponse HTTP
         """
-        # Informations de la requête
         start_time = time.time()
-        client_ip = request.client.host if request.client else "unknown"
-        raw_user_agent = request.headers.get("user-agent", "unknown")
-        user_agent_sanitized = (
-            raw_user_agent.replace("\r", " ").replace("\n", " ").strip()[:256]
-            or "unknown"
-        )
 
-        # X-Session-Token intentionnellement absent des logs (privacy by design)
-        # Log de la requête entrante
-        logger.info(
-            "Requête entrante: %s %s depuis %s - User-Agent: %s",
-            request.method,
-            request.url.path,
-            client_ip,
-            user_agent_sanitized,
-        )
-
-        # Traitement de la requête
+        # Ni l'URL réelle, ni la chaîne de requête, ni X-Session-Token, ni l'adresse
+        # IP, ni le User-Agent ne sont journalisés (privacy by design).
         try:
             response = await call_next(request)
-
-            # Calcul du temps de traitement
-            process_time = time.time() - start_time
-
-            # Log de la réponse
-            logger.info(
-                f"Réponse: {request.method} {request.url.path} "
-                f"-> {response.status_code} en {process_time:.3f}s"
-            )
-
-            # Ajout du temps de traitement dans les headers
-            response.headers["X-Process-Time"] = str(process_time)
-
-            return response
-
         except Exception as exc:
-            # Calcul du temps avant l'erreur
-            process_time = time.time() - start_time
-
-            # Log de l'erreur
+            # Seul le type de l'exception est écrit : son message peut citer des
+            # données du fichier téléversé.
             logger.error(
-                "Erreur lors du traitement: %s %s après %.3fs - %s: %s",
+                "Erreur lors du traitement: %s %s après %.3fs - %s",
                 request.method,
-                request.url.path,
-                process_time,
+                route_template(request),
+                time.time() - start_time,
                 type(exc).__name__,
-                exc,
             )
-
             # Re-lance l'exception pour qu'elle soit traitée par les gestionnaires d'erreurs  # noqa: E501
             raise
+
+        process_time = time.time() - start_time
+        logger.info(
+            "Réponse: %s %s -> %s en %.3fs",
+            request.method,
+            route_template(request),
+            response.status_code,
+            process_time,
+        )
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
 
 
 def setup_logging_middleware(app: FastAPI) -> None:
@@ -102,6 +94,7 @@ def setup_logging_middleware(app: FastAPI) -> None:
     )
 
     # Configuration spécifique pour uvicorn
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    # Le journal d'accès d'uvicorn écrit l'URL réelle et la requête : désactivé
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     logger.info("Middleware de logging configuré pour l'API GeneWeb-py")

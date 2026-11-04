@@ -6,6 +6,7 @@ standardisées et un logging approprié.
 """
 
 import logging
+import traceback
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -31,7 +32,7 @@ def setup_error_handlers(app: FastAPI) -> None:
         request: Request, exc: GeneWebParseError
     ) -> JSONResponse:
         """Gestionnaire pour les erreurs de parsing GeneWeb."""
-        logger.error(f"Erreur de parsing GeneWeb: {exc}", exc_info=True)
+        logger.error("Erreur de parsing GeneWeb: %s", type(exc).__name__)
 
         # Détails enrichis: inclure le contexte utile (ligne, token, attendu)
         details = [ErrorDetail(message=str(exc), code="PARSE_ERROR")]
@@ -61,7 +62,7 @@ def setup_error_handlers(app: FastAPI) -> None:
         request: Request, exc: GeneWebValidationError
     ) -> JSONResponse:
         """Gestionnaire pour les erreurs de validation GeneWeb."""
-        logger.error(f"Erreur de validation GeneWeb: {exc}", exc_info=True)
+        logger.error("Erreur de validation GeneWeb: %s", type(exc).__name__)
 
         return JSONResponse(
             status_code=422,
@@ -78,7 +79,7 @@ def setup_error_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         """Gestionnaire pour les erreurs de validation des requêtes."""
-        logger.error(f"Erreur de validation de requête: {exc}", exc_info=True)
+        logger.error("Erreur de validation de requête (%d champ(s))", len(exc.errors()))
 
         details = []
         for error in exc.errors():
@@ -103,7 +104,7 @@ def setup_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
         """Gestionnaire pour les erreurs HTTP."""
-        logger.error(f"Erreur HTTP {exc.status_code}: {exc.detail}", exc_info=True)
+        logger.error("Erreur HTTP %s", exc.status_code)
 
         return JSONResponse(
             status_code=exc.status_code,
@@ -117,9 +118,7 @@ def setup_error_handlers(app: FastAPI) -> None:
         request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
         """Gestionnaire pour les erreurs HTTP Starlette."""
-        logger.error(
-            f"Erreur Starlette HTTP {exc.status_code}: {exc.detail}", exc_info=True
-        )
+        logger.error("Erreur Starlette HTTP %s", exc.status_code)
 
         return JSONResponse(
             status_code=exc.status_code,
@@ -131,7 +130,12 @@ def setup_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception) -> JSONResponse:
         """Gestionnaire pour toutes les autres erreurs."""
-        logger.error(f"Erreur inattendue: {exc}", exc_info=True)
+        # Type et pile d'appels seulement : le message peut citer des données du fichier
+        logger.error(
+            "Erreur inattendue: %s\n%s",
+            type(exc).__name__,
+            "".join(traceback.format_tb(exc.__traceback__)),
+        )
 
         return JSONResponse(
             status_code=500,
