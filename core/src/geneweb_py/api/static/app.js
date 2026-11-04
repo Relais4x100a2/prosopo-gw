@@ -8,6 +8,8 @@ const state = {
   persons: { items: [], page: 1, pages: 1 },
   families: { items: [], page: 1, pages: 1, nameMap: {} },
   currentPersonId: null,
+  // id → « NOM, Prénoms » : évite de redemander un nom déjà connu.
+  nameCache: new Map(),
 };
 
 // ==================== UTILITAIRES ====================
@@ -93,6 +95,7 @@ async function deleteSession() {
 
 function clearSession() {
   state.token = null;
+  state.nameCache.clear();
   state.expiresAt = null;
   sessionStorage.removeItem('gwToken');
   sessionStorage.removeItem('gwExpiresAt');
@@ -326,6 +329,7 @@ async function loadPersons(page, query) {
     throw err;
   }
   if (seq !== _personsSeq) return;
+  rememberNames(data.items);
   state.persons.items = data.items;
   state.persons.page = data.pagination.page;
   state.persons.pages = data.pagination.pages;
@@ -451,16 +455,38 @@ async function showPersonDetail(personId, btnEl) {
   });
 }
 
+// Au plus MAX_NAME_IDS identifiants par appel (plafond de GET /persons/names).
+const MAX_NAME_IDS = 200;
+
+function rememberNames(persons) {
+  for (const p of persons || []) {
+    if (p && p.id) state.nameCache.set(p.id, personLabel(p.surname, p.first_name));
+  }
+}
+
+// Résout les noms en lot : une requête pour toute une page au lieu d'une par personne
+// (le N+1 épuisait vite la limite de 600 requêtes/minute).
 async function resolvePersonNames(ids) {
-  const map = {};
-  // No batch endpoint available; one request per related person
-  await Promise.all(ids.map(async id => {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  const missing = wanted.filter(id => !state.nameCache.has(id));
+  for (let i = 0; i < missing.length; i += MAX_NAME_IDS) {
+    const chunk = missing.slice(i, i + MAX_NAME_IDS);
+    const params = new URLSearchParams();
+    chunk.forEach(id => params.append('ids', id));
+    let found = {};
     try {
-      const r = await apiJson('/api/v1/persons/' + encodeURIComponent(id));
-      const p = r.data;
-      map[id] = personLabel(p.surname, p.first_name);
-    } catch { map[id] = id; }
-  }));
+      found = (await apiJson('/api/v1/persons/names?' + params)).data || {};
+    } catch (err) {
+      if (err.message === 'session-expired') throw err;
+      continue;   // échec réseau : on affichera les identifiants bruts, sans les mémoriser
+    }
+    for (const id of chunk) {
+      const p = found[id];
+      state.nameCache.set(id, p ? personLabel(p.surname, p.first_name) : id);
+    }
+  }
+  const map = {};
+  for (const id of wanted) map[id] = state.nameCache.get(id) || id;
   return map;
 }
 
@@ -785,8 +811,10 @@ async function runEvtSearch() {
       degree: personDegree,
       familyName: nomFamille,
     };
-    const items = await fetchEvtItems(filters);
-    statusEl.textContent = `${items.length} événement(s) trouvé(s)`;
+    const { items, total } = await fetchEvtItems(filters);
+    statusEl.textContent = total > items.length
+      ? `${total} événements trouvés : seuls les ${items.length} premiers sont affichés, affinez les critères.`
+      : `${items.length} événement(s) trouvé(s)`;
     buildEventsTable(items);
   } catch (err) {
     if (err.message === 'session-expired') return;
@@ -796,8 +824,12 @@ async function runEvtSearch() {
 
 // Le serveur filtre (types, lieu, personne liée + degré, nom de famille) ;
 // le client ne fait que paginer les résultats déjà filtrés.
+// Au-delà, on demande d'affiner plutôt que d'enchaîner des dizaines de requêtes.
+const EVT_MAX_PAGES = 20;   // 20 × 100 = 2 000 événements
+
 async function fetchEvtItems({ types, place, relatedTo, degree, familyName }) {
   const allItems = [];
+  let total = 0;
   let page = 1;
   while (true) {
     const params = new URLSearchParams({ page, size: 100 });
@@ -810,10 +842,11 @@ async function fetchEvtItems({ types, place, relatedTo, degree, familyName }) {
     if (familyName) params.set('family_name', familyName);
     const data = await apiJson('/api/v1/events/?' + params);
     allItems.push(...data.items);
-    if (!data.pagination.has_next) break;
+    total = data.pagination.total;
+    if (!data.pagination.has_next || page >= EVT_MAX_PAGES) break;
     page++;
   }
-  return allItems;
+  return { items: allItems, total };
 }
 
 function buildEventsTable(data) {

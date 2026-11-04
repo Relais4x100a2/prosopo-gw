@@ -101,3 +101,19 @@ def test_drop_starts_upload_immediately():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "startUpload(e.dataTransfer.files[0])" in js
     assert "if (file) startUpload(file);" in js
+
+
+def test_names_resolved_in_batch_not_one_request_per_person():
+    """Anti N+1 : les noms passent par GET /persons/names, avec un cache."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    body = js[js.index("async function resolvePersonNames(") :]
+    body = body[: body.index("\n}\n")]
+    assert "/api/v1/persons/names?" in body
+    assert "'/api/v1/persons/' + encodeURIComponent" not in body
+    assert "state.nameCache" in body
+
+
+def test_events_fetch_is_capped():
+    """La recherche d'événements ne peut pas enchaîner un nombre illimité de pages."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "page >= EVT_MAX_PAGES" in js

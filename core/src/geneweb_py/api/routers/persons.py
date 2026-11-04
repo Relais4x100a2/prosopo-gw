@@ -2,7 +2,7 @@
 Router FastAPI pour la gestion des personnes dans l'API geneweb-py.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -27,6 +27,9 @@ from ..serialization import event_to_schema, stable_event_id
 from ..services.genealogy_service import GenealogyService
 
 router = APIRouter()
+
+# Plafond de /names : couvre une page de 50 familles (100 conjoints) avec marge.
+MAX_NAME_IDS = 200
 
 
 @router.post(
@@ -261,6 +264,50 @@ async def get_related_persons(
         raise_internal_server_error(
             "Erreur lors de la récupération des personnes liées", exc
         )
+
+
+@router.get("/names", response_model=SuccessResponse)
+async def get_person_names(
+    ids: List[str] = Query(
+        default_factory=list,
+        description="Identifiants (paramètre répété : ?ids=a&ids=b)",
+    ),
+    service: GenealogyService = Depends(get_session_service),
+) -> SuccessResponse:
+    """
+    Résout en une requête les noms de plusieurs personnes.
+
+    Évite le N+1 côté client (une requête par conjoint, parent ou enfant).
+    Les identifiants inconnus sont simplement absents du résultat.
+
+    Returns:
+        SuccessResponse: ``data`` = ``{id: {first_name, surname, birth_date,
+        death_date}}``
+    """
+    if len(ids) > MAX_NAME_IDS:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "too_long",
+                    "loc": ("query", "ids"),
+                    "msg": f"Au plus {MAX_NAME_IDS} identifiants par requête",
+                    "input": len(ids),
+                }
+            ]
+        )
+    names: Dict[str, Dict[str, Any]] = {}
+    for person_id in dict.fromkeys(ids):
+        person = service.get_person(person_id)
+        if person is None:
+            continue
+        item = person_to_list_schema(person)
+        names[person_id] = {
+            "first_name": item.first_name,
+            "surname": item.surname,
+            "birth_date": item.birth_date,
+            "death_date": item.death_date,
+        }
+    return SuccessResponse(message=f"{len(names)} nom(s) résolu(s)", data=names)
 
 
 @router.get("/stats/overview", response_model=SuccessResponse)
