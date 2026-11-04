@@ -651,13 +651,6 @@ function checkEvtGate() {
   document.getElementById('evt-search-btn').disabled = !(hasType || hasLieu || hasPerson || hasNom);
 }
 
-function normalizeEvtText(str) {
-  return (str || '').normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[-_]/g, ' ');
-}
-
 async function runEvtSearch() {
   const selectedTypes = [...document.querySelectorAll('.evt-type-cb:checked')].map(cb => cb.value);
   const lieu = (document.getElementById('evt-lieu').value || '').trim();
@@ -671,68 +664,40 @@ async function runEvtSearch() {
   if (eventsTable) { eventsTable.destroy(); eventsTable = null; }
 
   try {
-    let relCtx = null;
-    if (personId) {
-      const rel = await apiJson(
-        `/api/v1/persons/${encodeURIComponent(personId)}/related?degree=${personDegree}`
-      );
-      relCtx = rel.data;
-    }
-
-    const items = await fetchEvtItems(selectedTypes, lieu);
-
-    let filtered = items;
-    if (relCtx) {
-      const pids = new Set(relCtx.person_ids);
-      const fids = new Set(relCtx.family_ids);
-      const wpid = relCtx.witness_person_id;
-      filtered = filtered.filter(e =>
-        pids.has(e.person_id) ||
-        fids.has(e.family_id) ||
-        (wpid && Array.isArray(e.witnesses) && e.witnesses.includes(wpid))
-      );
-    }
-    if (nomFamille) {
-      const norm = normalizeEvtText(nomFamille);
-      filtered = filtered.filter(e =>
-        normalizeEvtText(e.person_name || '').includes(norm) ||
-        normalizeEvtText(e.family_label || '').includes(norm)
-      );
-    }
-
-    statusEl.textContent = `${filtered.length} événement(s) trouvé(s)`;
-    buildEventsTable(filtered);
+    const filters = {
+      types: selectedTypes,
+      place: lieu,
+      relatedTo: personId,
+      degree: personDegree,
+      familyName: nomFamille,
+    };
+    const items = await fetchEvtItems(filters);
+    statusEl.textContent = `${items.length} événement(s) trouvé(s)`;
+    buildEventsTable(items);
   } catch (err) {
     if (err.message === 'session-expired') return;
     statusEl.textContent = 'Erreur lors de la recherche.';
   }
 }
 
-async function fetchEvtItems(selectedTypes, lieu) {
-  const typesToFetch = selectedTypes.length > 0 ? selectedTypes : [null];
+// Le serveur filtre (types, lieu, personne liée + degré, nom de famille) ;
+// le client ne fait que paginer les résultats déjà filtrés.
+async function fetchEvtItems({ types, place, relatedTo, degree, familyName }) {
   const allItems = [];
-
-  for (const type of typesToFetch) {
-    let page = 1;
-    while (true) {
-      const params = new URLSearchParams({ page, size: 100 });
-      if (type) params.set('event_type', type);
-      if (lieu) params.set('place', lieu);
-      const data = await apiJson('/api/v1/events/?' + params);
-      allItems.push(...data.items);
-      if (!data.pagination.has_next) break;
-      page++;
-      if (page > 200) break;
+  let page = 1;
+  while (true) {
+    const params = new URLSearchParams({ page, size: 100 });
+    if (types.length) params.set('event_type', types.join(','));
+    if (place) params.set('place', place);
+    if (relatedTo) {
+      params.set('related_to', relatedTo);
+      params.set('degree', degree);
     }
-  }
-
-  if (selectedTypes.length > 1) {
-    const seen = new Set();
-    return allItems.filter(e => {
-      if (seen.has(e.id)) return false;
-      seen.add(e.id);
-      return true;
-    });
+    if (familyName) params.set('family_name', familyName);
+    const data = await apiJson('/api/v1/events/?' + params);
+    allItems.push(...data.items);
+    if (!data.pagination.has_next) break;
+    page++;
   }
   return allItems;
 }

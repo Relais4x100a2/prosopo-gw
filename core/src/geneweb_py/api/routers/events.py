@@ -2,7 +2,7 @@
 Router FastAPI pour la gestion des événements dans l'API geneweb-py.
 """
 
-from typing import Generator, Optional, Tuple
+from typing import Any, Dict, Generator, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -334,8 +334,19 @@ async def list_events(
     page: int = Query(1, ge=1, description="Numéro de page"),
     size: int = Query(20, ge=1, le=100, description="Taille de la page"),
     query: Optional[str] = Query(None, description="Recherche textuelle"),
-    event_type: Optional[str] = Query(None, description="Filtrer par type d'événement"),
+    event_type: Optional[str] = Query(
+        None,
+        description="Filtrer par type d'événement (plusieurs types séparés par des virgules)",
+    ),
     person_id: Optional[str] = Query(None, description="Filtrer par personne"),
+    related_to: Optional[str] = Query(
+        None,
+        description="Personne de référence : ne garde que les événements de ses liens, jusqu'à `degree`",
+    ),
+    degree: int = Query(1, ge=1, le=3, description="Degré de lien pour `related_to`"),
+    family_name: Optional[str] = Query(
+        None, description="Nom de famille (personne ou époux), sans accents ni casse"
+    ),
     family_id: Optional[str] = Query(None, description="Filtrer par famille"),
     year_from: Optional[int] = Query(
         None, ge=1000, le=3000, description="Année minimum"
@@ -357,8 +368,11 @@ async def list_events(
         page: Numéro de page
         size: Taille de la page
         query: Recherche textuelle
-        event_type: Filtre par type d'événement
+        event_type: Filtre par type d'événement (liste séparée par des virgules)
         person_id: Filtre par personne
+        related_to: Personne de référence pour le filtre de liens
+        degree: Degré de lien (1 à 3) pour ``related_to``
+        family_name: Filtre par nom de famille
         family_id: Filtre par famille
         year_from: Année minimum
         year_to: Année maximum
@@ -372,12 +386,14 @@ async def list_events(
     """
     try:
         # Construction des paramètres de recherche
-        search_params = {
+        search_params: Dict[str, Any] = {
             "page": page,
             "size": size,
             "query": query,
             "event_type": event_type,
             "person_id": person_id,
+            "related_to": related_to,
+            "family_name": family_name,
             "family_id": family_id,
             "place": place,
             "has_witnesses": has_witnesses,
@@ -386,6 +402,15 @@ async def list_events(
 
         # Suppression des valeurs None
         search_params = {k: v for k, v in search_params.items() if v is not None}
+
+        if related_to:
+            search_params["degree"] = degree
+
+        if event_type and "," in event_type:
+            search_params.pop("event_type")
+            search_params["event_types"] = [
+                t.strip() for t in event_type.split(",") if t.strip()
+            ]
 
         events, total = service.search_events(search_params)
 

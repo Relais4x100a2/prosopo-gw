@@ -52,6 +52,15 @@ def _normalize_search_text(text: str) -> str:
     return no_accents.replace("-", " ").replace("_", " ")
 
 
+def _api_event_type_value(event: Event) -> str:
+    """Valeur de type d'événement telle qu'exposée par l'API (voir ``event_to_schema``)."""
+    if isinstance(event, FamilyEvent) and event.family_event_type is not None:
+        raw: Any = event.family_event_type
+    else:
+        raw = event.event_type
+    return str(getattr(raw, "value", raw))
+
+
 @dataclass(frozen=True)
 class EventSearchHit:
     """Contexte d'un événement pour recherche et sérialisation API."""
@@ -824,6 +833,23 @@ class GenealogyService:
 
         return False
 
+    def _hit_label(self, hit: "EventSearchHit") -> str:
+        """Nom(s) affichés pour un résultat : personne, ou époux d'une famille."""
+        genealogy = self.genealogy
+        ids: List[Optional[str]] = []
+        if hit.person_id is not None:
+            ids = [hit.person_id]
+        elif hit.family_id is not None:
+            fam = genealogy.families.get(hit.family_id)
+            if fam is not None:
+                ids = [fam.husband_id, fam.wife_id]
+        names: List[str] = []
+        for pid in ids:
+            person = genealogy.persons.get(pid) if pid else None
+            if person is not None:
+                names.append(f"{person.first_name} {person.last_name}")
+        return " ".join(names)
+
     def search_events(
         self, search_params: Dict[str, Any]
     ) -> Tuple[List[EventSearchHit], int]:
@@ -878,10 +904,15 @@ class GenealogyService:
                 )
             ]
 
-        if search_params.get("event_type"):
-            hits = [
-                h for h in hits if h.event.event_type == search_params["event_type"]
-            ]
+        wanted_types = {
+            str(getattr(t, "value", t))
+            for t in (
+                [search_params["event_type"]] if search_params.get("event_type") else []
+            )
+            + list(search_params.get("event_types") or [])
+        }
+        if wanted_types:
+            hits = [h for h in hits if _api_event_type_value(h.event) in wanted_types]
 
         if search_params.get("person_id"):
             pid = search_params["person_id"]
@@ -895,6 +926,29 @@ class GenealogyService:
             needle = _normalize_search_text(search_params["place"])
             hits = [
                 h for h in hits if needle in _normalize_search_text(h.event.place or "")
+            ]
+
+        if search_params.get("related_to"):
+            related = self.get_related_person_ids(
+                search_params["related_to"], int(search_params.get("degree", 1))
+            )
+            related_pids = set(related["person_ids"])
+            related_fids = set(related["family_ids"])
+            witness_pid = related["witness_person_id"]
+            hits = [
+                h
+                for h in hits
+                if h.person_id in related_pids
+                or h.family_id in related_fids
+                or witness_pid in event_witnesses_to_api_strings(h.event.witnesses)
+            ]
+
+        if search_params.get("family_name"):
+            name_needle = _normalize_search_text(search_params["family_name"])
+            hits = [
+                h
+                for h in hits
+                if name_needle in _normalize_search_text(self._hit_label(h))
             ]
 
         if search_params.get("has_witnesses") is not None:
