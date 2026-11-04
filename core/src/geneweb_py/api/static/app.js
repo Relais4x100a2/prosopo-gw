@@ -49,7 +49,7 @@ async function uploadFile(file) {
   form.append('file', file);
   let res;
   try {
-    res = await fetch('/api/v1/sessions', { method: 'POST', body: form });
+    res = await fetch('/api/v1/sessions/', { method: 'POST', body: form });
   } catch {
     showUploadError('Impossible de joindre le serveur.');
     return;
@@ -267,7 +267,7 @@ function wirePersonsTab() {
 
 async function loadPersons(page, query) {
   const seq = ++_personsSeq;
-  let url = `/api/v1/persons?page=${page}&size=50`;
+  let url = `/api/v1/persons/?page=${page}&size=50`;
   if (query) url += `&query=${encodeURIComponent(query)}`;
   let data;
   try {
@@ -478,7 +478,7 @@ function wireFamiliesTab() {
 
 async function loadFamilies(page) {
   const seq = ++_familiesSeq;
-  const url = `/api/v1/families?page=${page}&size=50`;
+  const url = `/api/v1/families/?page=${page}&size=50`;
   let data;
   try {
     data = await apiJson(url);
@@ -712,7 +712,7 @@ async function fetchEvtItems(selectedTypes, lieu) {
       const params = new URLSearchParams({ page, size: 100 });
       if (type) params.set('event_type', type);
       if (lieu) params.set('place', lieu);
-      const data = await apiJson('/api/v1/events?' + params);
+      const data = await apiJson('/api/v1/events/?' + params);
       allItems.push(...data.items);
       if (!data.pagination.has_next) break;
       page++;
