@@ -117,3 +117,14 @@ def test_events_fetch_is_capped():
     """La recherche d'événements ne peut pas enchaîner un nombre illimité de pages."""
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "page >= EVT_MAX_PAGES" in js
+
+
+def test_views_are_driven_by_hash_routes():
+    """Onglets et fiches passent par l'adresse (#/…) : retour, rechargement, liens."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "window.addEventListener('hashchange', applyRoute)" in js
+    for route in ("personnes", "personne", "familles", "famille", "evenements"):
+        assert f"{route}:" in js or f"'{route}'" in js
+    # Plus d'ouverture directe de fiche depuis un clic : tout passe par navigate().
+    assert "showPersonDetail" not in js and "showFamilyDetail" not in js
+    assert 'href="${escHtml(personHash(' in js
