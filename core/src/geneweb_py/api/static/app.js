@@ -519,7 +519,9 @@ function renderFamilies() {
     const wife = f.wife_id
       ? escHtml(state.families.nameMap[f.wife_id] || f.wife_id)
       : '—';
-    const childCount = Array.isArray(f.children) ? f.children.length : 0;
+    const childCount = Number.isInteger(f.children_count)
+      ? f.children_count
+      : (Array.isArray(f.children) ? f.children.length : 0);
     const metaParts = [`${childCount} enfant(s)`];
     if (f.marriage_date) metaParts.push(`⚭ ${escHtml(shortDate(f.marriage_date))}`);
     const meta = metaParts.join(' · ');
@@ -573,8 +575,12 @@ async function showFamilyDetail(familyId, btnEl) {
   let childrenHtml;
   if (children.length) {
     childrenHtml = children.map(child => {
-      const label = escHtml((child.surname || '—') + ', ' + (child.first_name || '—'));
-      return `<a class="mini-tree-person" data-id="${escHtml(child.id)}">${label}</a>`;
+      const person = child.person || {};
+      const childId = child.person_id || person.id || '';
+      const label = person.surname || person.first_name
+        ? escHtml((person.surname || '—') + ', ' + (person.first_name || '—'))
+        : escHtml(childId || '—');
+      return `<a class="mini-tree-person" data-id="${escHtml(childId)}">${label}</a>`;
     }).join('');
   } else {
     childrenHtml = '<em style="color:var(--text-muted);font-size:0.85rem">Aucun enfant enregistré.</em>';
