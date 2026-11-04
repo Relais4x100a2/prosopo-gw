@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 200" role="img" aria-labelledby="t d">
-  <title id="t">Chaîne de traitement TOLDOT</title>
+  <title id="t">Chaîne de traitement prosopo-gw</title>
   <desc id="d">Fichier .gw, puis parser, modèle objet, règles, LLM optionnel, et enfin réseau et exports.</desc>
   <!-- Illustration originale, dédiée au domaine public (CC0 1.0). -->
   <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5b6b7a"/></marker></defs>

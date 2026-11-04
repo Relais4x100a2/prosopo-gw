@@ -1,14 +1,14 @@
 # AGENTS.md : geneweb-py
 
-Consignes pour les assistants de code (Claude Code, Cursor, Codex…) sur le paquet `core/` du monorepo TOLDOT (dépôt **public**).
+Consignes pour les assistants de code (Claude Code, Cursor, Codex…) sur le paquet `core/` du monorepo prosopo-gw (dépôt **public**).
 Les règles transverses (règle d'or, workspace `uv`, Docker, CI) sont dans [`../AGENTS.md`](../AGENTS.md).
 
 **geneweb-py** parse, manipule et convertit les fichiers généalogiques GeneWeb (`.gw`). C'est le **moteur central (`core`)** de
-l'écosystème TOLDOT : source de vérité pour le parsing `.gw`, les entités métier (dont l'entité `Organization`),
+l'écosystème prosopo-gw : source de vérité pour le parsing `.gw`, les entités métier (dont l'entité `Organization`),
 l'export (GEDCOM / JSON / XML) et l'API REST. Il fournit une bibliothèque Python, une API REST (FastAPI) et un CLI.
 
 Rôle dans l'écosystème : l'application Streamlit/LLM (`../app/`, même monorepo, résolue via le workspace `uv`) et les outils
-d'analyse (prosopographie, graphes) sont **consommateurs** de cette bibliothèque. Le monorepo TOLDOT est en place ;
+d'analyse (prosopographie, graphes) sont **consommateurs** de cette bibliothèque. Le monorepo prosopo-gw est en place ;
 `core/` reste publiable séparément (PyPI). Pas de refonte brutale : évolutions incrémentales, tests verts à chaque étape.
 
 ## RÈGLE D'OR : aucune donnée généalogique réelle dans ce dépôt (public)

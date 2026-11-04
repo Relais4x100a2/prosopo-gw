@@ -19,7 +19,7 @@ body {
 }
 
 /* Navbar */
-.toldot-nav {
+.pgw-nav {
   background: var(--bg);
   border-bottom: 2px solid var(--accent);
   padding: 0.5rem 1rem;
@@ -28,17 +28,17 @@ body {
   gap: 0.75rem;
   flex-wrap: wrap;
 }
-.toldot-nav .brand {
+.pgw-nav .brand {
   font-size: 1.2rem;
   font-weight: bold;
   color: var(--accent);
   text-decoration: none;
 }
-.toldot-nav .nav-stats {
+.pgw-nav .nav-stats {
   font-size: 0.85rem;
   color: var(--text-muted);
 }
-.toldot-nav .timer {
+.pgw-nav .timer {
   background: var(--bg-active);
   color: var(--accent);
   padding: 2px 10px;
@@ -76,7 +76,7 @@ body {
 }
 .upload-zone:hover { background: var(--bg-active); }
 .upload-zone .icon { font-size: 2.5rem; }
-.btn-primary-toldot {
+.btn-primary-pgw {
   background: var(--accent);
   color: var(--bg);
   border: none;
@@ -86,7 +86,7 @@ body {
   font-size: 1rem;
   cursor: pointer;
 }
-.btn-primary-toldot:hover { background: var(--text); }
+.btn-primary-pgw:hover { background: var(--text); }
 .assurance-list {
   list-style: none;
   padding: 0;
@@ -98,13 +98,13 @@ body {
 .assurance-list li::before { content: "✓ "; color: var(--accent); font-weight: bold; }
 
 /* Tabs */
-.toldot-tabs {
+.pgw-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
   padding: 0 1rem;
 }
-.toldot-tab {
+.pgw-tab {
   padding: 0.6rem 1rem;
   font-size: 0.9rem;
   color: var(--text-muted);
@@ -112,7 +112,7 @@ body {
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
 }
-.toldot-tab.active {
+.pgw-tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
   font-weight: bold;
@@ -315,17 +315,17 @@ body {
 .btn-export:hover { background: var(--accent); color: var(--bg); }
 
 /* Alert / message */
-.alert-toldot {
+.alert-pgw {
   border-radius: 6px;
   padding: 0.6rem 1rem;
   margin: 0.5rem 0;
   font-size: 0.88rem;
 }
-.alert-toldot.error { background: #fde8e8; color: var(--danger); border: 1px solid #f5b5b5; }
-.alert-toldot.info { background: var(--bg-active); color: var(--text-muted); border: 1px solid var(--accent-light); }
+.alert-pgw.error { background: #fde8e8; color: var(--danger); border: 1px solid #f5b5b5; }
+.alert-pgw.info { background: var(--bg-active); color: var(--text-muted); border: 1px solid var(--accent-light); }
 
 /* Footer */
-.toldot-footer {
+.pgw-footer {
   text-align: center;
   font-size: 0.78rem;
   color: var(--text-muted);

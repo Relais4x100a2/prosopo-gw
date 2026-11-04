@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="docs/img/banner.svg" alt="TOLDOT: a family tree extended into a network of organizations" width="100%">
+<img src="docs/img/banner.svg" alt="prosopo-gw: a family tree extended into a network of organizations" width="100%">
 
-# TOLDOT
+# prosopo-gw
 
 **From GeneWeb genealogy to prosopography: a reliable parser, an object model, organizations, graphs and LLM-assisted enrichment.**
 
 [Version française → README.md](README.md)
 
-[![CI](https://github.com/Relais4x100a2/toldot/actions/workflows/ci.yml/badge.svg)](https://github.com/Relais4x100a2/toldot/actions/workflows/ci.yml)
+[![CI](https://github.com/Relais4x100a2/prosopo-gw/actions/workflows/ci.yml/badge.svg)](https://github.com/Relais4x100a2/prosopo-gw/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-blue?logo=python)
 ![Tests](https://img.shields.io/badge/tests-1245%20passed-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A5%2080%25-brightgreen)
@@ -22,7 +22,7 @@
 
 [GeneWeb](https://geneweb.tuxfamily.org/) is a widely used genealogy software, and its native text format (`.gw`) is the pivot of many scholarly databases. The format describes **families** and **people**, but not what researchers often want to study: the **institutions, schools, trades and associations** those people belonged to. That information is in the databases, but buried in free-text custom events (`#Membre_1900`, `#Cours_peinture`, `#Action-Sociale`…).
 
-TOLDOT tackles this in three steps:
+prosopo-gw tackles this in three steps:
 
 1. **Read** a `.gw` file without losing anything, with a parser tested on edge cases (apostrophes, multiple calendars, approximate dates, GW Plus extensions, encodings).
 2. **Model**: besides `Person`, `Family` and `Event`, an **`Organization`** entity linked to people through dated links. The `.gw` file is never modified; organizations live in a JSON sidecar file.
@@ -63,7 +63,7 @@ pevt DUPONT Jean
 end pevt
 ```
 
-Standard events (`#birt`, `#deat`…) are already well structured. The others are **free text**: they cannot be queried, counted, or linked across people. TOLDOT's approach is deliberately **staged**, from the cheapest to the most uncertain:
+Standard events (`#birt`, `#deat`…) are already well structured. The others are **free text**: they cannot be queried, counted, or linked across people. prosopo-gw's approach is deliberately **staged**, from the cheapest to the most uncertain:
 
 | Stage | Mechanism | Why |
 |---|---|---|
@@ -76,7 +76,7 @@ The result is stored in a **`base.org.json` sidecar file** (organizations + pers
 ## Repository layout
 
 ```
-toldot/
+prosopo-gw/
 ├── core/                      `geneweb-py` package: the engine (library + API + CLI)
 │   ├── src/geneweb_py/
 │   │   ├── parser/            lexical → syntax → gw_parser (+ multipass, streaming)
@@ -145,8 +145,8 @@ More: [`app/README.md`](app/README.md), [`app/doc/`](app/doc/).
 ### 1. Install
 
 ```bash
-git clone https://github.com/Relais4x100a2/toldot.git
-cd toldot
+git clone https://github.com/Relais4x100a2/prosopo-gw.git
+cd prosopo-gw
 uv sync --all-packages --all-extras
 ```
 
@@ -268,4 +268,4 @@ See [`core/doc/roadmap.md`](core/doc/roadmap.md).
 
 [MIT](LICENSE) © Guillaume Cayeux.
 
-The `.gw` format comes from the [GeneWeb](https://geneweb.tuxfamily.org/) software; TOLDOT is an independent project, not affiliated with GeneWeb.
+The `.gw` format comes from the [GeneWeb](https://geneweb.tuxfamily.org/) software; prosopo-gw is an independent project, not affiliated with GeneWeb.

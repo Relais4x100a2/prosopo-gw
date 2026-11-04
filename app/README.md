@@ -1,4 +1,4 @@
-<p align="center"><img src="../docs/img/pipeline.svg" alt="Chaîne de traitement TOLDOT" width="100%"></p>
+<p align="center"><img src="../docs/img/pipeline.svg" alt="Chaîne de traitement prosopo-gw" width="100%"></p>
 
 # GeneWeb Revamped - Processeur de Fichiers via LLM
 

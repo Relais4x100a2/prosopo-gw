@@ -23,7 +23,7 @@ resolution-markers = [
 members = [
     "geneweb-app",
     "geneweb-py",
-    "toldot-workspace",
+    "prosopo-gw-workspace",
 ]
 
 [[package]]
@@ -4748,7 +4748,7 @@ wheels = [
 ]
 
 [[package]]
-name = "toldot-workspace"
+name = "prosopo-gw-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 

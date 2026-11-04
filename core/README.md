@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/geneweb-py?logo=python&label=Python&color=blue)](https://github.com/Relais4x100a2/geneweb-py/blob/main/pyproject.toml)
 [![PyPI version](https://img.shields.io/badge/pypi-v0.1.0-blue.svg)](https://pypi.org/project/geneweb-py/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![CI](https://github.com/Relais4x100a2/toldot/actions/workflows/ci.yml/badge.svg)](https://github.com/Relais4x100a2/toldot/actions/workflows/ci.yml)
+[![CI](https://github.com/Relais4x100a2/prosopo-gw/actions/workflows/ci.yml/badge.svg)](https://github.com/Relais4x100a2/prosopo-gw/actions/workflows/ci.yml)
 
 Librairie Python complète pour parser, manipuler et convertir les fichiers généalogiques au format GeneWeb (.gw).
 

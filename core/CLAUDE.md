@@ -3,7 +3,7 @@
 @AGENTS.md
 
 Les consignes complètes (règle d'or sur les données réelles, `uv`, architecture, API, format `.gw`) sont dans `AGENTS.md`.
-Les règles transverses du monorepo TOLDOT (workspace `uv`, Docker, CI) se trouvent dans `../AGENTS.md`.
+Les règles transverses du monorepo prosopo-gw (workspace `uv`, Docker, CI) se trouvent dans `../AGENTS.md`.
 
 ## Commandes rapides
 

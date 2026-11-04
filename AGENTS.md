@@ -1,15 +1,15 @@
-# AGENTS.md : monorepo TOLDOT
+# AGENTS.md : monorepo prosopo-gw
 
 Consignes pour tout assistant de code (Claude Code, Cursor, Codex…) travaillant dans ce monorepo.
 Les règles ci-dessous s'appliquent partout ; `core/AGENTS.md` détaille le moteur `geneweb-py`.
 
 ## 1. Contexte et structure
 
-TOLDOT exploite des bases généalogiques GeneWeb (`.gw`) à des fins **prosopographiques** : parsing fiable,
+prosopo-gw exploite des bases généalogiques GeneWeb (`.gw`) à des fins **prosopographiques** : parsing fiable,
 modèle objet (personnes, familles, événements, **organisations**), analyse de réseaux, enrichissement LLM.
 
 ```
-toldot/
+prosopo-gw/
   run_app.sh            # lance l'app Streamlit depuis la racine
   .github/workflows/ci.yml  # CI : lint, tests core (Python 3.11-3.13), build Docker
   pyproject.toml        # workspace uv (membres : core, app/docker/geneweb-app)

@@ -1,7 +1,7 @@
 [project]
-name = "toldot-workspace"
+name = "prosopo-gw-workspace"
 version = "0.1.0"
-description = "Monorepo TOLDOT : moteur geneweb-py (core/) et application LLM (app/)"
+description = "Monorepo prosopo-gw : moteur geneweb-py (core/) et application LLM (app/)"
 requires-python = ">=3.11"
 
 [tool.uv.workspace]

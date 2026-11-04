@@ -12,7 +12,7 @@ est dans la section 9.
 
 `geneweb-py` doit lire un fichier `.gw` **exactement comme GeneWeb le lit**. La cible concrète est l'usage
 d'un chercheur en prosopographie : il exporte un arbre massif depuis Geneanet, l'ouvre dans l'application
-TOLDOT et doit y retrouver ce qu'il voit en ligne. Aujourd'hui les tests unitaires sont verts mais la première
+prosopo-gw et doit y retrouver ce qu'il voit en ligne. Aujourd'hui les tests unitaires sont verts mais la première
 utilisation réelle a déçu : conjoints et enfants absents, familles sans enfants, plantage à la recherche d'une
 personne. L'écart entre « tests verts » et « ça marche sur ma base » est le problème à résoudre, pas seulement
 une liste de champs.

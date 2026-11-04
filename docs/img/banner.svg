@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" role="img" aria-labelledby="t d">
-  <title id="t">TOLDOT</title>
+  <title id="t">prosopo-gw</title>
   <desc id="d">Un arbre généalogique stylisé dont les branches se prolongent en réseau d'organisations.</desc>
   <!-- Illustration originale, dédiée au domaine public (CC0 1.0). -->
   <defs>
@@ -38,6 +38,6 @@
     <rect x="442" y="122" width="16" height="16" rx="3"/><rect x="512" y="92" width="16" height="16" rx="3"/>
     <rect x="592" y="62" width="16" height="16" rx="3"/><rect x="592" y="132" width="16" height="16" rx="3"/>
   </g>
-  <text x="650" y="112" font-family="Georgia, 'Times New Roman', serif" font-size="58" font-weight="bold" fill="#fff" letter-spacing="4">TOLDOT</text>
+  <text x="650" y="112" font-family="Georgia, 'Times New Roman', serif" font-size="36" font-weight="bold" fill="#fff" letter-spacing="1">prosopo-gw</text>
   <text x="652" y="146" font-family="Georgia, 'Times New Roman', serif" font-size="16" fill="#e8d9b0">généalogie · prosopographie</text>
 </svg>

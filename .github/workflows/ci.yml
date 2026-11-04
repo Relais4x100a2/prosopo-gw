@@ -88,9 +88,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build (contexte = racine du monorepo, sans push)
-        run: docker build -f app/docker/geneweb-app/Dockerfile -t toldot-app:ci .
+        run: docker build -f app/docker/geneweb-app/Dockerfile -t prosopo-gw-app:ci .
 
       - name: Import smoke test
         run: |
-          docker run --rm toldot-app:ci python -c \
+          docker run --rm prosopo-gw-app:ci python -c \
             "import geneweb_py; from src.pevt_extractor import PEVTExtractor; print('import ok')"

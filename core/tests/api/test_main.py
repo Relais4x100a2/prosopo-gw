@@ -23,7 +23,7 @@ class TestMainApp:
 
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert b"Toldot" in response.content
+        assert b"prosopo-gw-webapp" in response.content
 
     def test_security_headers_on_root(self):
         """Les en-têtes de sécurité de base sont présents sur les réponses."""

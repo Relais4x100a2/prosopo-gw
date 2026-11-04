@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Toldot · GeneWeb-py</title>
+  <title>prosopo-gw-webapp</title>
   <link rel="stylesheet" href="/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="/style.css">
   <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.2.5/dist/css/tabulator_midnight.min.css" rel="stylesheet">
@@ -12,7 +12,7 @@
 
 <!-- ==================== LANDING ==================== -->
 <div id="view-landing">
-  <h1>Toldot · GeneWeb-py</h1>
+  <h1>prosopo-gw-webapp</h1>
   <p class="lead">Explorez votre fichier généalogique — aucune donnée conservée sur le serveur</p>
 
   <div class="upload-zone" id="drop-zone">
@@ -22,9 +22,9 @@
     <input type="file" id="file-input" accept=".gw,.gwplus" style="display:none">
   </div>
 
-  <button class="btn-primary-toldot" id="btn-upload">Charger et analyser</button>
+  <button class="btn-primary-pgw" id="btn-upload">Charger et analyser</button>
 
-  <div id="upload-error" class="alert-toldot error" style="display:none"></div>
+  <div id="upload-error" class="alert-pgw error" style="display:none"></div>
 
   <ul class="assurance-list mt-4">
     <li>Parsing en mémoire — fichier supprimé immédiatement après chargement</li>
@@ -32,7 +32,7 @@
     <li>Code source libre — <a href="https://github.com/Relais4x100a2/geneweb-py" target="_blank" rel="noopener" style="color:var(--accent)">GitHub</a></li>
   </ul>
 
-  <footer class="toldot-footer">
+  <footer class="pgw-footer">
     Site non professionnel au sens de l'article 6 III 2° de la loi 2004-575. Aucune donnée personnelle collectée.
   </footer>
 </div>
@@ -41,8 +41,8 @@
 <div id="view-app" style="display:none">
 
   <!-- Navbar -->
-  <nav class="toldot-nav">
-    <span class="brand">Toldot · GeneWeb-py</span>
+  <nav class="pgw-nav">
+    <span class="brand">prosopo-gw-webapp</span>
     <span class="nav-stats" id="nav-stats"></span>
     <span style="flex:1"></span>
     <span class="timer" id="nav-timer"></span>
@@ -50,12 +50,12 @@
   </nav>
 
   <!-- Tabs -->
-  <div class="toldot-tabs">
-    <div class="toldot-tab active" data-tab="persons">Personnes</div>
-    <div class="toldot-tab" data-tab="families">Familles</div>
-    <div class="toldot-tab" data-tab="events">Événements</div>
-    <div class="toldot-tab" data-tab="stats">Stats</div>
-    <div class="toldot-tab" data-tab="export">Export</div>
+  <div class="pgw-tabs">
+    <div class="pgw-tab active" data-tab="persons">Personnes</div>
+    <div class="pgw-tab" data-tab="families">Familles</div>
+    <div class="pgw-tab" data-tab="events">Événements</div>
+    <div class="pgw-tab" data-tab="stats">Stats</div>
+    <div class="pgw-tab" data-tab="export">Export</div>
   </div>
 
   <div class="container-fluid py-3">
@@ -113,7 +113,7 @@
             <input type="text" id="evt-nom-famille" class="evt-filter-input" placeholder="Dupont…" style="width:130px">
           </div>
           <div class="col-auto">
-            <button class="btn-primary-toldot" style="font-size:0.9rem;padding:0.4rem 1.2rem" id="evt-search-btn" disabled>Rechercher</button>
+            <button class="btn-primary-pgw" style="font-size:0.9rem;padding:0.4rem 1.2rem" id="evt-search-btn" disabled>Rechercher</button>
           </div>
         </div>
         <div id="evt-status" style="color:var(--text-muted);font-style:italic;font-size:0.82rem;min-height:1.2em"></div>
@@ -136,7 +136,7 @@
         <button class="btn-export" id="btn-export-json">{ } Télécharger en JSON</button>
         <button class="btn-export" id="btn-export-xml">🗂 Télécharger en XML</button>
       </div>
-      <div id="export-error" class="alert-toldot error mt-2" style="display:none"></div>
+      <div id="export-error" class="alert-pgw error mt-2" style="display:none"></div>
     </div>
 
   </div>

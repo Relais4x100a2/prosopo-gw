@@ -218,13 +218,13 @@ function updateTimer() {
 
 // ==================== TABS ====================
 function wireTabs() {
-  document.querySelectorAll('.toldot-tab').forEach(tab => {
+  document.querySelectorAll('.pgw-tab').forEach(tab => {
     tab.addEventListener('click', () => showTab(tab.dataset.tab));
   });
 }
 
 function showTab(name) {
-  document.querySelectorAll('.toldot-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.pgw-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
   if (name === 'families' && state.families.items.length === 0) loadFamilies(1);
   if (name === 'stats') renderStats();
@@ -275,7 +275,7 @@ async function loadPersons(page, query) {
   } catch (err) {
     if (seq === _personsSeq) {
       document.getElementById('persons-list').innerHTML =
-        '<p class="alert-toldot error">Impossible de charger les personnes.</p>';
+        '<p class="alert-pgw error">Impossible de charger les personnes.</p>';
     }
     throw err;
   }
@@ -337,7 +337,7 @@ async function showPersonDetail(personId, btnEl) {
     if (err.message === 'session-expired') return; // handled by apiFetch
     const row = btnEl ? btnEl.closest('.item-row') : null;
     const errPanel = document.createElement('div');
-    errPanel.className = 'alert-toldot error';
+    errPanel.className = 'alert-pgw error';
     errPanel.textContent = 'Impossible de charger la fiche.';
     if (row) row.insertAdjacentElement('afterend', errPanel);
     else document.getElementById('persons-list').prepend(errPanel);
@@ -485,7 +485,7 @@ async function loadFamilies(page) {
   } catch (err) {
     if (seq === _familiesSeq) {
       document.getElementById('families-list').innerHTML =
-        '<p class="alert-toldot error">Impossible de charger les familles.</p>';
+        '<p class="alert-pgw error">Impossible de charger les familles.</p>';
     }
     throw err;
   }
@@ -556,7 +556,7 @@ async function showFamilyDetail(familyId, btnEl) {
   } catch (err) {
     if (err.message === 'session-expired') return;
     const errPanel = document.createElement('div');
-    errPanel.className = 'alert-toldot error';
+    errPanel.className = 'alert-pgw error';
     errPanel.textContent = 'Impossible de charger les enfants.';
     if (row) row.insertAdjacentElement('afterend', errPanel);
     else document.getElementById('families-list').prepend(errPanel);
