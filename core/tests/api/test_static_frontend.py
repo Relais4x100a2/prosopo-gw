@@ -57,3 +57,11 @@ def test_event_filter_ids_used_by_app_js_exist_in_index():
     assert ids
     for i in ids:
         assert f'id="{i}"' in html, i
+
+
+def test_empty_state_hidden_when_detail_panel_open():
+    """Un « Aucun résultat » périmé ne doit pas rester sous une fiche ouverte."""
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "#persons-list:has(#person-detail-panel) .list-empty" in css
+    assert js.count('class="text-muted list-empty"') == 2

@@ -405,3 +405,11 @@ body {
   border-top: 1px solid var(--border);
   margin-top: 3rem;
 }
+
+/* États vides des listes */
+.list-empty { font-style: italic; padding: 0.5rem; }
+/* Une fiche ouverte depuis un lien (sans ligne source) ne doit pas
+   s'afficher au-dessus d'un « Aucun résultat » périmé. */
+#persons-list:has(#person-detail-panel) .list-empty,
+#families-list:has(#family-detail-panel) .list-empty { display: none; }
+.pagination-bar[hidden] { display: none; }

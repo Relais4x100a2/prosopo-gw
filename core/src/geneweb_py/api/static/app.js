@@ -291,7 +291,7 @@ async function loadPersons(page, query) {
 function renderPersons() {
   const list = document.getElementById('persons-list');
   if (!state.persons.items.length) {
-    list.innerHTML = '<p class="text-muted" style="font-style:italic;padding:0.5rem">Aucune personne trouvée.</p>';
+    list.innerHTML = '<p class="text-muted list-empty">Aucune personne trouvée.</p>';
     return;
   }
   list.innerHTML = state.persons.items.map(p => {
@@ -314,6 +314,8 @@ function updatePersonPagination(pagination) {
   document.getElementById('persons-next').disabled = !pagination.has_next;
   document.getElementById('persons-page-info').textContent =
     `Page ${pagination.page} / ${pagination.pages} (${pagination.total} personnes)`;
+  // Pas de pagination « Page 1 / 0 » quand il n'y a aucun résultat.
+  document.querySelector('#panel-persons .pagination-bar').hidden = !pagination.total;
 }
 
 // ==================== FICHE PERSONNE ====================
@@ -509,7 +511,7 @@ async function loadFamilies(page) {
 function renderFamilies() {
   const list = document.getElementById('families-list');
   if (!state.families.items.length) {
-    list.innerHTML = '<p class="text-muted" style="font-style:italic;padding:0.5rem">Aucune famille trouvée.</p>';
+    list.innerHTML = '<p class="text-muted list-empty">Aucune famille trouvée.</p>';
     return;
   }
   list.innerHTML = state.families.items.map(f => {
@@ -540,6 +542,7 @@ function updateFamiliesPagination(pagination) {
   document.getElementById('families-next').disabled = !pagination.has_next;
   document.getElementById('families-page-info').textContent =
     `Page ${pagination.page} / ${pagination.pages} (${pagination.total} familles)`;
+  document.querySelector('#panel-families .pagination-bar').hidden = !pagination.total;
 }
 
 async function showFamilyDetail(familyId, btnEl) {
@@ -709,6 +712,7 @@ function buildEventsTable(data) {
     data,
     layout: 'fitColumns',
     height: '520px',
+    placeholder: 'Aucun événement ne correspond à ces critères.',
     virtualDom: true,
     rowFormatter: function(row) {
       const el = row.getElement();
