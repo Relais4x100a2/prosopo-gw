@@ -314,14 +314,22 @@ class GenealogyService:
 
         # Filtrage par critères
         if search_params.query:
-            query_lower = search_params.query.lower()
+            # Recherche par mots : chacun doit figurer dans « prénoms nom nom public »,
+            # quel que soit l'ordre, la casse, les accents ou la ponctuation.
+            tokens = _normalize_search_text(
+                search_params.query.replace(",", " ")
+            ).split()
             persons = [
                 p
                 for p in persons
-                if (
-                    query_lower in p.first_name.lower()
-                    or query_lower in p.last_name.lower()
-                    or (p.public_name and query_lower in p.public_name.lower())
+                if all(
+                    tok in hay
+                    for hay in [
+                        _normalize_search_text(
+                            f"{p.first_name} {p.last_name} {p.public_name or ''}"
+                        )
+                    ]
+                    for tok in tokens
                 )
             ]
 
