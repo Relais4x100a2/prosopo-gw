@@ -765,7 +765,7 @@ function buildEventsTable(data) {
       {
         title: 'Lieu',
         field: 'place',
-        width: 150,
+        minWidth: 140, widthGrow: 2,
         sorter: 'string',
         headerFilter: 'input',
         formatter: cell => escHtml(cell.getValue() || '—'),
@@ -773,7 +773,7 @@ function buildEventsTable(data) {
       {
         title: 'Personne / Famille',
         field: 'person_name',
-        width: 180,
+        minWidth: 220, widthGrow: 3,
         sorter: 'string',
         headerFilter: 'input',
         formatter: cell => {
@@ -784,7 +784,7 @@ function buildEventsTable(data) {
       {
         title: 'Témoins',
         field: 'witness_names',
-        width: 160,
+        minWidth: 140, widthGrow: 2,
         sorter: false,
         headerFilter: false,
         formatter: cell => escHtml((cell.getValue() || []).join(', ') || '—'),
@@ -792,7 +792,7 @@ function buildEventsTable(data) {
       {
         title: 'Notes',
         field: 'note',
-        width: 110,
+        minWidth: 110, widthGrow: 1,
         sorter: false,
         headerFilter: false,
         formatter: cell => {
@@ -803,7 +803,7 @@ function buildEventsTable(data) {
       {
         title: 'Sources',
         field: 'sources',
-        width: 110,
+        minWidth: 110, widthGrow: 1,
         sorter: false,
         headerFilter: false,
         formatter: cell => {
@@ -819,44 +819,96 @@ function wirePersonAutocomplete() {
   const nameInput = document.getElementById('evt-person-name');
   const idInput   = document.getElementById('evt-person-id');
   const dropdown  = document.getElementById('evt-person-suggestions');
+  const clearBtn  = document.getElementById('evt-person-clear');
   if (!nameInput) return;
 
   let debounceTimer = null;
+  let requestSeq = 0;   // ignore les réponses tardives
+  let activeIdx = -1;
+
+  const items = () => [...dropdown.querySelectorAll('.autocomplete-item')];
+  const syncClear = () => { clearBtn.hidden = !nameInput.value; };
+  const close = () => {
+    dropdown.hidden = true;
+    nameInput.setAttribute('aria-expanded', 'false');
+    activeIdx = -1;
+  };
+  const open = () => {
+    dropdown.hidden = false;
+    nameInput.setAttribute('aria-expanded', 'true');
+  };
+  const setActive = idx => {
+    const list = items();
+    list.forEach(el => el.classList.remove('active'));
+    activeIdx = list.length ? (idx + list.length) % list.length : -1;
+    if (activeIdx >= 0) {
+      list[activeIdx].classList.add('active');
+      list[activeIdx].scrollIntoView({ block: 'nearest' });
+    }
+  };
+  const choose = el => {
+    nameInput.value = el.dataset.label;
+    idInput.value = el.dataset.id;
+    syncClear();
+    close();
+    checkEvtGate();
+  };
 
   nameInput.addEventListener('input', () => {
     idInput.value = '';
+    syncClear();
     checkEvtGate();
     clearTimeout(debounceTimer);
     const q = nameInput.value.trim();
-    if (q.length < 2) { dropdown.style.display = 'none'; return; }
+    if (q.length < 2) { requestSeq++; close(); return; }
     debounceTimer = setTimeout(async () => {
+      const seq = ++requestSeq;
       try {
         const data = await apiJson(`/api/v1/persons/?query=${encodeURIComponent(q)}&size=10`);
-        const items = data.items || [];
-        if (!items.length) { dropdown.style.display = 'none'; return; }
-        dropdown.innerHTML = items.map(p => {
-          const label = `${escHtml(p.first_name || '')} ${escHtml(p.surname || '')}`.trim();
-          return `<div class="autocomplete-item" data-id="${escHtml(p.id)}" data-label="${label}" style="padding:0.3rem 0.6rem;cursor:pointer;font-size:0.82rem">${label}</div>`;
+        if (seq !== requestSeq) return;
+        const found = data.items || [];
+        if (!found.length) {
+          dropdown.innerHTML = '<div class="autocomplete-empty">Aucune personne trouvée</div>';
+          open();
+          return;
+        }
+        dropdown.innerHTML = found.map(p => {
+          const label = `${p.first_name || ''} ${p.surname || ''}`.trim() || p.id;
+          const dates = [p.birth_date, p.death_date].filter(Boolean).join(' – ');
+          return `<div class="autocomplete-item" role="option" data-id="${escHtml(p.id)}" data-label="${escHtml(label)}">`
+            + `${escHtml(label)}${dates ? `<span class="ac-dates">${escHtml(dates)}</span>` : ''}</div>`;
         }).join('');
-        dropdown.style.display = 'block';
-        dropdown.querySelectorAll('.autocomplete-item').forEach(item => {
-          item.addEventListener('mousedown', e => {
-            e.preventDefault();
-            nameInput.value = item.dataset.label;
-            idInput.value   = item.dataset.id;
-            dropdown.style.display = 'none';
-            checkEvtGate();
-          });
-        });
+        items().forEach(el => el.addEventListener('mousedown', e => {
+          e.preventDefault();
+          choose(el);
+        }));
+        open();
+        setActive(0);
       } catch (err) {
-        dropdown.style.display = 'none';
+        if (seq === requestSeq) close();
       }
     }, 250);
   });
 
-  nameInput.addEventListener('blur', () => {
-    setTimeout(() => { dropdown.style.display = 'none'; }, 200);
+  nameInput.addEventListener('keydown', e => {
+    if (dropdown.hidden) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIdx - 1); }
+    else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); choose(items()[activeIdx]); }
+    else if (e.key === 'Escape') { close(); }
   });
+
+  clearBtn.addEventListener('click', () => {
+    nameInput.value = '';
+    idInput.value = '';
+    requestSeq++;
+    syncClear();
+    close();
+    checkEvtGate();
+    nameInput.focus();
+  });
+
+  nameInput.addEventListener('blur', () => { setTimeout(close, 150); });
 }
 
 // ==================== STATS ====================

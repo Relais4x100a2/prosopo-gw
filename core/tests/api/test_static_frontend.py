@@ -47,3 +47,13 @@ def test_app_js_uses_no_removed_tabulator_editors():
     """Tabulator 6 a retiré l'éditeur « select » (remplacé par « list »)."""
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert not re.search(r"headerFilter:\s*['\"]select['\"]", js)
+
+
+def test_event_filter_ids_used_by_app_js_exist_in_index():
+    """Chaque id lu par app.js dans l'onglet Événements existe dans index.html."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    ids = set(re.findall(r"getElementById\('(evt-[\w-]+)'\)", js))
+    assert ids
+    for i in ids:
+        assert f'id="{i}"' in html, i

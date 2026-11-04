@@ -88,35 +88,47 @@
     <!-- === ÉVÉNEMENTS === -->
     <div id="panel-events" class="tab-panel">
       <div class="event-filters">
-        <div class="row g-2 mb-2 align-items-end">
-          <div class="col-auto">
-            <label class="d-block" style="font-size:0.82rem;color:var(--text-muted)">Types</label>
-            <div class="event-type-checkboxes" id="evt-types"></div>
+        <fieldset class="evt-types-field">
+          <legend>Types d'événement</legend>
+          <div class="event-type-checkboxes" id="evt-types"></div>
+        </fieldset>
+
+        <div class="evt-grid">
+          <div class="evt-field">
+            <label for="evt-lieu">Lieu</label>
+            <input type="text" id="evt-lieu" class="evt-filter-input" placeholder="Paris, Lyon…">
           </div>
-          <div class="col-auto">
-            <label class="d-block" style="font-size:0.82rem;color:var(--text-muted)">Lieu</label>
-            <input type="text" id="evt-lieu" class="evt-filter-input" placeholder="Paris, Lyon…" style="width:140px">
+
+          <div class="evt-field evt-field-person">
+            <label for="evt-person-name">Personne</label>
+            <div class="evt-autocomplete">
+              <input type="text" id="evt-person-name" class="evt-filter-input" placeholder="Nom ou prénom…"
+                     autocomplete="off" role="combobox" aria-expanded="false" aria-controls="evt-person-suggestions" aria-autocomplete="list">
+              <button type="button" id="evt-person-clear" class="evt-clear" aria-label="Effacer la personne" hidden>×</button>
+              <input type="hidden" id="evt-person-id">
+              <div id="evt-person-suggestions" class="autocomplete-dropdown" role="listbox" hidden></div>
+            </div>
           </div>
-          <div class="col-auto" style="position:relative">
-            <label class="d-block" style="font-size:0.82rem;color:var(--text-muted)">Personne</label>
-            <input type="text" id="evt-person-name" class="evt-filter-input" placeholder="Nom prénom…" autocomplete="off" style="width:160px">
-            <input type="hidden" id="evt-person-id">
-            <div id="evt-person-suggestions" class="autocomplete-dropdown" style="display:none;position:absolute;z-index:200;background:var(--card-bg);border:1px solid var(--border);border-radius:4px;max-height:180px;overflow-y:auto;width:100%"></div>
-            <select id="evt-degree" style="margin-top:4px;width:100%;font-size:0.8rem;padding:0.2rem;background:var(--card-bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
-              <option value="1">Degré 1 — direct</option>
-              <option value="2">Degré 2 — famille proche</option>
-              <option value="3">Degré 3 — témoignages</option>
+
+          <div class="evt-field">
+            <label for="evt-degree">Degré de lien <span class="evt-hint">(avec la personne)</span></label>
+            <select id="evt-degree">
+              <option value="1">1 — direct (soi, conjoints)</option>
+              <option value="2">2 — famille proche</option>
+              <option value="3">3 — + témoignages</option>
             </select>
           </div>
-          <div class="col-auto">
-            <label class="d-block" style="font-size:0.82rem;color:var(--text-muted)">Nom de famille</label>
-            <input type="text" id="evt-nom-famille" class="evt-filter-input" placeholder="Dupont…" style="width:130px">
+
+          <div class="evt-field">
+            <label for="evt-nom-famille">Nom de famille</label>
+            <input type="text" id="evt-nom-famille" class="evt-filter-input" placeholder="Dupont…">
           </div>
-          <div class="col-auto">
-            <button class="btn-primary-pgw" style="font-size:0.9rem;padding:0.4rem 1.2rem" id="evt-search-btn" disabled>Rechercher</button>
+
+          <div class="evt-actions">
+            <button class="btn-primary-pgw" id="evt-search-btn" disabled>Rechercher</button>
           </div>
         </div>
-        <div id="evt-status" style="color:var(--text-muted);font-style:italic;font-size:0.82rem;min-height:1.2em"></div>
+        <div id="evt-status" role="status"></div>
       </div>
       <div id="events-table" style="margin-top:0.5rem"></div>
     </div>
