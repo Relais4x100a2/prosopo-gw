@@ -1,5 +1,5 @@
 # Contexte = racine du monorepo : tout est exclu sauf ce dont l'image a besoin.
-# (aucune base .gw, aucun _local_testdata, aucun .venv ne doit entrer dans le contexte)
+# (aucune base .gw, aucun .venv ne doit entrer dans le contexte)
 *
 
 !pyproject.toml

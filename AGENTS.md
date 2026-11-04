@@ -29,7 +29,7 @@ Ce dépôt est **PUBLIC** (code, historique et documentation lisibles par tous) 
 
 - Interdit de versionner : `*.gw`, `*.gwo`, `*.gwb/`, `*.ged`, `*.gedcom`, `*.org.json`, exports CSV/HTML de vraies bases,
   logs avec noms, et tout nom, lieu ou date de vraie personne (code, tests, docs, messages de commit).
-- Les bases réelles restent **hors dépôt**, en lecture seule : `~/code_dev/TOLDOT/_local_testdata/`.
+- Les bases réelles restent **hors dépôt**, en lecture seule, dans un dossier local non versionné.
 - Tests et exemples : **fixtures synthétiques uniquement** (`core/tests/fixtures/*.gw`, noms fictifs : `DUPONT Jean`, `MARTIN Pierre_Jean`…).
   Les seules exceptions du `.gitignore` racine sont ces fixtures.
 - Avant tout commit : chemins explicites avec `git add` (jamais `-A` / `.`), puis `git diff --cached --name-only`.

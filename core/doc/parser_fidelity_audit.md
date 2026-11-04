@@ -431,7 +431,7 @@ Les numéros de ligne sont ceux de `30fd986` ; ils bougeront.
 - **Le dépôt est public.** Aucun fichier `.gw`/`.ged` réel, et aucun nom, lieu ou date de vraie personne
   dans le code, les tests, la documentation ou les messages de commit, historique compris.
   - Fixtures synthétiques uniquement (`DUPONT Jean`, `MARTIN Anne`…).
-  - Une base réelle reste hors dépôt, en lecture seule (emplacement prévu : `~/code_dev/TOLDOT/_local_testdata/`).
+  - Une base réelle reste hors dépôt, en lecture seule (dossier local non versionné).
 - **Python passe uniquement par `uv`** : pas de `pip`, `poetry` ni `conda`.
 - **Qualité** : mypy strict à 0 erreur, couverture ≥ 80 %, ruff propre. Le paquet `core` reste compatible
   Python 3.8 (pas de syntaxe 3.10+ dans `core/src`).
