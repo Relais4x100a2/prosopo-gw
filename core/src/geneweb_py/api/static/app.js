@@ -43,6 +43,18 @@ async function apiJson(path, options = {}) {
   return res.json();
 }
 
+// ==================== AFFICHAGE DES NOMS ====================
+// Le format .gw remplace les espaces par « _ » (« Jean_Pierre », « DUPONT_MARTIN »).
+// Ces helpers ne servent qu'à l'affichage : les identifiants restent bruts.
+function formatGwName(raw) {
+  return String(raw || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// « NOM, Prénoms » lisible ; « — » pour une partie manquante.
+function personLabel(surname, firstName) {
+  return `${formatGwName(surname) || '—'}, ${formatGwName(firstName) || '—'}`;
+}
+
 // ==================== SESSION ====================
 async function uploadFile(file) {
   const form = new FormData();
@@ -54,7 +66,7 @@ async function uploadFile(file) {
     showUploadError('Impossible de joindre le serveur.');
     return;
   }
-  if (res.status === 413) { showUploadError('Fichier trop volumineux (max 10 Mo).'); return; }
+  if (res.status === 413) { showUploadError('Fichier trop volumineux pour ce serveur.'); return; }
   if (res.status === 400 || res.status === 415) { showUploadError('Format invalide, attendu .gw ou .gwplus'); return; }
   if (res.status === 503) { showUploadError('Serveur saturé, réessayez dans quelques minutes.'); return; }
   if (res.status === 429) { showUploadError('Trop de tentatives, réessayez plus tard.'); return; }
@@ -147,42 +159,76 @@ async function init() {
 window.addEventListener('DOMContentLoaded', init);
 
 // ==================== UPLOAD ZONE ====================
+const GW_EXTENSIONS = ['.gw', '.gwplus'];
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
+}
+
+function setUploadBusy(busy, file) {
+  const zone = document.getElementById('drop-zone');
+  const title = document.getElementById('drop-title');
+  const hint = document.getElementById('drop-hint');
+  const btn = document.getElementById('btn-upload');
+  zone.classList.toggle('busy', busy);
+  zone.setAttribute('aria-busy', String(busy));
+  btn.disabled = busy;
+  if (file) title.textContent = `${file.name} · ${formatSize(file.size)}`;
+  hint.textContent = busy
+    ? 'Envoi et analyse en cours…'
+    : 'Glissez un autre fichier ou cliquez pour changer';
+}
+
+// Un fichier choisi (dépôt ou sélecteur) est chargé immédiatement.
+async function startUpload(file) {
+  hideUploadError();
+  if (!file) { showUploadError('Sélectionnez un fichier .gw.'); return; }
+  const name = file.name.toLowerCase();
+  if (!GW_EXTENSIONS.some(ext => name.endsWith(ext))) {
+    showUploadError(`« ${file.name} » n'est pas un fichier .gw ou .gwplus.`);
+    return;
+  }
+  setUploadBusy(true, file);
+  try {
+    await uploadFile(file);
+  } finally {
+    setUploadBusy(false);
+  }
+}
+
 function wireUploadZone() {
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
   const uploadBtn = document.getElementById('btn-upload');
+  const isBusy = () => dropZone.classList.contains('busy');
 
-  dropZone.addEventListener('click', () => fileInput.click());
+  const openPicker = () => { if (!isBusy()) fileInput.click(); };
+  dropZone.addEventListener('click', openPicker);
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
+  });
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropZone.style.background = 'var(--bg-active)';
+    if (!isBusy()) dropZone.classList.add('dragover');
   });
-  dropZone.addEventListener('dragleave', () => {
-    dropZone.style.background = '';
-  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
-    dropZone.style.background = '';
-    const file = e.dataTransfer.files[0];
-    if (file) { fileInput.files = e.dataTransfer.files; }
+    dropZone.classList.remove('dragover');
+    if (isBusy()) return;
+    startUpload(e.dataTransfer.files[0]);
   });
 
   fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) {
-      dropZone.querySelector('p').textContent = fileInput.files[0].name;
-    }
+    const file = fileInput.files[0];
+    fileInput.value = '';   // permet de re-sélectionner le même fichier
+    if (file) startUpload(file);
   });
 
-  uploadBtn.addEventListener('click', async () => {
-    hideUploadError();
-    const file = fileInput.files[0];
-    if (!file) { showUploadError('Sélectionnez un fichier .gw.'); return; }
-    uploadBtn.disabled = true;
-    uploadBtn.textContent = 'Chargement…';
-    await uploadFile(file);
-    uploadBtn.disabled = false;
-    uploadBtn.textContent = 'Charger et analyser';
-  });
+  // Repli : relance le dernier choix ou ouvre le sélecteur.
+  uploadBtn.addEventListener('click', openPicker);
 }
 
 function wireQuit() {
@@ -300,7 +346,7 @@ function renderPersons() {
     if (p.death_date) metaParts.push(`†${shortDate(p.death_date)}`);
     const meta = metaParts.join(' · ');
     return `<div class="item-row">
-      <span><span class="item-name"><strong>${escHtml(p.surname)}</strong>, ${escHtml(p.first_name)}</span> <span class="item-meta">${escHtml(meta)}</span></span>
+      <span><span class="item-name"><strong>${escHtml(formatGwName(p.surname) || '—')}</strong>, ${escHtml(formatGwName(p.first_name) || '—')}</span> <span class="item-meta">${escHtml(meta)}</span></span>
       <button class="btn-see" data-id="${escHtml(p.id)}">Voir ›</button>
     </div>`;
   }).join('');
@@ -412,7 +458,7 @@ async function resolvePersonNames(ids) {
     try {
       const r = await apiJson('/api/v1/persons/' + encodeURIComponent(id));
       const p = r.data;
-      map[id] = (p.surname || '—') + ', ' + (p.first_name || '—');
+      map[id] = personLabel(p.surname, p.first_name);
     } catch { map[id] = id; }
   }));
   return map;
@@ -422,7 +468,7 @@ function buildPersonDetailPanel(person, parents, partners, children) {
   const panel = document.createElement('div');
   panel.id = 'person-detail-panel';
   panel.className = 'person-detail';
-  const fullName = escHtml((person.surname || '—') + ', ' + (person.first_name || '—'));
+  const fullName = escHtml(personLabel(person.surname, person.first_name));
 
   const dateParts = [];
   if (person.birth_date) dateParts.push('°' + escHtml(shortDate(person.birth_date)));
@@ -581,7 +627,7 @@ async function showFamilyDetail(familyId, btnEl) {
       const person = child.person || {};
       const childId = child.person_id || person.id || '';
       const label = person.surname || person.first_name
-        ? escHtml((person.surname || '—') + ', ' + (person.first_name || '—'))
+        ? escHtml(personLabel(person.surname, person.first_name))
         : escHtml(childId || '—');
       return `<a class="mini-tree-person" data-id="${escHtml(childId)}">${label}</a>`;
     }).join('');
@@ -851,7 +897,7 @@ function buildEventsTable(data) {
         headerFilter: 'input',
         formatter: cell => {
           const d = cell.getRow().getData();
-          return escHtml(d.person_name || d.family_label || '—');
+          return escHtml(formatGwName(d.person_name || d.family_label) || '—');
         },
       },
       {
@@ -860,7 +906,7 @@ function buildEventsTable(data) {
         minWidth: 140, widthGrow: 2,
         sorter: false,
         headerFilter: false,
-        formatter: cell => escHtml((cell.getValue() || []).join(', ') || '—'),
+        formatter: cell => escHtml((cell.getValue() || []).map(formatGwName).join(', ') || '—'),
       },
       {
         title: 'Notes',
@@ -946,7 +992,7 @@ function wirePersonAutocomplete() {
           return;
         }
         dropdown.innerHTML = found.map(p => {
-          const label = `${p.first_name || ''} ${p.surname || ''}`.trim() || p.id;
+          const label = formatGwName(`${p.first_name || ''} ${p.surname || ''}`) || p.id;
           const dates = [p.birth_date, p.death_date].filter(Boolean).join(' – ');
           return `<div class="autocomplete-item" role="option" data-id="${escHtml(p.id)}" data-label="${escHtml(label)}">`
             + `${escHtml(label)}${dates ? `<span class="ac-dates">${escHtml(dates)}</span>` : ''}</div>`;

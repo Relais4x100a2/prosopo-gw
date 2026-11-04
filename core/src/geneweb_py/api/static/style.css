@@ -74,7 +74,28 @@ body {
   margin: 1.5rem 0;
   transition: background 0.2s;
 }
-.upload-zone:hover { background: var(--bg-active); }
+.upload-zone:hover,
+.upload-zone.dragover { background: var(--bg-active); }
+.upload-zone.dragover { border-style: solid; }
+.upload-zone:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.upload-zone.busy { cursor: progress; border-style: solid; background: var(--bg-active); }
+.upload-zone .upload-spinner { display: none; }
+.upload-zone.busy .icon { display: none; }
+.upload-zone.busy .upload-spinner {
+  display: block;
+  width: 2.2rem;
+  height: 2.2rem;
+  margin: 0.15rem auto 0.4rem;
+  border: 3px solid var(--accent-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: pgw-spin 0.8s linear infinite;
+}
+@keyframes pgw-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .upload-zone.busy .upload-spinner { animation-duration: 2.4s; }
+}
+#btn-upload:disabled { opacity: 0.5; cursor: progress; }
 .upload-zone .icon { font-size: 2.5rem; }
 .btn-primary-pgw {
   background: var(--accent);
@@ -417,3 +438,72 @@ body {
 .evt-more-types { flex-basis: 100%; margin-top: 0.2rem; }
 .evt-more-types summary { cursor: pointer; font-size: 0.85rem; color: var(--accent); }
 .evt-more-types .event-type-checkboxes { margin-top: 0.4rem; }
+
+/* ==================== Tabulator aux couleurs de l'interface ==================== */
+.tabulator {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: Georgia, serif;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.tabulator .tabulator-header {
+  background: var(--bg-active);
+  border-bottom: 2px solid var(--accent-light);
+  color: var(--text);
+}
+.tabulator .tabulator-header .tabulator-col {
+  background: var(--bg-active);
+  border-right: 1px solid var(--border);
+}
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover {
+  background: #fbe6b8;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {
+  font-weight: bold;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+  border-bottom-color: var(--accent-light);
+}
+.tabulator .tabulator-header .tabulator-col[aria-sort="ascending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+  border-bottom-color: var(--accent);
+}
+.tabulator .tabulator-header .tabulator-col[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+  border-top-color: var(--accent);
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-header-filter input {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--accent-light);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-family: Georgia, serif;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.tabulator .tabulator-tableholder { background: var(--bg-card); }
+.tabulator-row { background: #fff; color: var(--text); border-bottom: 1px solid var(--border); }
+.tabulator-row.tabulator-row-even { background: var(--bg-card); }
+.tabulator-row.tabulator-selectable:hover,
+.tabulator-row:hover { background: var(--bg-active); }
+.tabulator-row .tabulator-cell { border-right: 1px solid var(--border); padding: 6px 8px; }
+.tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.95rem;
+  font-weight: normal;
+}
+.tabulator .tabulator-footer {
+  background: var(--bg-active);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+}
+/* Liste déroulante du filtre « Type » (éditeur list de Tabulator) */
+.tabulator-edit-list { background: #fff; border: 1px solid var(--accent-light); font-family: Georgia, serif; }
+.tabulator-edit-list .tabulator-edit-list-item { color: var(--text); }
+.tabulator-edit-list .tabulator-edit-list-item.active,
+.tabulator-edit-list .tabulator-edit-list-item:hover { background: var(--bg-active); color: var(--text); }
+.tabulator-edit-list .tabulator-edit-list-placeholder { color: var(--text-muted); }

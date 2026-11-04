@@ -37,7 +37,7 @@ def test_every_local_asset_referenced_by_index_exists():
 
 def test_tabulator_assets_are_served_with_self_only_csp():
     with TestClient(app) as client:
-        for path in ("/vendor/tabulator.min.js", "/vendor/tabulator_midnight.min.css"):
+        for path in ("/vendor/tabulator.min.js", "/vendor/tabulator.min.css"):
             r = client.get(path)
             assert r.status_code == 200
             assert "default-src 'self'" in r.headers["content-security-policy"]
@@ -75,3 +75,29 @@ def test_every_event_type_code_has_a_french_label():
     labelled = set(re.findall(r"\{ value: '(\w+)',\s*label:", js))
     codes = {t.value for t in EventType} | {t.value for t in FamilyEventType}
     assert codes - labelled == set()
+
+
+def test_tabulator_uses_light_theme_overridden_by_app_css():
+    """Thème Tabulator clair, surchargé par style.css (chargé après)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "midnight" not in html
+    tab = html.index("/vendor/tabulator.min.css")
+    assert tab < html.index("/style.css")
+    assert ".tabulator-row.tabulator-row-even" in (STATIC / "style.css").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_visible_names_go_through_formatter():
+    """Les champs de nom bruts (« Jean_Pierre ») ne sont jamais affichés tels quels."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "function formatGwName(" in js
+    assert not re.search(r"escHtml\(\w+\.(surname|first_name)\)", js)
+    assert not re.search(r"\(\w+\.surname \|\| '—'\) \+ ', '", js)
+
+
+def test_drop_starts_upload_immediately():
+    """Déposer ou choisir un fichier lance le chargement sans clic supplémentaire."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "startUpload(e.dataTransfer.files[0])" in js
+    assert "if (file) startUpload(file);" in js
