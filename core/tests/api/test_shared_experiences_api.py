@@ -19,19 +19,19 @@ beg
 end
 
 pevt DUPONT Jean
-#Deportation 1943 #p Lillebonne
-#Philatelie_Locale 1905 #p Lillebonne
-#Recensement 1936 #p Lillebonne
+#Deportation 1943 #p Villefictive
+#Philatelie_Locale 1905 #p Villefictive
+#Recensement 1936 #p Villefictive
 #Deportation <1940
 end pevt
 
 pevt MARTIN Marie
-#Deportation 1943 #p Lillebonne
-#Philatelie_Locale 1905 #p Lillebonne
+#Deportation 1943 #p Villefictive
+#Philatelie_Locale 1905 #p Villefictive
 end pevt
 
 pevt DURAND Paul
-#Voyage_Italie 1950 #p Valmont
+#Voyage_Italie 1950 #p Montfictif
 end pevt
 """
 
@@ -120,11 +120,11 @@ def test_shared_experiences_csv(client):
     depo = [row for row in rows if row[1] == "Déportation"]
     assert [row[5] for row in depo] == ["DUPONT Jean", "MARTIN Marie"]
     assert depo[0][2] == "1943"
-    assert depo[0][3] == "Lillebonne"
+    assert depo[0][3] == "Villefictive"
     assert depo[0][4] == "même lieu"
     assert depo[0][6] == "Deportation"
     assert depo[0][7] == "1943"
-    assert depo[0][8].startswith("Lillebonne")
+    assert depo[0][8].startswith("Villefictive")
     assert len(rows) == 4  # 2 déportations + 2 philatélie
     assert all(len(row) == 9 for row in rows)
 
@@ -133,8 +133,8 @@ def test_csv_sorted_by_experience_then_folded_name():
     from geneweb_py.api.services.organization_exports import shared_experiences_csv
 
     g = GeneWebParser(validate=False).parse_string(
-        "pevt MARTIN Zoe\n#Deportation 1943 #p Lillebonne\nend pevt\n\n"
-        "pevt MARTIN Édith\n#Deportation 1943 #p Lillebonne\nend pevt\n"
+        "pevt MARTIN Zoe\n#Deportation 1943 #p Villefictive\nend pevt\n\n"
+        "pevt MARTIN Édith\n#Deportation 1943 #p Villefictive\nend pevt\n"
     )
     from geneweb_py.core.shared_experiences import find_shared_experiences
 

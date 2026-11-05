@@ -375,6 +375,8 @@ def _slices(entries: List[_Entry], window: int) -> List[List[_Entry]]:
         if placed[i]:
             continue
         placed[i] = True
+        # Borne fixée par le premier événement seul (sans extension en chaîne) :
+        # ``1941..1943`` et ``1943`` restent réunis, et une tranche reste bornée.
         limit = max(first.event.year_start + span, first.event.year_end)
         current = [first]
         for j in range(i + 1, len(entries)):
@@ -384,9 +386,6 @@ def _slices(entries: List[_Entry], window: int) -> List[List[_Entry]]:
             if not placed[j]:
                 placed[j] = True
                 current.append(entries[j])
-                # Une période longue étend la tranche jusqu'à sa fin : sans cela,
-                # ``1941..1943`` et ``1943`` ne seraient jamais dans la même tranche.
-                limit = max(limit, other.year_end)
         result.append(current)
     return result
 

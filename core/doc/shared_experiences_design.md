@@ -199,9 +199,10 @@ Un événement non daté n'est jamais lié (il est compté à part, `undated_tot
    l'événement dans la personne)`. Cet ordre est l'unique ordre de parcours.
 2. **Découper en tranches chronologiques.** L'étendue maximale d'une tranche est
    `E = max(1, 2 × fenêtre)`. La première tranche commence au premier événement, d'année de début
-   `D`, et reçoit tous les événements suivants dont le **début** est `≤ L`, où `L` vaut d'abord `max(D + E, fin du premier événement)` puis
-   s'étend à la fin de chaque événement admis (une période longue étend la tranche jusqu'à sa fin,
-   sans quoi `1941..1943` et `1943` ne seraient jamais réunis). La tranche suivante
+   `D`, et reçoit tous les événements suivants dont le **début** est `≤ L`, où
+   `L = max(D + E, fin du premier événement)`. `L` est fixé par le premier événement seul et ne
+   s'étend pas aux événements admis : une période longue du premier événement réunit `1941..1943`
+   et `1943`, sans qu'une chaîne de fourchettes fusionne tout un thème. La tranche suivante
    commence au premier événement non encore placé, et ainsi de suite. Chaque événement appartient
    à exactement une tranche.
 3. Dans chaque tranche, calculer les liens (règle ci-dessus) entre ses seuls événements, puis les

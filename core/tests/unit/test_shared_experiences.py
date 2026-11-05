@@ -476,7 +476,6 @@ def _reference_components(genealogy: Genealogy) -> List[Tuple[str, List[str]]]:
                 if not placed[j] and events[j][0] <= limit:
                     placed[j] = True
                     chunk.append(j)
-                    limit = max(limit, events[j][1])
             parent = {k: k for k in chunk}
 
             for x, a in enumerate(chunk):
@@ -574,6 +573,38 @@ def test_wide_range_links_with_inner_year() -> None:
         + _block("MARTIN Marie", "Deportation", "1943", "Villefictive")
     )
     assert len(idx.items) == 1
+
+
+def test_long_range_elsewhere_does_not_merge_experiences() -> None:
+    text = "".join(
+        _block(name, "Voyage", year, "Villefictive")
+        for name, year in [
+            ("DUPONT Jean", "1940"),
+            ("MARTIN Marie", "1941"),
+            ("DURAND Paul", "1942"),
+            ("LEROY Anne", "1943"),
+            ("PETIT Luc", "1944"),
+            ("BERNARD Zoe", "1945"),
+        ]
+    )
+    text += _block("ROUX Leo", "Voyage", "1940..1950", "Montfictif")
+    idx = _find(text)
+    assert [(e.year_min, e.year_max) for e in idx.items] == [(1940, 1942), (1943, 1945)]
+
+
+def test_chain_of_overlapping_ranges_stays_bounded() -> None:
+    text = "".join(
+        _block(
+            f"FICTIF{c} Jean",
+            "Deportation",
+            f"{1900 + 2 * i}..{1902 + 2 * i}",
+            "Villefictive",
+        )
+        for i, c in enumerate("ABCDEFGHIJ")
+    )
+    idx = _find(text)
+    assert len(idx.items) > 1
+    assert all(e.year_max - e.year_min <= 4 for e in idx.items)
 
 
 def test_city_key_ignores_hyphen_and_underscore() -> None:
