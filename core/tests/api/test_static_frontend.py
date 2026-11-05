@@ -299,13 +299,15 @@ def test_stats_show_candidate_count_linking_to_tab():
 
 def test_drawer_member_label_is_readable_and_not_duplicated():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert "formatGwName(m.event_label)" in js
-    assert "label === role ? '' : label" in js
+    assert "formatGwName(head.event_label)" in js
+    assert "label && label !== role ? label : ''" in js
 
 
 def test_drawer_member_says_holder_or_witness():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert "m.witness ? (role === 'Témoin' ? '' : 'témoin') : 'porteur'" in js
+    assert "m.witness ? (r && r !== 'Témoin' ? r : 'témoin')" in js
+    # membres regroupés par événement d'origine, ville seule dans l'en-tête
+    assert "m.source_event_id ||" in js and "placeCity(head.place)" in js
 
 
 def test_org_badges_show_name_origin_and_source_events():

@@ -65,6 +65,12 @@ function formatGwName(raw) {
   return String(raw || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Ville d'un lieu GeneWeb : complément « […] - » retiré, texte avant la première virgule.
+function placeCity(raw) {
+  const text = formatGwName(raw).replace(/^\[[^\]]*\]\s+-\s+/, '');
+  return text.split(',')[0].trim();
+}
+
 // « NOM, Prénoms » lisible ; « — » pour une partie manquante.
 function personLabel(surname, firstName) {
   return `${formatGwName(surname) || '—'}, ${formatGwName(firstName) || '—'}`;
@@ -1971,18 +1977,34 @@ async function openOrganizationDetail(id) {
 function buildOrganizationPanel(org) {
   const meta = [ORG_TYPE_LABELS[org.type] || org.type, formatGwName(org.place), orgCounts(org), orgPeriod(org)]
     .filter(Boolean).join(' · ');
-  // Porteur de l'événement ou témoin : précisé dès qu'un membre est témoin.
-  const hasWitnesses = (org.members || []).some(m => m.witness);
-  const members = (org.members || []).map(m => {
-    const label = formatGwName(m.event_label);
-    const role = formatGwName(m.role);
-    const status = !hasWitnesses ? '' : m.witness ? (role === 'Témoin' ? '' : 'témoin') : 'porteur';
+  // Membres regroupés par événement d'origine : date, nature et ville une seule fois,
+  // puis le porteur et ses témoins.
+  const groups = new Map();
+  (org.members || []).forEach((m, i) => {
+    const key = m.source_event_id || `${m.person_id}:${i}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  });
+  const ordered = [...groups.values()]
+    .map(ms => [...ms].sort((a, b) => Number(a.witness) - Number(b.witness)))
+    .sort((a, b) => (a[0].year ?? 9999) - (b[0].year ?? 9999));
+  const members = ordered.map(ms => {
+    const head = ms[0];
+    const role = formatGwName(head.role);
+    const label = formatGwName(head.event_label);
     // Pour une profession, l'événement porte le même texte que le rôle.
-    const bits = [status, role, label === role ? '' : label,
-      shortDate(m.date), formatGwName(m.place)].filter(Boolean);
-    if (!m.witness && m.witness_count > 0) bits.push(`${m.witness_count} témoin${m.witness_count > 1 ? 's' : ''}`);
-    return `<li><a href="${escHtml(personHash(m.person_id))}">${escHtml(formatGwName(m.person_name) || m.person_id)}</a>`
-      + (bits.length ? ` <span class="item-meta">${escHtml(bits.join(' · '))}</span>` : '') + '</li>';
+    const what = !head.witness && label && label !== role ? label : '';
+    const city = placeCity(head.place);
+    const title = [shortDate(head.date), what, city].filter(Boolean).join(' · ') || 'Sans date';
+    const rows = ms.map(m => {
+      const r = formatGwName(m.role);
+      const tag = m.witness ? (r && r !== 'Témoin' ? r : 'témoin') : ['porteur', r].filter(Boolean).join(' · ');
+      return `<li><a href="${escHtml(personHash(m.person_id))}">${escHtml(formatGwName(m.person_name) || m.person_id)}</a>`
+        + ` <span class="org-member-role${m.witness ? '' : ' org-member-holder'}">${escHtml(tag)}</span></li>`;
+    }).join('');
+    const placeTitle = head.place ? ` title="${escHtml(formatGwName(head.place))}"` : '';
+    return `<li class="org-event"><div class="org-event-head"${placeTitle}>${escHtml(title)}</div>`
+      + `<ul class="org-members">${rows}</ul></li>`;
   }).join('');
   const places = (org.places || []).map(formatGwName).filter(Boolean);
   const why = [];
@@ -2001,7 +2023,7 @@ function buildOrganizationPanel(org) {
     <p class="org-badges">${orgBadges(org)}</p>
     <div class="drawer-section">
       <div class="mini-tree-label">Membres (${(org.members || []).length})</div>
-      <ul class="org-members">${members || '<li class="text-muted">Aucun membre.</li>'}</ul>
+      <ul class="org-events">${members || '<li class="text-muted">Aucun membre.</li>'}</ul>
     </div>
     ${places.length ? `<div class="drawer-section"><div class="mini-tree-label">Lieux</div><p>${escHtml(places.join(' · '))}</p></div>` : ''}
     <details class="drawer-details org-why"><summary>Pourquoi cette proposition ?</summary>

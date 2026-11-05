@@ -139,6 +139,7 @@ def test_candidate_detail_lists_members(client):
         "witness_count": 3,
         "year": 1895,
         "witness": False,
+        "source_event_id": "pevt:DUPONT_Jean_0:0",
     }
     # Les trois témoins de l'embauche sont rattachés à l'usine
     witnesses = sorted(x["person_id"] for x in d["members"] if x["witness"])

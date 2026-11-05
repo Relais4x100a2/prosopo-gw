@@ -456,8 +456,13 @@ body {
 .badge-review { border-color: var(--accent); color: var(--accent); }
 .badge-collective { border-style: dashed; }
 .badge-circle { font-style: italic; }
-.org-members { list-style: none; margin: 0.25rem 0 0; padding: 0; }
-.org-members li { padding: 0.25rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.org-events { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.org-event { padding: 0.4rem 0 0.5rem; border-bottom: 1px solid var(--border); }
+.org-event-head { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.15rem; }
+.org-members { list-style: none; margin: 0; padding: 0 0 0 0.75rem; border-left: 2px solid var(--border); }
+.org-members li { padding: 0.15rem 0; overflow-wrap: anywhere; }
+.org-member-role { font-size: 0.75rem; color: var(--text-muted); margin-left: 0.25rem; }
+.org-member-holder { color: var(--accent); font-weight: 600; }
 .unmatched { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .unmatched > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 .unmatched-group { margin: 0.25rem 0 0 0.5rem; }

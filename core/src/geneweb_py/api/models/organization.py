@@ -29,6 +29,10 @@ class OrganizationMemberSchema(BaseModel):
     witness: bool = Field(
         False, description="Témoin de l'événement (et non son porteur)"
     )
+    source_event_id: Optional[str] = Field(
+        default=None,
+        description="Événement d'origine, commun au porteur et à ses témoins",
+    )
 
 
 class OrganizationCandidateSchema(BaseModel):
