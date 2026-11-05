@@ -374,6 +374,22 @@ class TestOccupationText:
         assert org.place == "Roubaix"
         assert g.organization_links[0].source_event_type == "occu"
 
+    def test_occupation_note_is_read_when_the_complement_names_nothing(self):
+        g = _parse(
+            "#occu 1895 #p [Quartier_Nord]_-_Roubaix\nnote Tisseur à l'Usine Martin"
+        )
+        g.infer_organizations()
+        org = g.get_organization("usine_martin_roubaix")
+        assert org is not None and org.place == "Roubaix"
+        assert g.organization_links[0].role == "Tisseur"
+
+    def test_occupation_complement_still_wins_over_the_note(self):
+        g = _parse(
+            "#occu 1895 #p [Usine_Martin]_-_Roubaix\nnote Tisseur à la Banque Fictive"
+        )
+        g.infer_organizations()
+        assert [o.name for o in g.organizations.values()] == ["Usine Martin"]
+
     def test_shared_plain_occupation_is_never_an_organization(self):
         g = _parse_two_attrs("Instituteur", "Instituteur")
         assert g.infer_organizations() == (0, 0)

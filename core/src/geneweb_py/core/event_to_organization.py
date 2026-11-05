@@ -1074,13 +1074,18 @@ class EventToOrganizationMapper:
                     self.propose(event, counts, person.occupation, member_counts),
                 )
                 if (
-                    proposal is None
+                    (proposal is None or proposal.trigger is None)
                     and event.event_type is EventType.OCCUPATION
                     and event.notes
-                    and not (event.place_parts and event.place_parts.complement)
                 ):
+                    # Le complément ne nomme aucun établissement : la note,
+                    # qui décrit le métier, prime si elle en nomme un.
                     city = event.place_parts.city if event.place_parts else None
-                    proposal = self.propose_from_occupation(event.notes[0], city)
+                    from_note = self.propose_from_occupation(event.notes[0], city)
+                    if from_note is not None and (
+                        proposal is None or from_note.trigger is not None
+                    ):
+                        proposal = from_note
                 if proposal is None:
                     continue
                 source_type = (

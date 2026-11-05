@@ -204,7 +204,8 @@ d'établissement (§ 3.4) présent dans le complément **remplace** le type par 
 ### 3.7 Texte de profession : « métier à / chez X »
 
 Deux textes sont lus : l'**attribut profession** de la personne et la **note** d'un événement
-Profession sans complément de lieu. Le texte est découpé à la première virgule (seule la première
+Profession, quand l'événement n'a pas de complément de lieu ou que ce complément ne contient aucun
+mot d'établissement (la note prime alors si elle en nomme un ; sinon le complément reste l'organisation). Le texte est découpé à la première virgule (seule la première
 partie est lue, les suivantes sont d'autres métiers ou des précisions) et coupé en
 `rôle` + `préposition` + `X` sur la première occurrence de « à », « au », « aux », « à la »,
 « à l' », « chez », « de la », « du », « des », « de l' », « pour ».
