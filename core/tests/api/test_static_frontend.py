@@ -301,3 +301,34 @@ def test_drawer_member_label_is_readable_and_not_duplicated():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "formatGwName(m.event_label)" in js
     assert "label === formatGwName(m.role) ? '' : label" in js
+
+
+def test_org_badges_show_name_origin_and_source_events():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "Nom : ${escHtml(NAMED_FROM_LABELS[org.named_from]" in js
+    assert "Source : ${escHtml(sources.join(', '))}" in js
+    # L'origine « tag » n'est plus masquée.
+    assert "org.named_from !== 'tag'" not in js
+
+
+def test_ignored_words_controls_are_wired():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    for i in (
+        "orgs-ignored-chips",
+        "orgs-ignored-form",
+        "orgs-ignored-input",
+        "orgs-ignored-info",
+    ):
+        assert f'id="{i}"' in html, i
+    assert "'/api/v1/organizations/ignored-words'" in js
+    assert "localStorage" in js and "IGNORED_WORDS_KEY" in js
+    assert "Ignorer ce mot" in js and "g.word === 'autres'" in js
+    # Le réglage retenu est appliqué avant la liste, la carte Stats et les exports.
+    assert js.count("await syncIgnoredWords()") == 3
+    assert "_ignoredSync = null;" in js  # oublié avec la session
+
+
+def test_unmatched_events_use_readable_label():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "const bits = [e.label, shortDate(e.date)" in js

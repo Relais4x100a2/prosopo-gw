@@ -193,6 +193,16 @@
         <input type="search" id="orgs-search" placeholder="Rechercher une organisation…" aria-label="Rechercher une organisation" autocomplete="off">
         <button type="button" id="orgs-clear-btn" class="search-clear" aria-label="Effacer la recherche et les filtres">✕</button>
       </div>
+      <div class="orgs-ignored" aria-labelledby="orgs-ignored-label">
+        <span id="orgs-ignored-label" class="orgs-ignored-label">Mots ignorés</span>
+        <span id="orgs-ignored-chips" class="orgs-ignored-chips"></span>
+        <form id="orgs-ignored-form" class="orgs-ignored-form">
+          <input type="text" id="orgs-ignored-input" placeholder="Ajouter un mot…" aria-label="Mot à ignorer" maxlength="40" autocomplete="off">
+          <button type="submit">Ignorer</button>
+        </form>
+        <span id="orgs-ignored-info" class="orgs-ignored-info" role="status"></span>
+      </div>
+      <p class="orgs-ignored-help text-muted">Les événements libres dont le nom contient l'un de ces mots (mot entier, sans tenir compte des majuscules ni des accents) ne sont ni proposés ni à classer.</p>
       <div id="orgs-list"></div>
       <div class="pagination-bar">
         <button id="orgs-prev" disabled>← Précédent</button>

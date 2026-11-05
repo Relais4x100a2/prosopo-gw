@@ -462,6 +462,16 @@ body {
 .unmatched > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 .unmatched-group { margin: 0.25rem 0 0 0.5rem; }
 .unmatched-group summary { cursor: pointer; }
+.orgs-ignored { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; }
+.orgs-ignored-label { font-size: 0.82rem; color: var(--text-muted); }
+.orgs-ignored-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ignored-chip { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ignored-chip button { border: none; background: none; padding: 0 0.15rem; cursor: pointer; color: inherit; font-size: 0.9rem; line-height: 1; }
+.orgs-ignored-form { display: flex; gap: 0.3rem; }
+.orgs-ignored-form input { width: 10rem; max-width: 100%; }
+.orgs-ignored-info { font-size: 0.82rem; color: var(--text-muted); }
+.orgs-ignored-help { font-size: 0.8rem; margin: 0 0 0.75rem; }
+.unmatched-ignore { margin-left: 0.5rem; font-size: 0.75rem; }
 .stat-card-link { display: block; text-decoration: none; color: inherit; }
 .stat-card-link:hover { border-color: var(--accent); }
 .stat-card-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

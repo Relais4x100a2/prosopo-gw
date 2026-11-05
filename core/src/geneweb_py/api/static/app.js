@@ -12,6 +12,7 @@ const state = {
   organizations: { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false },
   unmatchedLoaded: false,
   orgCount: null,
+  ignoredWords: null,   // mots ignorés de la session (null : pas encore synchronisés)
   // Dernière adresse vue par onglet : revenir sur un onglet retrouve son contexte.
   lastRoute: {},
   // id → « NOM, Prénoms » : évite de redemander un nom déjà connu.
@@ -101,6 +102,9 @@ async function deleteSession() {
   clearSession();
 }
 
+// Synchronisation en cours des mots ignorés (voir syncIgnoredWords).
+let _ignoredSync = null;
+
 function clearSession() {
   state.token = null;
   state.nameCache.clear();
@@ -121,6 +125,8 @@ function resetLoadedData() {
   state.organizations = { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false };
   state.unmatchedLoaded = false;
   state.orgCount = null;
+  state.ignoredWords = null;
+  _ignoredSync = null;
   state.lastRoute = {};
   closeDetail();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -1716,6 +1722,13 @@ function wireOrganizationsTab() {
     orgsSearch.value = '';
     navigate(organizationsListHash(1, {}));
   });
+  document.getElementById('orgs-ignored-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = document.getElementById('orgs-ignored-input');
+    const word = input.value.trim();
+    if (!word) return;
+    setIgnoredWords([...(state.ignoredWords || []), word]).then(ok => { if (ok) input.value = ''; });
+  });
   document.getElementById('orgs-prev').addEventListener('click',
     () => navigate(organizationsListHash(state.organizations.page - 1)));
   document.getElementById('orgs-next').addEventListener('click',
@@ -1736,6 +1749,7 @@ async function applyOrganizationsRoute(params) {
   document.getElementById('orgs-sort').value = want.sort;
   document.getElementById('orgs-type').value = want.type;
   document.getElementById('orgs-source').value = want.named_from;
+  await syncIgnoredWords();
   loadUnmatched();
   if (!o.loaded || o.page !== page || o.sort !== want.sort || o.type !== want.type
       || o.named_from !== want.named_from || o.q !== want.q) {
@@ -1789,8 +1803,12 @@ function orgBadges(org) {
   if (org.to_determine) b.push('<span class="badge-pgw badge-review">à déterminer</span>');
   if (org.relation) b.push('<span class="badge-pgw badge-circle">cercle</span>');
   if (org.trigger) b.push(`<span class="badge-pgw">${escHtml(org.trigger)}</span>`);
-  if (org.named_from && org.named_from !== 'tag') {
-    b.push(`<span class="badge-pgw">${escHtml(NAMED_FROM_LABELS[org.named_from] || org.named_from)}</span>`);
+  if (org.named_from) {
+    b.push(`<span class="badge-pgw" title="Origine du nom proposé">Nom : ${escHtml(NAMED_FROM_LABELS[org.named_from] || org.named_from)}</span>`);
+  }
+  const sources = (org.sources || []).map(c => SOURCE_LABELS[c] || c);
+  if (sources.length) {
+    b.push(`<span class="badge-pgw" title="Types d'événements à l'origine de la proposition">Source : ${escHtml(sources.join(', '))}</span>`);
   }
   return b.join('');
 }
@@ -1886,6 +1904,80 @@ function buildOrganizationPanel(org) {
   return panel;
 }
 
+// Mots ignorés : réglage de session côté serveur, retenu dans le navigateur pour les
+// fichiers suivants. La première visite (rien de retenu) garde le réglage du serveur.
+const IGNORED_WORDS_KEY = 'pgwOrgIgnoredWords';
+
+function savedIgnoredWords() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(IGNORED_WORDS_KEY));
+    return Array.isArray(saved) && saved.every(w => typeof w === 'string') ? saved : null;
+  } catch { return null; }
+}
+
+function saveIgnoredWords(words) {
+  try { localStorage.setItem(IGNORED_WORDS_KEY, JSON.stringify(words)); } catch { /* stockage indisponible */ }
+}
+
+// Une seule synchronisation par session, partagée par les appels concurrents.
+function syncIgnoredWords() {
+  if (state.ignoredWords !== null) return Promise.resolve();
+  if (!_ignoredSync) {
+    const token = state.token;
+    const saved = savedIgnoredWords();
+    const request = saved
+      ? apiJson('/api/v1/organizations/ignored-words', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ words: saved }),
+        })
+      : apiJson('/api/v1/organizations/ignored-words');
+    _ignoredSync = request.then(data => {
+      if (state.token !== token) return;
+      state.ignoredWords = data.words;
+      renderIgnoredWords();
+    }).catch(() => { _ignoredSync = null; });   // les candidats restent lisibles sans ce réglage
+  }
+  return _ignoredSync;
+}
+
+async function setIgnoredWords(words) {
+  const info = document.getElementById('orgs-ignored-info');
+  let data;
+  try {
+    data = await apiJson('/api/v1/organizations/ignored-words', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ words }),
+    });
+  } catch (err) {
+    if (err.message === 'session-expired') return false;
+    info.textContent = err.status === 422
+      ? 'Mot refusé : des lettres uniquement, 40 au plus, 50 mots au maximum.'
+      : 'Impossible d\'enregistrer les mots ignorés.';
+    return false;
+  }
+  state.ignoredWords = data.words;
+  saveIgnoredWords(data.words);
+  renderIgnoredWords();
+  // Candidats, reste à classer et carte Stats sont recalculés avec le nouveau réglage.
+  state.organizations.loaded = false;
+  state.unmatchedLoaded = false;
+  state.orgCount = null;
+  navigate(organizationsListHash(1));
+  return true;
+}
+
+function renderIgnoredWords() {
+  const chips = document.getElementById('orgs-ignored-chips');
+  const words = state.ignoredWords || [];
+  chips.innerHTML = words.length
+    ? words.map(w => `<span class="badge-pgw ignored-chip">${escHtml(w)}`
+        + `<button type="button" data-word="${escHtml(w)}" aria-label="Ne plus ignorer « ${escHtml(w)} »">×</button></span>`).join('')
+    : '<span class="text-muted">aucun</span>';
+  chips.querySelectorAll('button[data-word]').forEach(btn => {
+    btn.addEventListener('click', () => setIgnoredWords(words.filter(w => w !== btn.dataset.word)));
+  });
+}
+
 // Reste à classer : événements « Autre » sans candidat, groupés par mot.
 async function loadUnmatched() {
   if (state.unmatchedLoaded) return;
@@ -1904,19 +1996,30 @@ function renderUnmatched(data) {
   const summary = document.getElementById('orgs-unmatched-summary');
   const body = document.getElementById('orgs-unmatched-body');
   summary.textContent = `Reste à classer (${fmtInt(data.total)} événement${data.total > 1 ? 's' : ''})`;
+  const ignored = data.ignored_total || 0;
+  document.getElementById('orgs-ignored-info').textContent = ignored
+    ? `${fmtInt(ignored)} événement${ignored > 1 ? 's' : ''} écarté${ignored > 1 ? 's' : ''}` : '';
   if (!data.groups.length) {
     body.innerHTML = '<p class="text-muted unmatched-empty">Aucun événement à classer.</p>';
     return;
   }
   body.innerHTML = data.groups.map(g => {
     const events = g.events.map(e => {
-      const bits = [e.event_type_raw, shortDate(e.date), formatGwName(e.place)].filter(Boolean);
+      const bits = [e.label, shortDate(e.date), formatGwName(e.place)].filter(Boolean);
       return `<li><a href="${escHtml(personHash(e.person_id))}">${escHtml(formatGwName(e.person_name) || e.person_id)}</a>`
         + ` <span class="item-meta">${escHtml(bits.join(' · '))}</span></li>`;
     }).join('');
-    return `<details class="unmatched-group"><summary>${escHtml(g.word)} · ${fmtInt(g.count)}</summary>`
+    const ignoreBtn = g.word === 'autres' ? ''
+      : `<button type="button" class="unmatched-ignore" data-word="${escHtml(g.word)}">Ignorer ce mot</button>`;
+    return `<details class="unmatched-group"><summary>${escHtml(g.word)} · ${fmtInt(g.count)}${ignoreBtn}</summary>`
       + `<ul class="org-members">${events}</ul></details>`;
   }).join('');
+  body.querySelectorAll('.unmatched-ignore').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();   // ne pas replier le groupe
+      setIgnoredWords([...(state.ignoredWords || []), btn.dataset.word]);
+    });
+  });
 }
 
 // ==================== STATS ====================
@@ -1981,6 +2084,7 @@ async function renderOrganizationsStat() {
   const grid = document.querySelector('#stats-content .stats-grid');
   if (!grid) return;
   if (state.orgCount === null) {
+    await syncIgnoredWords();
     try {
       const data = await apiJson('/api/v1/organizations/candidates?size=1');
       state.orgCount = data.pagination.total;
@@ -2081,6 +2185,7 @@ async function downloadExport(format) {
   const errorEl = document.getElementById('export-error');
   errorEl.style.display = 'none';
   try {
+    if (format.startsWith('org')) await syncIgnoredWords();
     const res = await apiFetch('/api/v1/genealogy/export/' + format);
     if (!res.ok) {
       errorEl.textContent = "Erreur lors de la génération de l'export.";
