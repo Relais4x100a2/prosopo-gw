@@ -89,8 +89,48 @@ def test_company_tag_with_witnesses_links_every_member():
     assert all(link.start_date.sort_year() == 1922 for link in links)
 
 
-def test_company_tag_without_witnesses_stays_alone():
+def test_company_tag_without_witnesses_is_an_organization():
     g = _parse("#SNC_DUPONT_et_Cie 1922 #p Paris")
+    assert g.infer_organizations() == (1, 1)
+    org = next(iter(g.organizations.values()))
+    assert org.type is OrganizationType.COMPANY
+    assert org.name == "SNC DUPONT et Cie"
+
+
+@pytest.mark.parametrize(
+    "tag, name",
+    [
+        ("Societe_Fictive_des_Rubans", "Societe Fictive des Rubans"),
+        ("société_BASSE_VALLEE", "Société BASSE VALLEE"),
+        ("Président_de_la_société_de_pêche", "Société de pêche"),
+        (
+            'Formation_société_"E._DUPONT_jeune_et_Cie"',
+            "Société E. DUPONT jeune et Cie",
+        ),
+    ],
+)
+def test_lone_societe_tag_names_the_company(tag, name):
+    g = _parse(f"#{tag} 1900 #p Lyon")
+    assert g.infer_organizations() == (1, 1)
+    org = next(iter(g.organizations.values()))
+    assert org.type is OrganizationType.COMPANY
+    assert org.name == name
+
+
+def test_acts_of_one_company_share_the_organization():
+    g = _parse(
+        '#Formation_société_"E._DUPONT_et_Cie" 1858 #p [Bercy]_-_Paris\n'
+        '#Dissolution_société_"E._DUPONT_et_Cie" 1864 #p [Tribunal_de_Commerce]_-_Paris'
+    )
+    assert g.infer_organizations() == (1, 2)
+    org = next(iter(g.organizations.values()))
+    assert org.name == "Société E. DUPONT et Cie"
+    assert org.type is OrganizationType.COMPANY
+
+
+def test_plain_establishment_tag_alone_stays_unclassified():
+    # « maison », « bureau » : trop ambigus sans autre personne
+    g = _parse("#Maison_de_campagne 1900 #p Lyon")
     assert g.infer_organizations() == (0, 0)
 
 

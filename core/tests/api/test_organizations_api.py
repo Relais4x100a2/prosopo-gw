@@ -253,6 +253,21 @@ end pevt
     assert idx.unmatched_total == 3
 
 
+def test_company_named_by_one_person_is_a_candidate():
+    gw = """pevt DUPONT Jean
+#Formation_societe_DUPONT_et_Cie 1858 #p Paris
+#Dissolution_societe_DUPONT_et_Cie 1864 #p [Tribunal_de_Commerce]_-_Paris
+#Maison_de_campagne 1870
+end pevt
+"""
+    idx = build_candidate_index(GeneWebParser().parse_string(gw))
+    [company] = idx.candidates.values()
+    assert company.name == "Societe DUPONT et Cie"
+    assert (company.person_count, company.event_count) == (1, 2)
+    # seul l'événement sans société reste à classer
+    assert idx.unmatched_total == 1
+
+
 def test_index_tolerates_links_without_event_reference():
     g = GeneWebParser().parse_string(GW)
     g.infer_organizations()

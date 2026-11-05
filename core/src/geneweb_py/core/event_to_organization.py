@@ -303,6 +303,32 @@ def parse_event_ref(ref: Optional[str]) -> Optional[Tuple[str, int]]:
 # Formes juridiques reconnues telles qu'écrites (capitales, « Et. » avec son point)
 LEGAL_FORMS: FrozenSet[str] = frozenset({"SNC", "SARL", "SA", "SAS", "Et."})
 
+# Mots qui désignent à eux seuls une société : un tag qui en contient un suffit,
+# même porté par une seule personne sans témoin (« Formation société X et Cie »)
+COMPANY_NAME_TRIGGERS: FrozenSet[str] = frozenset(
+    {"societe", "cie", "commandite", "snc", "sarl", "sa", "sas", "et."}
+)
+
+_QUOTES = '"«»“”„'
+
+
+def _company_name(tag_name: str, trigger: str) -> str:
+    """Nom de la société lue dans un tag.
+
+    Les mots qui précèdent « société » décrivent l'acte (« Formation »,
+    « Dissolution », « Président de la ») : ils sont retirés, pour que tous les
+    actes d'une même société désignent la même organisation.
+    """
+    words = tag_name.split()
+    if trigger == "societe":
+        folded = [_fold(w).strip(_QUOTES) for w in words]
+        if "societe" in folded:
+            words = words[folded.index("societe") :]
+    name = " ".join(w.strip(_QUOTES) for w in words).strip()
+    name = " ".join(name.split())
+    return name[:1].upper() + name[1:] if name else tag_name
+
+
 # Témoins d'un événement retenu comme organisation : membres ou acteurs de celle-ci
 WITNESS_ROLE = "Témoin"
 WITNESS_NOTE = "witness"
@@ -332,7 +358,7 @@ def _establishment_in(text: str) -> Optional[Tuple[str, OrganizationType]]:
     for raw in re.split(r"[_\-\s'’]+", text):
         if raw in LEGAL_FORMS:
             return _fold(raw), OrganizationType.COMPANY
-    words = [w.rstrip(".") for w in _words(text)]
+    words = [w.strip(_QUOTES).rstrip(".") for w in _words(text)]
     for i, word in enumerate(words):
         org_type = ESTABLISHMENT_WORDS.get(word)
         if org_type is None:
@@ -522,6 +548,20 @@ class EventToOrganizationMapper:
         rule, tag_name, tag_rest = _split_tag_ex(tag, self.rules)
         role = rule.role if rule else None
         rule_type = rule.type if rule else OrganizationType.OTHER
+
+        # 0. tag qui nomme une société : prime sur le complément (« Dissolution
+        # société X » enregistrée au tribunal reste rattachée à la société)
+        company = _establishment_in(tag_name) if rule is None and tag_name else None
+        if tag_name and company is not None and company[0] in COMPANY_NAME_TRIGGERS:
+            return OrganizationProposal(
+                name=_company_name(tag_name, company[0]),
+                type=OrganizationType.COMPANY,
+                place=city,
+                confidence=_CONF_STRONG,
+                named_from="tag",
+                trigger=company[0],
+                extra=_extra("complement", complement),
+            )
 
         # 1. complément contenant un mot d'établissement
         if complement:

@@ -164,6 +164,16 @@ Pour un tag à mot d'établissement, le seuil « au moins deux personnes » comp
 témoins : une société portée par une seule personne et ses associés témoins est retenue. Le tag libre
 sans signal fort reste compté sur les seuls porteurs.
 
+**Société nommée comme telle.** Un tag sans préfixe de rôle qui contient `societe`, `cie`,
+`commandite` ou une forme juridique (`COMPANY_NAME_TRIGGERS`) désigne une société même porté par une
+seule personne sans témoin : l'organisation est retenue et l'onglet la propose malgré le seuil de deux
+personnes. Ce tag prime sur le complément de lieu (« Dissolution société X » enregistrée au
+« [Tribunal de Commerce] » reste rattachée à la société, le complément passe en métadonnée). Les mots
+qui précèdent « société » décrivent l'acte (« Formation », « Dissolution », « Président de la ») et sont
+retirés du nom, de sorte que les actes successifs d'une même société la désignent tous ; les guillemets
+sont ôtés. Les autres mots d'établissement (`maison`, `bureau`, `atelier`…), trop ambigus, gardent le seuil
+de deux personnes.
+
 Côté API, chaque membre porte `witness: bool` ; `person_count` inclut les témoins et `event_count`
 compte les événements d'origine distincts. L'onglet indique « porteur » ou « témoin » pour chaque
 membre ; les liens figurent dans `.org.json` (note `"witness"`) et dans le CSV des liens (rôle).
