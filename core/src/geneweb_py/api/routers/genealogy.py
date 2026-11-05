@@ -26,6 +26,7 @@ from ..services.organization_exports import (
     candidates_csv,
     candidates_sidecar,
     links_csv,
+    shared_experiences_csv,
 )
 
 router = APIRouter()
@@ -96,6 +97,22 @@ async def export_organizations_csv(
         candidates_csv(service.get_candidate_index()).encode("utf-8"),
         media_type="text/csv; charset=utf-8",
         headers=_download_headers("organisations.csv"),
+    )
+
+
+@router.get("/export/shared-experiences-csv")
+@limiter.limit("40/minute")
+async def export_shared_experiences_csv(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> Response:
+    """CSV des expériences proches (une ligne par événement)."""
+    return Response(
+        shared_experiences_csv(
+            service.genealogy, service.get_shared_experiences()
+        ).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers=_download_headers("experiences_proches.csv"),
     )
 
 

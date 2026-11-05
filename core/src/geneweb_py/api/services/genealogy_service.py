@@ -23,6 +23,7 @@ from ...core.models import (
 )
 from ...core.parser import GeneWebParser
 from ...core.place import place_city
+from ...core.shared_experiences import SharedExperienceIndex, find_shared_experiences
 from ..models.event import (
     EventUpdateSchema,
     FamilyEventCreateSchema,
@@ -98,6 +99,7 @@ class GenealogyService:
         self._parser = GeneWebParser(use_multipass=False)
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
         self._candidate_index: Optional[CandidateIndex] = None
+        self._shared_experiences: Optional[SharedExperienceIndex] = None
         self._orgs_inferred = False  # organisations produites par l'inférence
         self._ignored_words: Tuple[str, ...] = DEFAULT_IGNORED_WORDS
         if genealogy is not None:
@@ -1092,6 +1094,7 @@ class GenealogyService:
         """
         self._witness_index = None
         self._candidate_index = None
+        self._shared_experiences = None
         if self._orgs_inferred:
             self.genealogy.organizations.clear()
             self.genealogy.organization_links.clear()
@@ -1107,6 +1110,15 @@ class GenealogyService:
             )
         return self._candidate_index
 
+    def get_shared_experiences(self) -> SharedExperienceIndex:
+        """Expériences proches (calculées une fois, invalidées comme l'index des candidats)."""
+        if self._shared_experiences is None:
+            index = self.get_candidate_index()
+            self._shared_experiences = find_shared_experiences(
+                self.genealogy, index.matched, set(self._ignored_words)
+            )
+        return self._shared_experiences
+
     @property
     def ignored_words(self) -> Tuple[str, ...]:
         """Mots qui écartent un événement « Autre » des organisations candidates."""
@@ -1118,6 +1130,7 @@ class GenealogyService:
         if normalized != self._ignored_words:
             self._ignored_words = normalized
             self._candidate_index = None
+            self._shared_experiences = None
         return self._ignored_words
 
     def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:

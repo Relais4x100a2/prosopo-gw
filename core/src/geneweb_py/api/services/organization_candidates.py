@@ -8,7 +8,7 @@ rattachés à leur événement d'origine via ``OrganizationLink.source_event_id`
 
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ...core.event import Event, EventType
 from ...core.event_to_organization import (
@@ -20,6 +20,7 @@ from ...core.event_to_organization import (
 from ...core.genealogy import Genealogy
 from ...core.organization import Organization, OrganizationLink
 from ...core.person import Person
+from ...core.shared_experiences import SharedExperience
 
 COLLECTIVE_MIN_WITNESSES = 3
 CANDIDATE_MIN_PERSONS = 2
@@ -115,6 +116,30 @@ def person_display_name(person: Person) -> str:
     if person.occurrence_number > 0:
         name += f".{person.occurrence_number}"
     return name
+
+
+def shared_experience_persons(
+    genealogy: Genealogy, experience: SharedExperience
+) -> List[Dict[str, Any]]:
+    """Événements d'une expérience proche avec le nom de la personne, triés (nom replié, année)."""
+    rows: List[Dict[str, Any]] = []
+    for event in experience.events:
+        person = genealogy.persons.get(event.person_id)
+        rows.append(
+            {
+                "person_id": event.person_id,
+                "person_name": (
+                    person_display_name(person) if person else event.person_id
+                ),
+                "event_type_raw": event.event_type_raw,
+                "label": event.event_type_raw.replace("_", " "),
+                "year_start": event.year_start,
+                "year_end": event.year_end,
+                "place": event.place,
+            }
+        )
+    rows.sort(key=lambda r: (_fold(r["person_name"]), r["year_start"], r["person_id"]))
+    return rows
 
 
 def _fold(text: str) -> str:

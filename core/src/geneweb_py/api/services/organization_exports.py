@@ -9,8 +9,13 @@ import io
 from typing import Any, Dict, List, Optional
 
 from ...core.genealogy import Genealogy
+from ...core.shared_experiences import SharedExperienceIndex
 from ...formats.org_sidecar import sidecar_payload
-from .organization_candidates import Candidate, CandidateIndex
+from .organization_candidates import (
+    Candidate,
+    CandidateIndex,
+    shared_experience_persons,
+)
 
 BOM = "﻿"
 LIST_SEPARATOR = "|"
@@ -81,6 +86,17 @@ LINKS_CSV_HEADER: List[str] = [
     "nom_retenu",
 ]
 
+SHARED_EXPERIENCES_CSV_HEADER: List[str] = [
+    "experience",
+    "theme",
+    "periode",
+    "lieux",
+    "raison",
+    "personne",
+    "evenement",
+    "annee",
+    "lieu",
+]
 
 FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
@@ -173,6 +189,40 @@ def links_csv(index: CandidateIndex) -> str:
         )
     ]
     return _render(LINKS_CSV_HEADER, rows)
+
+
+def _years(start: int, end: int) -> str:
+    return str(start) if start == end else f"{start}-{end}"
+
+
+def _reason_label(kind: str, place: Optional[str], words: Any) -> str:
+    if kind == "rare_word":
+        return "mot commun : " + ", ".join(words)
+    return "même lieu"
+
+
+def shared_experiences_csv(genealogy: Genealogy, index: SharedExperienceIndex) -> str:
+    """Une ligne par événement, dans l'ordre des expériences puis nom replié et année."""
+    rows: List[List[str]] = []
+    for e in index.items:
+        period = _years(e.year_min, e.year_max)
+        places = ", ".join(e.places)
+        reasons = " ; ".join(_reason_label(r.kind, r.place, r.words) for r in e.reasons)
+        for p in shared_experience_persons(genealogy, e):
+            rows.append(
+                [
+                    _text(e.id),
+                    _text(e.label),
+                    period,
+                    _text(places),
+                    _text(reasons),
+                    _text(p["person_name"]),
+                    _text(p["label"]),
+                    _years(p["year_start"], p["year_end"]),
+                    _text(p["place"]),
+                ]
+            )
+    return _render(SHARED_EXPERIENCES_CSV_HEADER, rows)
 
 
 def candidates_sidecar(genealogy: Genealogy, index: CandidateIndex) -> Dict[str, Any]:

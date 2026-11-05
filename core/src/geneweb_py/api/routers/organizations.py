@@ -14,13 +14,20 @@ from ..models.organization import (
     IgnoredWordsSchema,
     OrganizationCandidateDetailSchema,
     OrganizationCandidateSchema,
+    SharedExperiencesResponseSchema,
     UnmatchedResponseSchema,
 )
 from ..models.responses import PaginatedResponse, PaginationInfo
 from ..services.genealogy_service import GenealogyService
-from ..services.organization_candidates import filter_candidates, sort_candidates
+from ..services.organization_candidates import (
+    filter_candidates,
+    shared_experience_persons,
+    sort_candidates,
+)
 
 router = APIRouter()
+
+SHARED_EXPERIENCES_CAP = 500
 
 
 @router.get("/candidates", response_model=PaginatedResponse)
@@ -89,6 +96,38 @@ async def get_unmatched(
             "groups": [dataclasses.asdict(g) for g in index.unmatched_groups],
             "ignored_total": index.ignored_total,
             "civil_status_total": index.civil_status_total,
+        }
+    )
+
+
+@router.get("/shared-experiences")
+async def get_shared_experiences(
+    service: GenealogyService = Depends(get_session_service),
+) -> SharedExperiencesResponseSchema:
+    """Expériences proches (déportation, voyage…), plafonnées à 500 entrées."""
+    index = service.get_shared_experiences()
+    items = index.items[:SHARED_EXPERIENCES_CAP]
+    return SharedExperiencesResponseSchema.model_validate(
+        {
+            "items": [
+                {
+                    "id": e.id,
+                    "theme": e.theme,
+                    "label": e.label,
+                    "year_min": e.year_min,
+                    "year_max": e.year_max,
+                    "places": e.places,
+                    "reasons": [dataclasses.asdict(r) for r in e.reasons],
+                    "person_count": e.person_count,
+                    "event_count": e.event_count,
+                    "persons": shared_experience_persons(service.genealogy, e),
+                }
+                for e in items
+            ],
+            "total": len(items),
+            "civil_status_total": service.get_candidate_index().civil_status_total,
+            "undated_total": index.undated_total,
+            "truncated": len(index.items) > SHARED_EXPERIENCES_CAP,
         }
     )
 

@@ -102,3 +102,48 @@ class IgnoredWordsSchema(BaseModel):
     @classmethod
     def _normalize(cls, words: List[str]) -> List[str]:
         return list(normalize_ignored_words(words))
+
+
+class SharedReasonSchema(BaseModel):
+    """Raison du rapprochement : même ville ou mots rares communs."""
+
+    kind: str = Field(..., description='"same_place" ou "rare_word"')
+    place: Optional[str] = None
+    words: List[str] = Field(default_factory=list)
+
+
+class SharedExperiencePersonSchema(BaseModel):
+    """Événement d'une personne dans une expérience proche."""
+
+    person_id: str
+    person_name: str
+    event_type_raw: str
+    label: str = Field(..., description="Tag lisible (``_`` remplacé par une espace)")
+    year_start: int
+    year_end: int
+    place: Optional[str] = None
+
+
+class SharedExperienceSchema(BaseModel):
+    """Expérience proche : événements rapprochés de plusieurs personnes."""
+
+    id: str
+    theme: str
+    label: str
+    year_min: int
+    year_max: int
+    places: List[str] = Field(default_factory=list)
+    reasons: List[SharedReasonSchema] = Field(default_factory=list)
+    person_count: int
+    event_count: int
+    persons: List[SharedExperiencePersonSchema] = Field(default_factory=list)
+
+
+class SharedExperiencesResponseSchema(BaseModel):
+    """Liste des expériences proches (plafonnée)."""
+
+    items: List[SharedExperienceSchema] = Field(default_factory=list)
+    total: int
+    civil_status_total: int = 0
+    undated_total: int = 0
+    truncated: bool = False
