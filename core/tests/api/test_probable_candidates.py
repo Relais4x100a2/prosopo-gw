@@ -152,3 +152,15 @@ def test_index_fields_default_safely(name):
 
     idx = CandidateIndex({}, 0, [])
     assert getattr(idx, name) in (0, frozenset())
+
+
+def test_weak_occupation_text_candidate_is_dropped():
+    text = (
+        "encoding: utf-8\n\n"
+        "fam DUPONT Jean #occu Domestique_chez_Dupont + MARTIN Marie\n"
+        "fam DURAND Paul #occu Domestique_chez_Dupont + LEROY Anne\n"
+    )
+    genealogy = GeneWebParser().parse_string(text)
+    index = build_candidate_index(genealogy)
+    assert "Dupont" not in _names(index)
+    assert index.candidates == {}

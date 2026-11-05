@@ -358,14 +358,14 @@ end
 
 pevt DUPONT Jean
 #occu 1895
-note ouvrier chez =1+1
+note ouvrier chez =1+1 usine
 #occu 1896
-note ouvrier chez =1+1
+note ouvrier chez =1+1 usine
 end pevt
 
 pevt MARTIN Marie
 #occu 1897
-note ouvrier chez =1+1
+note ouvrier chez =1+1 usine
 end pevt
 """
 
@@ -378,7 +378,7 @@ def test_csv_neutralises_formula_cells_but_not_numbers():
     ).get_candidate_index()
     for text in (candidates_csv(index), links_csv(index)):
         rows = list(csv.reader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
-        assert rows[1][1] == "'=1+1"
+        assert rows[1][1] == "'=1+1 usine"
     cand = list(
         csv.reader(io.StringIO(candidates_csv(index).lstrip("\ufeff")), delimiter=";")
     )[1]

@@ -167,10 +167,11 @@ def normalize_ignored_words(words: Iterable[str]) -> Tuple[str, ...]:
     return tuple(result)
 
 
-def is_weak_tag_organization(org: Organization) -> bool:
-    """Organisation nommée d'après un simple tag, sous le seuil de revue."""
+def is_weak_organization(org: Organization) -> bool:
+    """Organisation peu fiable : nommée d'après un tag ou un texte de profession,
+    sous le seuil de revue (les propositions « chez X » sans mot d'établissement)."""
     return (
-        org.metadata.get("named_from") == "tag"
+        org.metadata.get("named_from") in ("tag", "occupation_text")
         and (org.confidence or 0.0) < REVIEW_THRESHOLD
     )
 
@@ -240,7 +241,7 @@ def _build_candidates(
     for link in genealogy.organization_links:
         if link.organization_id not in genealogy.organizations:
             continue
-        if is_weak_tag_organization(genealogy.organizations[link.organization_id]):
+        if is_weak_organization(genealogy.organizations[link.organization_id]):
             continue
         event = _resolve_event(genealogy, link.source_event_id)
         if _is_civil(event) or _is_ignored(event, ignored):
@@ -348,6 +349,21 @@ def _build_unmatched(
             UnmatchedGroup(OTHERS_WORD, len(others), others[:UNMATCHED_GROUP_CAP])
         )
     return len(entries), groups, ignored_total, civil_total
+
+
+def build_unmatched(
+    genealogy: Genealogy,
+    exclude: Iterable[Tuple[str, int]],
+    ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS,
+) -> Tuple[int, List[UnmatchedGroup]]:
+    """Reste à classer sans les événements de ``exclude`` ; renvoie ``(total, groupes)``.
+
+    ``exclude`` réunit les événements d'organisations et ceux d'expériences proches :
+    un événement déjà classé n'est pas à classer. Groupes et total sont recalculés.
+    """
+    ignored = set(normalize_ignored_words(ignored_words))
+    total, groups, _, _ = _build_unmatched(genealogy, set(exclude), ignored)
+    return total, groups
 
 
 def build_candidate_index(
