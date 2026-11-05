@@ -8,12 +8,17 @@ rattachés à leur événement d'origine via ``OrganizationLink.source_event_id`
 
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ...core.event import Event, EventType
-from ...core.event_to_organization import _words, parse_event_ref
+from ...core.event_to_organization import (
+    REVIEW_THRESHOLD,
+    _words,
+    is_civil_status,
+    parse_event_ref,
+)
 from ...core.genealogy import Genealogy
-from ...core.organization import OrganizationLink
+from ...core.organization import Organization, OrganizationLink
 from ...core.person import Person
 
 COLLECTIVE_MIN_WITNESSES = 3
@@ -21,8 +26,8 @@ CANDIDATE_MIN_PERSONS = 2
 UNMATCHED_MIN_WORD_LEN = 4
 UNMATCHED_GROUP_CAP = 50
 
-# Mots des événements « Autre » qui ne désignent jamais une organisation.
-DEFAULT_IGNORED_WORDS: Tuple[str, ...] = ("recensement", "domicile")
+# Mots ignorés par défaut : aucun. L'état civil est écarté par ``is_civil_status``.
+DEFAULT_IGNORED_WORDS: Tuple[str, ...] = ()
 IGNORED_WORDS_MAX = 50
 IGNORED_WORD_MAX_LEN = 40
 
@@ -100,6 +105,8 @@ class CandidateIndex:
     unmatched_total: int
     unmatched_groups: List[UnmatchedGroup]
     ignored_total: int = 0
+    civil_status_total: int = 0
+    matched: FrozenSet[Tuple[str, int]] = frozenset()
 
 
 def person_display_name(person: Person) -> str:
@@ -133,6 +140,23 @@ def normalize_ignored_words(words: Iterable[str]) -> Tuple[str, ...]:
     if len(result) > IGNORED_WORDS_MAX:
         raise ValueError(f"au plus {IGNORED_WORDS_MAX} mots")
     return tuple(result)
+
+
+def is_weak_tag_organization(org: Organization) -> bool:
+    """Organisation nommée d'après un simple tag, sous le seuil de revue."""
+    return (
+        org.metadata.get("named_from") == "tag"
+        and (org.confidence or 0.0) < REVIEW_THRESHOLD
+    )
+
+
+def _is_civil(event: Optional[Event]) -> bool:
+    """Événement « Autre » dont le tag relève de l'état civil."""
+    return (
+        event is not None
+        and event.event_type is EventType.OTHER
+        and is_civil_status(event.event_type_raw)
+    )
 
 
 def _is_ignored(event: Optional[Event], ignored: Set[str]) -> bool:
@@ -191,7 +215,10 @@ def _build_candidates(
     for link in genealogy.organization_links:
         if link.organization_id not in genealogy.organizations:
             continue
-        if _is_ignored(_resolve_event(genealogy, link.source_event_id), ignored):
+        if is_weak_tag_organization(genealogy.organizations[link.organization_id]):
+            continue
+        event = _resolve_event(genealogy, link.source_event_id)
+        if _is_civil(event) or _is_ignored(event, ignored):
             continue
         members.setdefault(link.organization_id, []).append(
             _build_member(genealogy, link)
@@ -237,12 +264,16 @@ def _build_candidates(
 
 def _build_unmatched(
     genealogy: Genealogy, matched: Set[Tuple[str, int]], ignored: Set[str]
-) -> Tuple[int, List[UnmatchedGroup], int]:
+) -> Tuple[int, List[UnmatchedGroup], int, int]:
     entries: List[Tuple[UnmatchedEvent, Set[str]]] = []
     ignored_total = 0
+    civil_total = 0
     for person_id, person in genealogy.persons.items():
         for index, event in enumerate(person.events):
             if event.event_type is not EventType.OTHER:
+                continue
+            if _is_civil(event):
+                civil_total += 1
                 continue
             if _is_ignored(event, ignored):
                 ignored_total += 1
@@ -291,7 +322,7 @@ def _build_unmatched(
         groups.append(
             UnmatchedGroup(OTHERS_WORD, len(others), others[:UNMATCHED_GROUP_CAP])
         )
-    return len(entries), groups, ignored_total
+    return len(entries), groups, ignored_total, civil_total
 
 
 def build_candidate_index(
@@ -299,15 +330,21 @@ def build_candidate_index(
 ) -> CandidateIndex:
     """Calcule l'index ; infère les organisations si la base n'en a aucune.
 
-    Les événements « Autre » dont le nom contient un mot de ``ignored_words``
-    (recensement, domicile…) ne nourrissent ni les candidats ni le reste à classer.
+    Les événements d'état civil sont toujours écartés (``civil_status_total``) ; les
+    organisations nommées d'après un simple tag peu fiable sont retirées. Les
+    événements « Autre » dont le nom contient un mot de ``ignored_words``
+    ne nourrissent ni les candidats ni le reste à classer.
     """
     if not genealogy.organizations:
         genealogy.infer_organizations()
     ignored = set(normalize_ignored_words(ignored_words))
     candidates, matched = _build_candidates(genealogy, ignored)
-    total, groups, ignored_total = _build_unmatched(genealogy, matched, ignored)
-    return CandidateIndex(candidates, total, groups, ignored_total)
+    total, groups, ignored_total, civil_total = _build_unmatched(
+        genealogy, matched, ignored
+    )
+    return CandidateIndex(
+        candidates, total, groups, ignored_total, civil_total, frozenset(matched)
+    )
 
 
 def sort_candidates(candidates: Iterable[Candidate], sort: str) -> List[Candidate]:

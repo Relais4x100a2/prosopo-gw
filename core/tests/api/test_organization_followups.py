@@ -16,21 +16,21 @@ from geneweb_py.api.services.organization_candidates import (
 from geneweb_py.core.parser.gw_parser import GeneWebParser
 
 GW = """pevt DUPONT Jean
-#Recensement 1906 #p Lille
+#Atelier_Couture 1906 #p Lille
 #Cercle_Philatelique 1900
 #educ 1880 #p [Ecole_Saint_Paul]_-_Lille
 end pevt
 
 pevt MARTIN Marie
-#Recensement 1906 #p Lille
+#Atelier_Couture 1906 #p Lille
 #Cercle_Philatelique 1905
-#Domicile_Rue_Haute 1910
+#Bureau_Rue_Haute 1910
 #educ 1882 #p [Ecole_Saint_Paul]_-_Lille
 end pevt
 
 pevt DURAND Paul
-#Recensement 1906 #p Lille
-#Domicile_Rue_Basse 1911
+#Atelier_Couture 1906 #p Lille
+#Bureau_Rue_Basse 1911
 end pevt
 """
 
@@ -70,32 +70,32 @@ def _rows(text):
 
 
 def test_default_ignored_words():
-    assert DEFAULT_IGNORED_WORDS == ("recensement", "domicile")
+    assert DEFAULT_IGNORED_WORDS == ()
 
 
 def test_without_ignored_words_census_is_a_candidate():
     index = build_candidate_index(_genealogy(), ignored_words=())
-    assert any("Recensement" in name for name in _names(index))
+    assert any("Atelier" in name for name in _names(index))
     assert index.ignored_total == 0
 
 
-def test_default_ignored_words_drop_census_and_domicile():
-    index = build_candidate_index(_genealogy())
-    assert not any("Recensement" in name for name in _names(index))
+def test_ignored_words_drop_atelier_and_bureau():
+    index = build_candidate_index(_genealogy(), ignored_words=("atelier", "bureau"))
+    assert not any("Atelier" in name for name in _names(index))
     assert "Cercle_Philatelique" in {n.replace(" ", "_") for n in _names(index)}
     tags = _unmatched_tags(index)
-    assert not any(t.startswith(("Recensement", "Domicile")) for t in tags)
-    assert index.ignored_total == 5  # 3 recensements + 2 domiciles
+    assert not any(t.startswith(("Atelier", "Bureau")) for t in tags)
+    assert index.ignored_total == 5  # 3 ateliers + 2 bureaus
 
 
 def test_ignored_word_matching_is_folded_and_whole_word():
-    index = build_candidate_index(_genealogy(), ignored_words=("RECENSÉMENT",))
-    assert not any("Recensement" in name for name in _names(index))
-    # « domicile » n'est plus ignoré : ses événements reviennent à classer.
-    assert any(t.startswith("Domicile") for t in _unmatched_tags(index))
+    index = build_candidate_index(_genealogy(), ignored_words=("ATELIER",))
+    assert not any("Atelier" in name for name in _names(index))
+    # « bureau » n'est plus ignoré : ses événements reviennent à classer.
+    assert any(t.startswith("Bureau") for t in _unmatched_tags(index))
     # Un mot partiel n'ignore rien.
     partial = build_candidate_index(_genealogy(), ignored_words=("recens",))
-    assert any("Recensement" in name for name in _names(partial))
+    assert any("Atelier" in name for name in _names(partial))
 
 
 def test_ignored_words_only_apply_to_free_events():
@@ -106,14 +106,14 @@ def test_ignored_words_only_apply_to_free_events():
 
 def test_ignored_words_api_roundtrip(client):
     body = client.get("/api/v1/organizations/ignored-words").json()
-    assert body == {"words": ["recensement", "domicile"]}
+    assert body == {"words": []}
 
     res = client.put(
         "/api/v1/organizations/ignored-words",
-        json={"words": ["Recensement", " cercle ", "recensement", ""]},
+        json={"words": ["Atelier", " cercle ", "atelier", ""]},
     )
     assert res.status_code == 200
-    assert res.json() == {"words": ["recensement", "cercle"]}
+    assert res.json() == {"words": ["atelier", "cercle"]}
 
     names = {
         c["name"]
@@ -121,9 +121,9 @@ def test_ignored_words_api_roundtrip(client):
     }
     assert not any("Philatelique" in n for n in names)
     unmatched = client.get("/api/v1/organizations/unmatched").json()
-    assert unmatched["ignored_total"] == 5  # 3 recensements + 2 cercles
+    assert unmatched["ignored_total"] == 5  # 3 ateliers + 2 cercles
     tags = {e["event_type_raw"] for g in unmatched["groups"] for e in g["events"]}
-    assert any(t.startswith("Domicile") for t in tags)
+    assert any(t.startswith("Bureau") for t in tags)
 
 
 def test_ignored_words_api_rejects_bad_input(client):
@@ -141,12 +141,12 @@ def test_ignored_words_api_rejects_bad_input(client):
 def test_ignored_words_apply_to_exports(client):
     client.put("/api/v1/organizations/ignored-words", json={"words": []})
     text = client.get("/api/v1/genealogy/export/organizations-csv").text
-    assert "Recensement" in text
-    client.put("/api/v1/organizations/ignored-words", json={"words": ["recensement"]})
+    assert "Atelier" in text
+    client.put("/api/v1/organizations/ignored-words", json={"words": ["atelier"]})
     text = client.get("/api/v1/genealogy/export/organizations-csv").text
-    assert "Recensement" not in text
+    assert "Atelier" not in text
     org_json = client.get("/api/v1/genealogy/export/org-json").json()
-    assert not any("Recensement" in o["name"] for o in org_json["organizations"])
+    assert not any("Atelier" in o["name"] for o in org_json["organizations"])
 
 
 # --- CSV lisible dans un Excel français --------------------------------------
@@ -199,11 +199,11 @@ def session_client():
 
 def test_ignored_words_persist_across_requests(session_client):
     url = "/api/v1/organizations/ignored-words"
-    assert session_client.put(url, json={"words": ["recensement"]}).status_code == 200
-    assert session_client.get(url).json() == {"words": ["recensement"]}
+    assert session_client.put(url, json={"words": ["atelier"]}).status_code == 200
+    assert session_client.get(url).json() == {"words": ["atelier"]}
     unmatched = session_client.get("/api/v1/organizations/unmatched").json()
     assert unmatched["ignored_total"] == 3
-    assert {g["word"] for g in unmatched["groups"]} >= {"domicile"}
+    assert {g["word"] for g in unmatched["groups"]} >= {"bureau"}
 
 
 def test_candidate_index_is_cached_across_requests(session_client, monkeypatch):
@@ -226,5 +226,5 @@ def test_api_write_refreshes_candidates_in_real_session(session_client):
 
     assert any("Philatelique" in n for n in names())
     assert session_client.delete("/api/v1/persons/MARTIN_Marie_0").status_code == 200
-    # Le cercle et l'école n'ont plus qu'une personne : plus de candidat.
-    assert names() == set()
+    # Le cercle et l'école n'ont plus qu'une personne : seul l'atelier reste.
+    assert names() == {"Atelier Couture"}

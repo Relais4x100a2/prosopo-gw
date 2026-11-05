@@ -39,12 +39,12 @@ end pevt
 
 pevt DURAND Paul
 #Capitaine_de_navire 1890
-#Conference_Histoire 1911
+#Societe_Histoire 1911
 #Comite_des_fetes_Est 1920
 end pevt
 
 pevt MARTIN Pierre
-#Conference_Histoire 1912
+#Societe_Histoire 1912
 #Comite_des_fetes_Ouest 1920
 end pevt
 """
@@ -80,7 +80,7 @@ def test_candidates_default_sort_by_persons(client):
     data = client.get("/api/v1/organizations/candidates").json()
     ids = [c["id"] for c in data["items"]]
     # Trois candidats à deux personnes : égalité départagée par le nom replié.
-    assert ids == ["cercle_philatelique", "conference_histoire", "usine_martin_roubaix"]
+    assert ids == ["cercle_philatelique", "societe_histoire", "usine_martin_roubaix"]
     assert not any(i.startswith("comite_des_fetes") for i in ids)  # une personne chacun
     first = next(c for c in data["items"] if c["id"] == "usine_martin_roubaix")
     assert first["collective"] is True and first["person_count"] == 2
@@ -223,7 +223,7 @@ def test_person_writes_refresh_candidates(client, service):
     ids = {
         c["id"] for c in client.get("/api/v1/organizations/candidates").json()["items"]
     }
-    assert ids == {"conference_histoire"}  # seul candidat encore à deux personnes
+    assert ids == {"societe_histoire"}  # seul candidat encore à deux personnes
     assert all(
         link.person_id != "DUPONT_Jean_0"
         for link in service.genealogy.organization_links

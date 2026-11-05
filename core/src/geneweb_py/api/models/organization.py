@@ -84,6 +84,9 @@ class UnmatchedResponseSchema(BaseModel):
     ignored_total: int = Field(
         default=0, description="Événements « Autre » écartés par les mots ignorés"
     )
+    civil_status_total: int = Field(
+        default=0, description="Événements d'état civil écartés (toujours exclus)"
+    )
 
 
 class IgnoredWordsSchema(BaseModel):
@@ -92,7 +95,7 @@ class IgnoredWordsSchema(BaseModel):
     words: List[str] = Field(
         default_factory=list,
         max_length=IGNORED_WORDS_MAX * 2,
-        description="Mots entiers, sans casse ni accents (recensement, domicile…)",
+        description="Mots entiers, sans casse ni accents (cercle, club…)",
     )
 
     @field_validator("words")

@@ -30,6 +30,7 @@ NAMED_FROM_LABELS: Dict[str, str] = {
     "place": "Lieu",
     "typed_event": "Événement typé",
     "occupation_text": "Profession",
+    "address": "Adresse",
 }
 SOURCE_LABELS: Dict[str, str] = {
     "oth": "événement libre",

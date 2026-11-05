@@ -88,6 +88,7 @@ async def get_unmatched(
             "total": index.unmatched_total,
             "groups": [dataclasses.asdict(g) for g in index.unmatched_groups],
             "ignored_total": index.ignored_total,
+            "civil_status_total": index.civil_status_total,
         }
     )
 
@@ -96,7 +97,7 @@ async def get_unmatched(
 async def get_ignored_words(
     service: GenealogyService = Depends(get_session_service),
 ) -> IgnoredWordsSchema:
-    """Mots qui écartent un événement « Autre » (par défaut : recensement, domicile)."""
+    """Mots qui écartent un événement « Autre » (vide par défaut ; l'état civil est toujours écarté)."""
     return IgnoredWordsSchema(words=list(service.ignored_words))
 
 
