@@ -520,6 +520,27 @@ body {
 .alert-pgw.error { background: #fde8e8; color: var(--danger); border: 1px solid #f5b5b5; }
 .alert-pgw.info { background: var(--bg-active); color: var(--text-muted); border: 1px solid var(--accent-light); }
 
+/* Soutien Toldot (page d'accueil) */
+.toldot-support {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 2rem auto 0;
+  max-width: 32rem;
+  padding: 0.75rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  text-align: left;
+  text-decoration: none;
+  border-radius: 8px;
+}
+.toldot-support:hover,
+.toldot-support:focus-visible { background: var(--bg-active); }
+.toldot-support img { mix-blend-mode: multiply; flex-shrink: 0; }
+.toldot-support .toldot-url { color: var(--accent); text-decoration: underline; }
+
 /* Footer */
 .pgw-footer {
   text-align: center;
