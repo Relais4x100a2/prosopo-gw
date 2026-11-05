@@ -52,23 +52,23 @@
   </nav>
 
   <!-- Tabs -->
-  <div class="pgw-tabs">
-    <div class="pgw-tab active" data-tab="persons">Personnes</div>
-    <div class="pgw-tab" data-tab="families">Familles</div>
-    <div class="pgw-tab" data-tab="events">Événements</div>
-    <div class="pgw-tab" data-tab="stats">Stats</div>
-    <div class="pgw-tab" data-tab="export">Export</div>
+  <div class="pgw-tabs" role="tablist" aria-label="Vues">
+    <button type="button" class="pgw-tab active" role="tab" id="tab-persons" data-tab="persons" aria-selected="true" aria-controls="panel-persons">Personnes</button>
+    <button type="button" class="pgw-tab" role="tab" id="tab-families" data-tab="families" aria-selected="false" aria-controls="panel-families" tabindex="-1">Familles</button>
+    <button type="button" class="pgw-tab" role="tab" id="tab-events" data-tab="events" aria-selected="false" aria-controls="panel-events" tabindex="-1">Événements</button>
+    <button type="button" class="pgw-tab" role="tab" id="tab-stats" data-tab="stats" aria-selected="false" aria-controls="panel-stats" tabindex="-1">Stats</button>
+    <button type="button" class="pgw-tab" role="tab" id="tab-export" data-tab="export" aria-selected="false" aria-controls="panel-export" tabindex="-1">Export</button>
   </div>
 
   <div class="app-body">
   <div class="container-fluid py-3">
 
     <!-- === PERSONNES === -->
-    <div id="panel-persons" class="tab-panel active">
+    <div id="panel-persons" role="tabpanel" aria-labelledby="tab-persons" class="tab-panel active">
       <div class="search-bar">
-        <input type="text" id="persons-search" placeholder="Rechercher un nom…">
+        <input type="search" id="persons-search" placeholder="Rechercher un nom…" aria-label="Rechercher une personne" autocomplete="off">
         <button id="persons-search-btn">Chercher</button>
-        <button id="persons-clear-btn" style="background:none;border:1px solid var(--accent-light);border-radius:4px;padding:0.35rem 0.6rem;cursor:pointer;color:var(--text-muted)">✕</button>
+        <button type="button" id="persons-clear-btn" class="search-clear" aria-label="Effacer la recherche et les filtres">✕</button>
       </div>
       <div id="persons-filters" class="filter-bar" aria-label="Filtres actifs" hidden></div>
       <div id="persons-list"></div>
@@ -80,7 +80,12 @@
     </div>
 
     <!-- === FAMILLES === -->
-    <div id="panel-families" class="tab-panel">
+    <div id="panel-families" role="tabpanel" aria-labelledby="tab-families" class="tab-panel">
+      <div class="search-bar">
+        <input type="search" id="families-search" placeholder="Nom d'un conjoint, lieu du mariage…" aria-label="Rechercher une famille" autocomplete="off">
+        <button id="families-search-btn">Chercher</button>
+        <button type="button" id="families-clear-btn" class="search-clear" aria-label="Effacer la recherche">✕</button>
+      </div>
       <div id="families-list"></div>
       <div class="pagination-bar">
         <button id="families-prev" disabled>← Précédent</button>
@@ -90,7 +95,7 @@
     </div>
 
     <!-- === ÉVÉNEMENTS === -->
-    <div id="panel-events" class="tab-panel">
+    <div id="panel-events" role="tabpanel" aria-labelledby="tab-events" class="tab-panel">
       <div class="event-filters">
         <fieldset class="evt-types-field">
           <legend>Types d'événement</legend>
@@ -138,12 +143,12 @@
     </div>
 
     <!-- === STATS === -->
-    <div id="panel-stats" class="tab-panel">
+    <div id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" class="tab-panel">
       <div id="stats-content"></div>
     </div>
 
     <!-- === EXPORT === -->
-    <div id="panel-export" class="tab-panel">
+    <div id="panel-export" role="tabpanel" aria-labelledby="tab-export" class="tab-panel">
       <p style="color:var(--text-muted);font-style:italic;margin-bottom:1.5rem">
         Les fichiers sont générés à la volée depuis vos données de session — aucune copie conservée.
       </p>

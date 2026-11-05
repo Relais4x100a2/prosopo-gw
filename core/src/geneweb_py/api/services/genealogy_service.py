@@ -52,6 +52,17 @@ def _normalize_search_text(text: str) -> str:
     return no_accents.replace("-", " ").replace("_", " ")
 
 
+def _family_search_text(genealogy: Genealogy, family: Family) -> str:
+    """Texte normalisé où chercher une famille : noms des conjoints, lieu du mariage."""
+    parts: List[str] = []
+    for pid in (family.husband_id, family.wife_id):
+        person = genealogy.persons.get(pid) if pid else None
+        if person is not None:
+            parts += [person.first_name, person.last_name, person.public_name or ""]
+    parts.append(family.marriage_place or "")
+    return _normalize_search_text(" ".join(parts))
+
+
 def _api_event_type_value(event: Event) -> str:
     """Valeur de type d'événement telle qu'exposée par l'API (voir ``event_to_schema``)."""
     if isinstance(event, FamilyEvent) and event.family_event_type is not None:
@@ -547,6 +558,18 @@ class GenealogyService:
         families = list(genealogy.families.values())
 
         # Filtrage par critères
+        if search_params.query:
+            # Recherche par mots, comme pour les personnes : chacun doit figurer
+            # dans les noms des deux conjoints ou le lieu du mariage, dans n'importe quel ordre.
+            tokens = _normalize_search_text(
+                search_params.query.replace(",", " ")
+            ).split()
+            families = [
+                f
+                for f in families
+                if all(tok in _family_search_text(genealogy, f) for tok in tokens)
+            ]
+
         if search_params.husband_id:
             families = [f for f in families if f.husband_id == search_params.husband_id]
 

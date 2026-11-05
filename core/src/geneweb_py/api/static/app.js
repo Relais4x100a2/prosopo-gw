@@ -6,7 +6,7 @@ const state = {
   expiresAt: sessionStorage.getItem('gwExpiresAt') || null,
   stats: null,
   persons: { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false },
-  families: { items: [], page: 1, pages: 1, nameMap: {}, loaded: false },
+  families: { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false },
   // Dernière adresse vue par onglet : revenir sur un onglet retrouve son contexte.
   lastRoute: {},
   // id → « NOM, Prénoms » : évite de redemander un nom déjà connu.
@@ -109,7 +109,7 @@ function clearSession() {
 function resetLoadedData() {
   state.persons = { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false };
   state.evtRouteKey = '';
-  state.families = { items: [], page: 1, pages: 1, nameMap: {}, loaded: false };
+  state.families = { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false };
   state.lastRoute = {};
   closeDetail();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -281,17 +281,38 @@ function updateTimer() {
 }
 
 // ==================== TABS ====================
+// Onglets accessibles (motif ARIA « tabs ») : un seul onglet dans l'ordre de tabulation,
+// ←/→ passent à l'onglet voisin, Début/Fin au premier/dernier ; l'onglet atteint s'ouvre.
+function openTab(name) {
+  navigate(state.lastRoute[name] || '#/' + TAB_ROUTES[name]);
+}
+
 function wireTabs() {
-  document.querySelectorAll('.pgw-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const name = tab.dataset.tab;
-      navigate(state.lastRoute[name] || '#/' + TAB_ROUTES[name]);
+  const tabs = [...document.querySelectorAll('.pgw-tab')];
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => openTab(tab.dataset.tab));
+    tab.addEventListener('keydown', (e) => {
+      const target = {
+        ArrowRight: tabs[(i + 1) % tabs.length],
+        ArrowLeft: tabs[(i - 1 + tabs.length) % tabs.length],
+        Home: tabs[0],
+        End: tabs[tabs.length - 1],
+      }[e.key];
+      if (!target) return;
+      e.preventDefault();
+      target.focus();
+      openTab(target.dataset.tab);
     });
   });
 }
 
 function showTab(name) {
-  document.querySelectorAll('.pgw-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.pgw-tab').forEach(t => {
+    const on = t.dataset.tab === name;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+  });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
   if (name === 'stats') renderStats();
 }
@@ -366,15 +387,53 @@ function personsListHash(page = state.persons.page, query = state.persons.query,
   const qs = p.toString();
   return '#/personnes' + (qs ? '?' + qs : '');
 }
-function familiesListHash(page = state.families.page) {
-  return '#/familles' + (page > 1 ? '?page=' + page : '');
+function familiesListHash(page = state.families.page, query = state.families.query) {
+  const p = new URLSearchParams();
+  if (query) p.set('q', query);
+  if (page > 1) p.set('page', page);
+  const qs = p.toString();
+  return '#/familles' + (qs ? '?' + qs : '');
 }
 const personHash = id => '#/personne/' + encodeURIComponent(id);
 const familyHash = id => '#/famille/' + encodeURIComponent(id);
 
-function navigate(hash) {
+// replace : remplace l'entrée d'historique courante (frappe dans une recherche)
+// au lieu d'en empiler une par lettre.
+function navigate(hash, { replace = false } = {}) {
   if (location.hash === hash) applyRoute();   // même adresse : pas de hashchange
+  else if (replace) location.replace(hash);
   else location.hash = hash;
+}
+
+// Champ de recherche à la frappe, après une courte pause (300 ms), dès 2 caractères
+// (ou vide : liste complète). Entrée lance aussitôt. La première frappe crée une
+// entrée d'historique ; les suivantes la remplacent, donc « retour » revient à la liste
+// d'avant la recherche, pas à chaque lettre.
+const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_MIN_CHARS = 2;
+
+function wireInstantSearch(input, hashFor, currentQuery) {
+  let timer = null;
+  const run = (immediate) => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q === currentQuery()) return;
+    if (!immediate && q && q.length < SEARCH_MIN_CHARS) return;
+    navigate(hashFor(q), { replace: !!currentQuery() && !!q });
+  };
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => run(false), SEARCH_DEBOUNCE_MS);
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(true); });
+  return run;
+}
+
+// Ne réécrit le champ que si l'adresse dit autre chose (évite d'effacer l'espace
+// final que l'utilisateur est en train de taper).
+function syncSearchInput(id, query) {
+  const input = document.getElementById(id);
+  if (input.value.trim() !== query) input.value = query;
 }
 
 let _routeSeq = 0;
@@ -393,7 +452,7 @@ async function applyRoute() {
       const filters = personFiltersFrom(route.params);
       const page = pageParam(route.params);
       closeDetail();
-      document.getElementById('persons-search').value = query;
+      syncSearchInput('persons-search', query);
       if (!state.persons.loaded || state.persons.query !== query || state.persons.page !== page
           || !sameFilters(state.persons.filters, filters)) {
         await loadPersons(page, query, filters);
@@ -402,11 +461,15 @@ async function applyRoute() {
       if (!state.persons.loaded) await loadPersons(1, '', {});
       if (seq === _routeSeq) await openPersonDetail(route.id);
     } else if (route.name === 'familles') {
+      const query = route.params.get('q') || '';
       const page = pageParam(route.params);
       closeDetail();
-      if (!state.families.loaded || state.families.page !== page) await loadFamilies(page);
+      syncSearchInput('families-search', query);
+      if (!state.families.loaded || state.families.page !== page || state.families.query !== query) {
+        await loadFamilies(page, query);
+      }
     } else if (route.name === 'famille') {
-      if (!state.families.loaded) await loadFamilies(1);
+      if (!state.families.loaded) await loadFamilies(1, '');
       if (seq === _routeSeq) await openFamilyDetail(route.id);
     } else {
       closeDetail();   // Événements, Stats, Export : pas de fiche
@@ -426,9 +489,8 @@ function wirePersonsTab() {
   const prevBtn = document.getElementById('persons-prev');
   const nextBtn = document.getElementById('persons-next');
 
-  const search = () => navigate(personsListHash(1, searchInput.value.trim()));
-  searchBtn.addEventListener('click', search);
-  searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
+  const search = wireInstantSearch(searchInput, q => personsListHash(1, q), () => state.persons.query);
+  searchBtn.addEventListener('click', () => search(true));
 
   // ✕ vide la recherche et les filtres.
   clearBtn.addEventListener('click', () => {
@@ -809,6 +871,13 @@ function buildPersonDetailPanel(person, parents, partners, children) {
 
 // ==================== FAMILLES ====================
 function wireFamiliesTab() {
+  const searchInput = document.getElementById('families-search');
+  const search = wireInstantSearch(searchInput, q => familiesListHash(1, q), () => state.families.query);
+  document.getElementById('families-search-btn').addEventListener('click', () => search(true));
+  document.getElementById('families-clear-btn').addEventListener('click', () => {
+    searchInput.value = '';
+    navigate(familiesListHash(1, ''));
+  });
   document.getElementById('families-prev').addEventListener('click', () => {
     navigate(familiesListHash(state.families.page - 1));
   });
@@ -817,9 +886,11 @@ function wireFamiliesTab() {
   });
 }
 
-async function loadFamilies(page) {
+async function loadFamilies(page, query = '') {
   const seq = ++_familiesSeq;
-  const url = `/api/v1/families/?page=${page}&size=50`;
+  const params = new URLSearchParams({ page, size: 50 });
+  if (query) params.set('query', query);
+  const url = '/api/v1/families/?' + params;
   let data;
   try {
     data = await apiJson(url);
@@ -840,6 +911,7 @@ async function loadFamilies(page) {
   if (seq !== _familiesSeq) return; // check again after async name resolution
 
   state.families.loaded = true;
+  state.families.query = query;
   state.families.items = data.items;
   state.families.nameMap = nameMap; // store for renderFamilies
   state.families.page = data.pagination.page;
@@ -851,7 +923,10 @@ async function loadFamilies(page) {
 function renderFamilies() {
   const list = document.getElementById('families-list');
   if (!state.families.items.length) {
-    list.innerHTML = '<p class="text-muted list-empty">Aucune famille trouvée.</p>';
+    const q = state.families.query;
+    list.innerHTML = `<p class="text-muted list-empty">${q
+      ? `Aucune famille ne correspond à « ${escHtml(q)} ».`
+      : 'Aucune famille trouvée.'}</p>`;
     return;
   }
   list.innerHTML = state.families.items.map(f => {

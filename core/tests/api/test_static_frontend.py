@@ -155,3 +155,31 @@ def test_stats_charts_link_to_filtered_views():
     assert 'id="persons-filters"' in html
     # Aucune bibliothèque de graphiques : HTML/CSS seulement (CSP self).
     assert "chart.js" not in html.lower() and "<canvas" not in js
+
+
+def test_tabs_are_keyboard_accessible_buttons():
+    """Motif ARIA « tabs » : vrais boutons, ←/→/Début/Fin, tabindex itinérant."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert 'role="tablist"' in html
+    assert html.count('role="tab"') == 5 and html.count('role="tabpanel"') == 5
+    assert not re.search(r'<div class="pgw-tab[ "]', html)
+    assert len(re.findall(r'<button type="button" class="pgw-tab', html)) == 5
+    for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
+        assert key in js
+    assert "t.setAttribute('aria-selected', String(on))" in js
+    assert "t.tabIndex = on ? 0 : -1" in js
+
+
+def test_search_runs_while_typing_in_persons_and_families():
+    """Recherche à la frappe (pause, minimum de caractères), aussi dans Familles."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "function wireInstantSearch(" in js
+    assert js.count("wireInstantSearch(searchInput,") == 2
+    assert "SEARCH_DEBOUNCE_MS" in js and "SEARCH_MIN_CHARS" in js
+    # Une frappe ne crée pas une entrée d'historique par lettre.
+    assert "location.replace(hash)" in js
+    for i in ("families-search", "families-search-btn", "families-clear-btn"):
+        assert f'id="{i}"' in html, i
+    assert "params.set('query', query)" in js
