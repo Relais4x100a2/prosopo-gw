@@ -46,6 +46,19 @@ class _StaticMount(Mount):
         return super().matches(scope)
 
 
+class _RevalidatedStaticFiles(StaticFiles):
+    """Static files the browser must revalidate (ETag) before reuse.
+
+    Without ``Cache-Control`` browsers apply heuristic caching and may keep
+    serving a stale ``app.js`` for hours after a redeploy.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 async def _cleanup_loop(store: SessionStore) -> None:
     while True:
         await asyncio.sleep(300)
@@ -174,7 +187,7 @@ def create_app() -> FastAPI:
 
     _static_dir = pathlib.Path(__file__).parent / "static"
     if _static_dir.exists():
-        _static_app = StaticFiles(directory=str(_static_dir), html=True)
+        _static_app = _RevalidatedStaticFiles(directory=str(_static_dir), html=True)
         application.router.routes.append(
             _StaticMount("/", app=_static_app, name="static")
         )
