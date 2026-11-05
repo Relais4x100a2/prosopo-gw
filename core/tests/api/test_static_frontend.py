@@ -355,7 +355,9 @@ def test_shared_experiences_section_is_wired():
     assert "'/api/v1/organizations/shared-experiences'" in js
     assert "shared-experiences-csv" in js
     assert "address: 'Adresse'" in js
-    assert "Liste limitée aux 500 premières expériences sur ${fmtInt(data.total)}." in js
+    assert (
+        "Liste limitée aux 500 premières expériences sur ${fmtInt(data.total)}." in js
+    )
     assert "Aucune expérience proche trouvée." in js
 
 
@@ -364,3 +366,10 @@ def test_shared_experience_cards_avoid_member_vocabulary():
     start = js.index("function renderSharedExperiences")
     end = js.index("\nfunction ", start + 1)
     assert "membre" not in js[start:end].lower()
+
+
+def test_initial_state_has_shared_experiences_keys():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    block = js[js.index("const state = {") : js.index("\n};")]
+    for key in ("experiences:", "expCount:", "civilTotal:"):
+        assert key in block, key

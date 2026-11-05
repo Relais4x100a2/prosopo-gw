@@ -10,6 +10,9 @@ const state = {
   persons: { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false },
   families: { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false },
   organizations: { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false },
+  experiences: { loaded: false, undated: 0 },
+  expCount: null,
+  civilTotal: 0,
   unmatchedLoaded: false,
   orgCount: null,
   ignoredWords: null,   // mots ignorés de la session (null : pas encore synchronisés)
@@ -123,6 +126,8 @@ function resetLoadedData() {
   state.evtRouteKey = '';
   state.families = { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false };
   state.organizations = { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false };
+  _orgsSeq++;   // une réponse de la session précédente est ignorée
+  _expSeq++;
   state.experiences = { loaded: false, undated: 0 };
   state.expCount = null;
   state.civilTotal = 0;
