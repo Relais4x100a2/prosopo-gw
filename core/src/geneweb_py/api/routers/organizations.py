@@ -90,10 +90,11 @@ async def get_unmatched(
 ) -> UnmatchedResponseSchema:
     """Événements « Autre » sans candidat, groupés par mot."""
     index = service.get_candidate_index()
+    total, groups = service.get_unmatched()
     return UnmatchedResponseSchema.model_validate(
         {
-            "total": index.unmatched_total,
-            "groups": [dataclasses.asdict(g) for g in index.unmatched_groups],
+            "total": total,
+            "groups": [dataclasses.asdict(g) for g in groups],
             "ignored_total": index.ignored_total,
             "civil_status_total": index.civil_status_total,
         }

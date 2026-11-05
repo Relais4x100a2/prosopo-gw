@@ -216,3 +216,24 @@ def test_cache_invalidated_after_write_real_session(tmp_path: Path):
         assert r.status_code == 200, r.text
         after = c.get(url, headers=headers).json()
         assert not _by_label(after, "Déportation")
+
+
+def test_event_in_experience_is_absent_from_unmatched(client):
+    body = client.get("/api/v1/organizations/unmatched").json()
+    events = [e for g in body["groups"] for e in g["events"]]
+    tags = {e["event_type_raw"] for e in events}
+    assert "Philatelie_Locale" not in tags  # dans une expérience
+    # Déportation 1943 (deux personnes) en expérience ; le « <1940 » non daté reste.
+    depo = [e for e in events if e["event_type_raw"] == "Deportation"]
+    assert [e["date"] for e in depo] == ["<1940"]
+    assert "Voyage_Italie" in tags  # une seule personne : reste à classer
+    assert body["total"] == len(
+        {(e["person_id"], e["date"], e["event_type_raw"]) for e in events}
+    )
+
+
+def test_unmatched_recomputed_after_ignoring_word(client):
+    before = client.get("/api/v1/organizations/unmatched").json()["total"]
+    client.put("/api/v1/organizations/ignored-words", json={"words": ["voyage"]})
+    after = client.get("/api/v1/organizations/unmatched").json()["total"]
+    assert after == before - 1

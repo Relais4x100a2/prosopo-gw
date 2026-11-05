@@ -44,7 +44,9 @@ from ..serialization import (
 from .organization_candidates import (
     DEFAULT_IGNORED_WORDS,
     CandidateIndex,
+    UnmatchedGroup,
     build_candidate_index,
+    build_unmatched,
     normalize_ignored_words,
 )
 
@@ -100,6 +102,7 @@ class GenealogyService:
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
         self._candidate_index: Optional[CandidateIndex] = None
         self._shared_experiences: Optional[SharedExperienceIndex] = None
+        self._unmatched: Optional[Tuple[int, List[UnmatchedGroup]]] = None
         self._orgs_inferred = False  # organisations produites par l'inférence
         self._ignored_words: Tuple[str, ...] = DEFAULT_IGNORED_WORDS
         if genealogy is not None:
@@ -1095,6 +1098,7 @@ class GenealogyService:
         self._witness_index = None
         self._candidate_index = None
         self._shared_experiences = None
+        self._unmatched = None
         if self._orgs_inferred:
             self.genealogy.organizations.clear()
             self.genealogy.organization_links.clear()
@@ -1119,6 +1123,19 @@ class GenealogyService:
             )
         return self._shared_experiences
 
+    def get_unmatched(self) -> Tuple[int, List[UnmatchedGroup]]:
+        """Reste à classer ``(total, groupes)`` : sans organisations ni expériences proches."""
+        if self._unmatched is None:
+            index = self.get_candidate_index()
+            experiences = self.get_shared_experiences()
+            exclude = set(index.matched)
+            for exp in experiences.items:
+                exclude.update((ev.person_id, ev.event_index) for ev in exp.events)
+            self._unmatched = build_unmatched(
+                self.genealogy, exclude, self._ignored_words
+            )
+        return self._unmatched
+
     @property
     def ignored_words(self) -> Tuple[str, ...]:
         """Mots qui écartent un événement « Autre » des organisations candidates."""
@@ -1131,6 +1148,7 @@ class GenealogyService:
             self._ignored_words = normalized
             self._candidate_index = None
             self._shared_experiences = None
+            self._unmatched = None
         return self._ignored_words
 
     def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:
