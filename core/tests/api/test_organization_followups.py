@@ -148,3 +148,34 @@ def test_ignored_words_apply_to_exports(client):
     org_json = client.get("/api/v1/genealogy/export/org-json").json()
     assert not any("Recensement" in o["name"] for o in org_json["organizations"])
 
+
+# --- CSV lisible dans un Excel français --------------------------------------
+
+
+def test_candidates_csv_is_french_and_sorted(client):
+    rows = _rows(client.get("/api/v1/genealogy/export/organizations-csv").text)
+    header, body = rows[0], rows[1:]
+    col = {name: i for i, name in enumerate(header)}
+    names = [r[col["nom"]] for r in body]
+    assert names == sorted(names, key=str.casefold)
+    by_name = {r[col["nom"]]: r for r in body}
+    school = next(r for n, r in by_name.items() if "Saint" in n)
+    assert school[col["type"]] == "École"
+    assert school[col["source_du_nom"]] == "Événement typé"
+    assert school[col["sources"]] == "éducation"
+    assert "," in school[col["confiance"]] and "." not in school[col["confiance"]]
+    circle = next(r for n, r in by_name.items() if "Philatelique" in n)
+    assert circle[col["source_du_nom"]] == "Nom personnalisé"
+    assert circle[col["sources"]] == "événement libre"
+
+
+def test_links_csv_is_french_and_sorted(client):
+    rows = _rows(client.get("/api/v1/genealogy/export/organization-links-csv").text)
+    header, body = rows[0], rows[1:]
+    col = {name: i for i, name in enumerate(header)}
+    keys = [
+        (r[col["organisation"]].casefold(), r[col["personne"]].casefold()) for r in body
+    ]
+    assert keys == sorted(keys)
+    assert {r[col["type_evenement"]] for r in body} == {"éducation", "événement libre"}
+

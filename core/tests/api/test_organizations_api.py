@@ -303,7 +303,11 @@ def test_candidates_csv_header_and_rows(client):
     assert rows[0] == CANDIDATES_CSV_HEADER
     usine = next(r for r in rows if r[0] == "usine_martin_roubaix")
     assert usine[1] == "Usine Martin" and usine[9] == "oui" and usine[10] == "2"
-    assert usine[5] == "occu|oth" and usine[12] == "1895" and usine[13] == "1902"
+    assert (
+        usine[5] == "profession|événement libre"
+        and usine[12] == "1895"
+        and usine[13] == "1902"
+    )
     assert usine[8] in ("oui", "non")
 
 
@@ -319,7 +323,9 @@ def test_links_csv_header_and_readable_names(client):
     row = next(
         r for r in rows if r[2] == "DUPONT_Jean_0" and r[0] == "usine_martin_roubaix"
     )
-    assert row[3] == "DUPONT Jean" and row[7] == "occu" and row[8] == "Contremaître"
+    assert (
+        row[3] == "DUPONT Jean" and row[7] == "profession" and row[8] == "Contremaître"
+    )
     assert row[9] == "3"
     assert row[10] == "" and row[11] == ""
     cercle = next(r for r in rows if r[0] == "cercle_philatelique")
