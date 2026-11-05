@@ -135,7 +135,7 @@ Dans tous les cas, le rôle du préfixe va dans `role` du lien, la ville dans `p
 | Cas | Confiance | Type |
 |---|---|---|
 | 1. Complément de lieu contenant un **mot d'établissement** (§ 3.4), avec ou sans tag | 0,8 | celui du mot |
-| 2. Tag avec préfixe de rôle et reste nommant l'organisation | 0,8 | celui de la règle de préfixe |
+| 2. Tag avec préfixe de rôle et reste nommant l'organisation | 0,8 | celui du mot d'établissement du tag s'il y en a un, sinon celui de la règle de préfixe |
 | 2. Tag sans préfixe de rôle, partagé par ≥ 2 personnes | 0,5, `needs_review = True` | celui du mot s'il y en a un, sinon `other` |
 | 3. « À déterminer » : complément sans mot d'établissement, tag qui ne nomme rien (ou tag sans préfixe porté par une seule personne) | 0,5, `needs_review = True`, `to_determine` | celui de la règle de préfixe s'il y en a une, sinon `other` |
 | Tag sans préfixe de rôle, une seule personne, sans complément | pas de proposition | |
