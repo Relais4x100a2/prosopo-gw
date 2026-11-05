@@ -8,7 +8,7 @@ les données généalogiques.
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ...core.date import Date
 from ...core.models import (
@@ -39,7 +39,12 @@ from ..serialization import (
     stable_event_id,
     titles_from_create_schemas,
 )
-from .organization_candidates import CandidateIndex, build_candidate_index
+from .organization_candidates import (
+    DEFAULT_IGNORED_WORDS,
+    CandidateIndex,
+    build_candidate_index,
+    normalize_ignored_words,
+)
 
 
 def _normalize_search_text(text: str) -> str:
@@ -93,6 +98,7 @@ class GenealogyService:
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
         self._candidate_index: Optional[CandidateIndex] = None
         self._orgs_inferred = False  # organisations produites par l'inférence
+        self._ignored_words: Tuple[str, ...] = DEFAULT_IGNORED_WORDS
         if genealogy is not None:
             self._genealogy = genealogy
         else:
@@ -1095,8 +1101,23 @@ class GenealogyService:
         if self._candidate_index is None:
             if not self.genealogy.organizations:
                 self._orgs_inferred = True  # build_candidate_index va inférer
-            self._candidate_index = build_candidate_index(self.genealogy)
+            self._candidate_index = build_candidate_index(
+                self.genealogy, self._ignored_words
+            )
         return self._candidate_index
+
+    @property
+    def ignored_words(self) -> Tuple[str, ...]:
+        """Mots qui écartent un événement « Autre » des organisations candidates."""
+        return self._ignored_words
+
+    def set_ignored_words(self, words: Iterable[str]) -> Tuple[str, ...]:
+        """Remplace les mots ignorés (normalisés) et invalide l'index des candidats."""
+        normalized = normalize_ignored_words(words)
+        if normalized != self._ignored_words:
+            self._ignored_words = normalized
+            self._candidate_index = None
+        return self._ignored_words
 
     def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:
         """Returns person_ids and family_ids related to person_id up to the given degree.

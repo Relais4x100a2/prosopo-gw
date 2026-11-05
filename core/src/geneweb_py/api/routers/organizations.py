@@ -1,4 +1,8 @@
-"""Router FastAPI des organisations candidates (lecture seule)."""
+"""Router FastAPI des organisations candidates.
+
+Lecture seule sur la base : seul le réglage des mots ignorés (propre à la
+session, sans effet sur le fichier) s'écrit.
+"""
 
 import dataclasses
 from typing import Literal, Optional
@@ -7,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session_service
 from ..models.organization import (
+    IgnoredWordsSchema,
     OrganizationCandidateDetailSchema,
     OrganizationCandidateSchema,
     UnmatchedResponseSchema,
@@ -82,5 +87,23 @@ async def get_unmatched(
         {
             "total": index.unmatched_total,
             "groups": [dataclasses.asdict(g) for g in index.unmatched_groups],
+            "ignored_total": index.ignored_total,
         }
     )
+
+
+@router.get("/ignored-words")
+async def get_ignored_words(
+    service: GenealogyService = Depends(get_session_service),
+) -> IgnoredWordsSchema:
+    """Mots qui écartent un événement « Autre » (par défaut : recensement, domicile)."""
+    return IgnoredWordsSchema(words=list(service.ignored_words))
+
+
+@router.put("/ignored-words")
+async def put_ignored_words(
+    body: IgnoredWordsSchema,
+    service: GenealogyService = Depends(get_session_service),
+) -> IgnoredWordsSchema:
+    """Remplace les mots ignorés de la session ; candidats et exports suivent."""
+    return IgnoredWordsSchema(words=list(service.set_ignored_words(body.words)))

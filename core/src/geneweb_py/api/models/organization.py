@@ -2,7 +2,12 @@
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ..services.organization_candidates import (
+    IGNORED_WORDS_MAX,
+    normalize_ignored_words,
+)
 
 
 class OrganizationMemberSchema(BaseModel):
@@ -76,3 +81,21 @@ class UnmatchedResponseSchema(BaseModel):
 
     total: int
     groups: List[UnmatchedGroupSchema] = Field(default_factory=list)
+    ignored_total: int = Field(
+        default=0, description="Événements « Autre » écartés par les mots ignorés"
+    )
+
+
+class IgnoredWordsSchema(BaseModel):
+    """Mots qui écartent un événement « Autre » des organisations candidates."""
+
+    words: List[str] = Field(
+        default_factory=list,
+        max_length=IGNORED_WORDS_MAX * 2,
+        description="Mots entiers, sans casse ni accents (recensement, domicile…)",
+    )
+
+    @field_validator("words")
+    @classmethod
+    def _normalize(cls, words: List[str]) -> List[str]:
+        return list(normalize_ignored_words(words))

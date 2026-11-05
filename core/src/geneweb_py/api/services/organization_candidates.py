@@ -8,7 +8,7 @@ rattachés à leur événement d'origine via ``OrganizationLink.source_event_id`
 
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ...core.event import Event, EventType
 from ...core.event_to_organization import _words, parse_event_ref
@@ -20,6 +20,11 @@ COLLECTIVE_MIN_WITNESSES = 3
 CANDIDATE_MIN_PERSONS = 2
 UNMATCHED_MIN_WORD_LEN = 4
 UNMATCHED_GROUP_CAP = 50
+
+# Mots des événements « Autre » qui ne désignent jamais une organisation.
+DEFAULT_IGNORED_WORDS: Tuple[str, ...] = ("recensement", "domicile")
+IGNORED_WORDS_MAX = 50
+IGNORED_WORD_MAX_LEN = 40
 
 OTHERS_WORD = "autres"
 OCCUPATION_ATTR = "occu_attr"
@@ -94,6 +99,7 @@ class CandidateIndex:
     candidates: Dict[str, Candidate]
     unmatched_total: int
     unmatched_groups: List[UnmatchedGroup]
+    ignored_total: int = 0
 
 
 def person_display_name(person: Person) -> str:
@@ -107,6 +113,33 @@ def person_display_name(person: Person) -> str:
 def _fold(text: str) -> str:
     stripped = unicodedata.normalize("NFKD", text)
     return "".join(c for c in stripped if not unicodedata.combining(c)).casefold()
+
+
+def normalize_ignored_words(words: Iterable[str]) -> Tuple[str, ...]:
+    """Mots repliés, dédoublonnés dans l'ordre ; les vides sont retirés.
+
+    Lève ``ValueError`` pour un mot trop long, contenant autre chose que des
+    lettres, ou au-delà de ``IGNORED_WORDS_MAX`` mots.
+    """
+    result: List[str] = []
+    for raw in words:
+        word = _fold(raw.strip())
+        if not word:
+            continue
+        if len(word) > IGNORED_WORD_MAX_LEN or not word.isalpha():
+            raise ValueError(f"mot invalide : {raw!r}")
+        if word not in result:
+            result.append(word)
+    if len(result) > IGNORED_WORDS_MAX:
+        raise ValueError(f"au plus {IGNORED_WORDS_MAX} mots")
+    return tuple(result)
+
+
+def _is_ignored(event: Optional[Event], ignored: Set[str]) -> bool:
+    """Événement « Autre » dont le nom contient un mot ignoré (mot entier, replié)."""
+    if not ignored or event is None or event.event_type is not EventType.OTHER:
+        return False
+    return not ignored.isdisjoint(_words(event.event_type_raw or ""))
 
 
 def _resolve_event(genealogy: Genealogy, ref: Optional[str]) -> Optional[Event]:
@@ -151,12 +184,14 @@ def _build_member(genealogy: Genealogy, link: OrganizationLink) -> CandidateMemb
 
 
 def _build_candidates(
-    genealogy: Genealogy,
+    genealogy: Genealogy, ignored: Set[str]
 ) -> Tuple[Dict[str, Candidate], Set[Tuple[str, int]]]:
     members: Dict[str, List[CandidateMember]] = {}
     refs: Dict[str, Set[Tuple[str, int]]] = {}
     for link in genealogy.organization_links:
         if link.organization_id not in genealogy.organizations:
+            continue
+        if _is_ignored(_resolve_event(genealogy, link.source_event_id), ignored):
             continue
         members.setdefault(link.organization_id, []).append(
             _build_member(genealogy, link)
@@ -201,12 +236,16 @@ def _build_candidates(
 
 
 def _build_unmatched(
-    genealogy: Genealogy, matched: Set[Tuple[str, int]]
-) -> Tuple[int, List[UnmatchedGroup]]:
+    genealogy: Genealogy, matched: Set[Tuple[str, int]], ignored: Set[str]
+) -> Tuple[int, List[UnmatchedGroup], int]:
     entries: List[Tuple[UnmatchedEvent, Set[str]]] = []
+    ignored_total = 0
     for person_id, person in genealogy.persons.items():
         for index, event in enumerate(person.events):
             if event.event_type is not EventType.OTHER:
+                continue
+            if _is_ignored(event, ignored):
+                ignored_total += 1
                 continue
             if (person_id, index) in matched:
                 continue
@@ -252,16 +291,23 @@ def _build_unmatched(
         groups.append(
             UnmatchedGroup(OTHERS_WORD, len(others), others[:UNMATCHED_GROUP_CAP])
         )
-    return len(entries), groups
+    return len(entries), groups, ignored_total
 
 
-def build_candidate_index(genealogy: Genealogy) -> CandidateIndex:
-    """Calcule l'index ; infère les organisations si la base n'en a aucune."""
+def build_candidate_index(
+    genealogy: Genealogy, ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS
+) -> CandidateIndex:
+    """Calcule l'index ; infère les organisations si la base n'en a aucune.
+
+    Les événements « Autre » dont le nom contient un mot de ``ignored_words``
+    (recensement, domicile…) ne nourrissent ni les candidats ni le reste à classer.
+    """
     if not genealogy.organizations:
         genealogy.infer_organizations()
-    candidates, matched = _build_candidates(genealogy)
-    total, groups = _build_unmatched(genealogy, matched)
-    return CandidateIndex(candidates, total, groups)
+    ignored = set(normalize_ignored_words(ignored_words))
+    candidates, matched = _build_candidates(genealogy, ignored)
+    total, groups, ignored_total = _build_unmatched(genealogy, matched, ignored)
+    return CandidateIndex(candidates, total, groups, ignored_total)
 
 
 def sort_candidates(candidates: Iterable[Candidate], sort: str) -> List[Candidate]:

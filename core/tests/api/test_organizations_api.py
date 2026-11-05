@@ -164,7 +164,7 @@ def test_index_is_computed_once_per_service(monkeypatch, service):
     monkeypatch.setattr(
         service_module,
         "build_candidate_index",
-        lambda g: calls.append(1) or real(g),
+        lambda g, words: calls.append(1) or real(g, words),
     )
     first = service.get_candidate_index()
     assert service.get_candidate_index() is first
