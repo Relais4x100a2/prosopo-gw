@@ -219,6 +219,18 @@ métiers. Nom = `X` ; rôle = la partie avant la préposition ; lieu = ville de 
 Profession s'il y en a un, sinon aucun ; date = celle de l'événement, sinon aucune (l'attribut
 n'est pas daté) ; confiance 0,7 avec mot d'établissement ; `metadata["named_from"] = "occupation_text"`.
 
+**Entreprise nommée sans préposition.** À défaut (ou quand `X` se termine par elle :
+« directeur à Lyon des Établissements X »), chaque partie du texte, virgules comprises, est
+cherchée pour un mot d'entreprise sans ambiguïté (§ 3.2 bis : société, Cie, compagnie, usine,
+banque, comptoir, établissement(s), entreprise, manufacture, fabrique, filature, agence).
+Le nom part de ce mot et s'arrête à « à » (le lieu) ; « usine - X » donne « X ». Le mot doit être
+suivi d'un nom : « employé de banque », « directeur d'usine », « administrateur de société »,
+« directeur de filature à Lille » et « directeur de banque et conseiller » ne nomment rien. Une
+profession militaire (capitaine, infanterie, grenadiers…) n'en tire aucune « compagnie ». Rôle =
+ce qui précède le mot, sans les mots de liaison (sinon la première partie du texte) ; un « à
+ville » dans le rôle devient le lieu. Ces entreprises, nommées comme telles, sont candidates dès
+une personne.
+
 Le lien issu de l'attribut profession porte `source_event_type = "occu_attr"` et pas d'identifiant
 d'événement. Un **métier partagé seul** (« instituteur » × 40) ne fait jamais une organisation.
 

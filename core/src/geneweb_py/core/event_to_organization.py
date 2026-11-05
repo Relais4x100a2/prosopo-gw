@@ -519,6 +519,112 @@ def _occupation_split_re() -> "re.Pattern[str]":
 _OCCUPATION_SPLIT_RE = _occupation_split_re()
 
 
+# Mots d'une profession militaire : « compagnie » y désigne une unité
+_MILITARY_OCCUPATION_WORDS: FrozenSet[str] = frozenset(
+    {
+        "capitaine",
+        "lieutenant",
+        "sergent",
+        "caporal",
+        "soldat",
+        "officier",
+        "infanterie",
+        "cavalerie",
+        "artillerie",
+        "grenadiers",
+        "chasseurs",
+        "regiment",
+        "bataillon",
+        "militaire",
+    }
+)
+# Mots de liaison retirés en fin de fonction : « administrateur de la »
+_ROLE_TAIL_WORDS: FrozenSet[str] = frozenset(
+    {"de", "du", "des", "la", "le", "les", "l", "d", "a", "au", "aux", "chez", "pour"}
+)
+
+
+def _company_in_occupation(
+    text: str, place: Optional[str]
+) -> Optional[OrganizationProposal]:
+    """Entreprise nommée dans une profession, sans « à » ni « chez » (§ 3.7).
+
+    Le mot d'entreprise doit être suivi d'un nom : « Employé de banque » ne
+    nomme rien. Le nom s'arrête à « à » (le lieu) ; « usine - X » donne « X ».
+    """
+    segments = [seg.strip() for seg in text.replace("_", " ").split(",")]
+    segments = [seg for seg in segments if seg]
+    if not segments:
+        return None
+    if _MILITARY_OCCUPATION_WORDS & set(_words(text)):
+        return None
+    for segment in segments:
+        found = _establishment_in(segment)
+        if (
+            found is None
+            or found[1] is not OrganizationType.COMPANY
+            or found[0] not in COMPANY_NAME_TRIGGERS
+            or found[0] in _COMPANY_SUFFIXES - {"cie"}
+        ):
+            continue
+        tokens = segment.split()
+        start = None
+        for i, token in enumerate(tokens):
+            tail = re.split(r"['’]", token)[-1]
+            if _fold(tail).strip(_QUOTES).rstrip(".") == found[0]:
+                start = i
+                tokens[i] = tail
+                break
+        if start is None:
+            continue
+        rest = tokens[start:]
+        for j, token in enumerate(rest):
+            if _fold(token) in ("a", "à"):
+                rest = rest[:j]
+                break
+        if len(rest) >= 2 and _fold(rest[1]) == "et":
+            continue  # « banque et conseiller » : fonction suivie d'une autre
+        if len(rest) >= 3 and rest[1] == "-":
+            name_words = rest[2:]
+        elif len(rest) >= 2 and rest[1] != "-":
+            name_words = rest
+        else:
+            continue
+        name = " ".join(w.strip(_QUOTES) for w in name_words).strip()
+        if not name:
+            continue
+        role_words = tokens[:start]
+        role_place = None
+        for j, token in enumerate(role_words):
+            if _fold(token) in ("a", "à") and j > 0:
+                tail_words = [
+                    w for w in role_words[j + 1 :] if _fold(w) not in _ROLE_TAIL_WORDS
+                ]
+                role_place = " ".join(tail_words) or None
+                role_words = role_words[:j]
+                break
+        while (
+            role_words
+            and _fold(re.split(r"['’]", role_words[-1])[0]) in _ROLE_TAIL_WORDS
+        ):
+            role_words.pop()
+        if role_words and re.search(r"['’]$", role_words[-1]):
+            role_words[-1] = role_words[-1][:-1]
+        role = " ".join(role_words).strip() or (
+            segments[0] if segments[0] != segment else ""
+        )
+        return OrganizationProposal(
+            name=name[:1].upper() + name[1:],
+            type=OrganizationType.COMPANY,
+            role=role or None,
+            place=place or role_place,
+            confidence=_CONF_OCCUPATION_TEXT,
+            named_from="occupation_text",
+            trigger=found[0],
+        )
+    return None
+
+
 class EventToOrganizationMapper:
     """Convertit les événements personnalisés d'une généalogie en organisations."""
 
@@ -733,9 +839,31 @@ class EventToOrganizationMapper:
     def propose_from_occupation(
         self, text: str, place: Optional[str] = None
     ) -> Optional[OrganizationProposal]:
-        """Employeur lu dans un texte de métier « métier à / chez X » (§ 3.7)."""
+        """Employeur lu dans un texte de métier (§ 3.7).
+
+        « métier à / chez X » d'abord, puis une entreprise nommée comme telle
+        (« Employé Banque X », « directeur d'usine - X »).
+        """
         first = text.replace("_", " ").split(",")[0].strip()
         match = _OCCUPATION_SPLIT_RE.search(first)
+        proposal = self._occupation_with_preposition(first, match, place)
+        company = _company_in_occupation(text, place)
+        if proposal is None:
+            return company
+        if (
+            company is not None
+            and company.name != proposal.name
+            and _fold(proposal.name).endswith(_fold(company.name))
+        ):
+            return company  # « à Lyon des Établissements X » : l'entreprise seule
+        return proposal
+
+    def _occupation_with_preposition(
+        self,
+        first: str,
+        match: "Optional[re.Match[str]]",
+        place: Optional[str],
+    ) -> Optional[OrganizationProposal]:
         if match is None:
             return None
         role = first[: match.start()].strip()
