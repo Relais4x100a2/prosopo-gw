@@ -4,10 +4,13 @@ import secrets
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from ..core.genealogy import Genealogy
 from .limits import SESSION_MAX_SESSIONS, SESSION_TTL_SECONDS
+
+if TYPE_CHECKING:
+    from .services.genealogy_service import GenealogyService
 
 
 class SessionFullError(Exception):
@@ -19,6 +22,9 @@ class SessionEntry:
     genealogy: Genealogy
     expires_at: datetime
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # Service de la session, créé à la première requête et conservé ensuite :
+    # ses caches et réglages (candidates, mots ignorés…) valent pour toute la session.
+    service: Optional["GenealogyService"] = None
 
 
 class SessionStore:
@@ -63,6 +69,22 @@ class SessionStore:
                 return None
             entry.expires_at = self._new_expiry()
             return entry.genealogy, entry.expires_at
+
+    def service(self, token: str) -> Optional[Tuple["GenealogyService", datetime]]:
+        """Comme `touch`, mais retourne le service de la session (créé une seule fois)."""
+        from .services.genealogy_service import GenealogyService
+
+        with self._lock:
+            entry = self._store.get(token)
+            if entry is None:
+                return None
+            if entry.expires_at <= self._now():
+                self._store.pop(token, None)
+                return None
+            entry.expires_at = self._new_expiry()
+            if entry.service is None:
+                entry.service = GenealogyService(genealogy=entry.genealogy)
+            return entry.service, entry.expires_at
 
     def get(self, token: str) -> Optional[Genealogy]:
         """Retourne la Genealogy si active, None sinon. Prolonge le TTL."""

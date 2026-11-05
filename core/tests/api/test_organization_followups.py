@@ -179,3 +179,52 @@ def test_links_csv_is_french_and_sorted(client):
     assert keys == sorted(keys)
     assert {r[col["type_evenement"]] for r in body} == {"éducation", "événement libre"}
 
+
+# --- État conservé d'une requête à l'autre (session réelle) ------------------
+
+
+@pytest.fixture
+def session_client():
+    from geneweb_py.api.main import create_app
+
+    with TestClient(create_app()) as c:
+        res = c.post(
+            "/api/v1/sessions",
+            files={"file": ("demo.gw", GW.encode(), "application/octet-stream")},
+        )
+        assert res.status_code == 201
+        c.headers["X-Session-Token"] = res.json()["session_token"]
+        yield c
+
+
+def test_ignored_words_persist_across_requests(session_client):
+    url = "/api/v1/organizations/ignored-words"
+    assert session_client.put(url, json={"words": ["recensement"]}).status_code == 200
+    assert session_client.get(url).json() == {"words": ["recensement"]}
+    unmatched = session_client.get("/api/v1/organizations/unmatched").json()
+    assert unmatched["ignored_total"] == 3
+    assert {g["word"] for g in unmatched["groups"]} >= {"domicile"}
+
+
+def test_candidate_index_is_cached_across_requests(session_client, monkeypatch):
+    import geneweb_py.api.services.genealogy_service as gs
+
+    calls = []
+    real = gs.build_candidate_index
+    monkeypatch.setattr(
+        gs, "build_candidate_index", lambda g, words: calls.append(1) or real(g, words)
+    )
+    session_client.get("/api/v1/organizations/candidates")
+    session_client.get("/api/v1/organizations/unmatched")
+    assert len(calls) == 1
+
+
+def test_api_write_refreshes_candidates_in_real_session(session_client):
+    def names():
+        items = session_client.get("/api/v1/organizations/candidates").json()["items"]
+        return {c["name"] for c in items}
+
+    assert any("Philatelique" in n for n in names())
+    assert session_client.delete("/api/v1/persons/MARTIN_Marie_0").status_code == 200
+    # Le cercle et l'école n'ont plus qu'une personne : plus de candidat.
+    assert names() == set()

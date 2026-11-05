@@ -25,16 +25,20 @@ def get_session_service(
     x_session_token: str = Header(..., alias="X-Session-Token"),
     store: SessionStore = Depends(get_store),
 ) -> GenealogyService:
-    """Résout le token de session (et prolonge son TTL) ; retourne un GenealogyService."""
-    touched = store.touch(x_session_token)
+    """Résout le token de session (et prolonge son TTL) ; retourne son GenealogyService.
+
+    Le service est conservé avec la session : ses caches (index des candidates,
+    témoins) et ses réglages (mots ignorés) survivent d'une requête à l'autre.
+    """
+    touched = store.service(x_session_token)
     if touched is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session inconnue ou expirée",
         )
-    genealogy, expires_at = touched
+    service, expires_at = touched
     response.headers[SESSION_EXPIRES_IN_HEADER] = str(store.seconds_left(expires_at))
-    return GenealogyService(genealogy=genealogy)
+    return service
 
 
 def require_write_mode() -> None:
