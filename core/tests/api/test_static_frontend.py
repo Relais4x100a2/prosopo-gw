@@ -295,3 +295,9 @@ def test_stats_show_candidate_count_linking_to_tab():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "'/api/v1/organizations/candidates?size=1'" in js
     assert "Organisations candidates" in js and "#/organisations" in js
+
+
+def test_drawer_member_label_is_readable_and_not_duplicated():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "formatGwName(m.event_label)" in js
+    assert "label === formatGwName(m.role) ? '' : label" in js

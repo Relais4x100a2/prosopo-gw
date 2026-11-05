@@ -1852,7 +1852,10 @@ function buildOrganizationPanel(org) {
   const meta = [ORG_TYPE_LABELS[org.type] || org.type, formatGwName(org.place), orgCounts(org), orgPeriod(org)]
     .filter(Boolean).join(' · ');
   const members = (org.members || []).map(m => {
-    const bits = [m.role, m.event_label, shortDate(m.date), formatGwName(m.place)].filter(Boolean);
+    const label = formatGwName(m.event_label);
+    // Pour une profession, l'événement porte le même texte que le rôle.
+    const bits = [formatGwName(m.role), label === formatGwName(m.role) ? '' : label,
+      shortDate(m.date), formatGwName(m.place)].filter(Boolean);
     if (m.witness_count > 0) bits.push(`${m.witness_count} témoin${m.witness_count > 1 ? 's' : ''}`);
     return `<li><a href="${escHtml(personHash(m.person_id))}">${escHtml(formatGwName(m.person_name) || m.person_id)}</a>`
       + (bits.length ? ` <span class="item-meta">${escHtml(bits.join(' · '))}</span>` : '') + '</li>';
