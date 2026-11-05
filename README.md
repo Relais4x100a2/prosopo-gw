@@ -67,7 +67,7 @@ Les événements standards (`#birt`, `#deat`…) sont déjà bien structurés. L
 
 | Étage | Mécanisme | Pourquoi |
 |---|---|---|
-| 1. Règles | `EventToOrganizationMapper` : préfixes de rôle (`Membre`, `Élève`, `Employé`, `Soldat`…) et lieux « `[Complément]_-_Ville` » → proposition d'organisation avec un **score de confiance** | Déterministe, rapide, gratuit, explicable, reproductible |
+| 1. Règles | `EventToOrganizationMapper` : préfixes de rôle (`Membre`, `Élève`, `Employé`, `Soldat`…) et lieux « `[Complément]_-_Ville` » → proposition d'organisation avec un **score de confiance**. Ordre de priorité : complément de lieu contenant un mot d'établissement > tag (s'il dit plus qu'un rôle) > « à déterminer » (le complément sert de nom) | Déterministe, rapide, gratuit, explicable, reproductible |
 | 2. LLM (optionnel) | Un hook branchable arbitre les cas sans signal. Les prompts sont **annotés puis optimisés avec DSPy** à partir d'exemples étiquetés à la main | N'intervient que là où les règles échouent ; ne remplace pas la décision humaine |
 | 3. Humain | Pages de validation de l'application avant toute transformation de masse | Une base prosopographique ne tolère pas les inventions silencieuses |
 
@@ -108,7 +108,7 @@ Le flux de données, de bout en bout :
 - **Parser** : tokenisation à cache LRU, puis analyse syntaxique, puis construction des modèles. Un mode **streaming** s'active au-delà de 10 Mo (environ 80 % de mémoire en moins) ; un mode **multi-passes** résout les références croisées (familles, témoins) sur les bases complexes. Ils se combinent.
 - **Modèles** : dataclasses pour `Date` (multi-calendriers, préfixes `~ ? < >`, intervalles), `Person`, `Family`, `Event`, `Place`, `Organization`, regroupées dans `Genealogy`.
 - **Validation** : mode *strict* (s'arrête à la première erreur) ou *gracieux* (collecte toutes les erreurs avec ligne, token et suggestion).
-- **Formats** : export GEDCOM, JSON, XML, et fichier compagnon `.org.json`.
+- **Formats** : export GEDCOM, JSON, XML ; fichier compagnon `.org.json` et CSV des organisations candidates, produits par la bibliothèque (`formats.org_sidecar`) et par l'onglet Export de la webapp (l'export JSON ne le contient pas).
 - **API REST** : FastAPI. Elle repose sur des **sessions éphémères en mémoire** (voir [Choix techniques](#choix-techniques-notables)).
 - **CLI** : `geneweb-py parse` et `geneweb-py export`.
 - **Analytics** : construit un réseau personnes↔organisations et l'exporte vers NetworkX, GraphML, GEXF (Gephi), vis.js ou Pyvis (HTML).
@@ -226,6 +226,23 @@ docker compose -f app/docker-compose.yml up -d --build
 ```
 
 > Toute modification de `core/` impose de reconstruire l'image Docker.
+
+### Valider et enrichir
+
+La webapp de l'API (onglet « Organisations », routes `#/organisations` et `#/organisation/<id>`) liste les organisations candidates déduites par les règles, avec les personnes reliées, et une section « Reste à classer » pour les événements sans organisation. L'onglet Export propose trois fichiers : `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) et `liens_organisations.csv` (`/export/organization-links-csv`). Les CSV sont en UTF-8 avec BOM, séparateur `;`, pour s'ouvrir directement dans un tableur.
+
+Le `.gw` n'est jamais modifié : les candidates sont des propositions, à valider avant toute exploitation. Le résultat validé a vocation à revenir dans un `.org.json` propre, que la bibliothèque relit (`formats.org_sidecar.import_organizations`).
+
+Deux voies de validation :
+
+| Voie | Pour quoi | Méthode |
+|---|---|---|
+| 1. Application Streamlit du dépôt | Faire arbitrer par un LLM les cas que les règles n'attrapent pas, puis valider | `uv sync --all-packages --all-extras` une fois, puis `./run_app.sh` (http://localhost:8501) ou Docker (section 6). Clé du fournisseur saisie dans le panneau latéral, jamais écrite. |
+| 2. Tableur (LibreOffice Calc, Excel, Google Sheets) | Passer en revue et trancher | Ouvrir `liens_organisations.csv`, renseigner un statut (à voir / validé / rejeté) et un nom retenu ; trier par organisation puis par date. |
+| 2. OpenRefine | Fusionner les doublons | Importer `organisations.csv`, regrouper les noms (fingerprint, puis n-gram), fusionner, exporter. |
+| 2. Gephi | Voir les cercles | Avec `uv sync --extra analytics`, exporter le réseau personnes-organisations en GEXF. |
+| 2. GeneWeb | Améliorer la source | Harmoniser les tags et compléter les lieux au format `[Complément]_-_Ville`, puis recharger. Seule voie où le `.gw` change, par l'utilisateur dans son outil. |
+| 2. Base légère (Airtable, NocoDB, Baserow) | Valider à plusieurs | Importer `liens_organisations.csv`, une vue par validateur, un champ de statut partagé. |
 
 ### Analyse de réseaux
 

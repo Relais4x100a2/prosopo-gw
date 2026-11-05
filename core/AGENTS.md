@@ -75,6 +75,7 @@ core/
   organization.py   # Organization, OrganizationLink, OrganizationType (liens personne <-> organisation)
   event_to_organization.py  # EventToOrganizationMapper : règles par préfixe (DEFAULT_PREFIX_RULES,
                             # custom_rules injectables) + hook LLM optionnel ; Genealogy.infer_organizations()
+                            # règles Autre, TYPED_EVENT_RULES, texte de profession
   genealogy.py      # Conteneur : Genealogy(persons, families, metadata)
   exceptions.py     # GeneWebParseError, GeneWebValidationError, GeneWebEncodingError
   validation.py     # Validation en modes strict / gracieux
@@ -86,9 +87,11 @@ api/
   dependencies.py              # get_store, get_session_service (en-tête X-Session-Token)
   limits.py                    # Constantes via env : MAX_UPLOAD_BYTES, SESSION_*, CORS
   rate_limit.py                # Limiter SlowAPI (5/heure sur POST /sessions)
-  routers/{persons,families,events,genealogy,sessions}.py
+  routers/{persons,families,events,genealogy,sessions,organizations}.py
   services/genealogy_service.py  # Logique métier entre l'API et les modèles
-  models/{person,family,event,responses}.py  # Modèles Pydantic
+  services/organization_candidates.py  # Candidates, événements non classés
+  services/organization_exports.py     # Exports org.json et CSV (UTF-8 BOM, « ; »)
+  models/{person,family,event,organization,responses}.py  # Modèles Pydantic
 
 cli/
   entry.py      # Point d'entrée du binaire `geneweb-py` (Click)
@@ -158,4 +161,4 @@ Backlog :
 - **Notices d'autorité (portage éventuel)** : l'ancien dépôt `Geneweb` (V2) définissait dans `app/data_schema.py` un schéma
   d'identités (`authorityRecord`, `othernames`) prévu pour des identifiants externes (VIAF, Wikidata). Non porté ;
   à étudier si l'on veut rattacher des personnes ou organisations à des référentiels d'autorité.
-- Export CSV individus / organisations / événements (équivalent des anciens `csv_ind/csv_org/csv_evt` de V2), si besoin.
+- Export CSV individus / événements (équivalent des anciens `csv_ind/csv_org/csv_evt` de V2), si besoin.

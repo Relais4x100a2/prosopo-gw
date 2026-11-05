@@ -67,7 +67,7 @@ Standard events (`#birt`, `#deat`…) are already well structured. The others ar
 
 | Stage | Mechanism | Why |
 |---|---|---|
-| 1. Rules | `EventToOrganizationMapper`: role prefixes (`Membre`, `Élève`, `Employé`, `Soldat`…) and "`[Complement]_-_City`" places → an organization proposal with a **confidence score** | Deterministic, fast, free, explainable, reproducible |
+| 1. Rules | `EventToOrganizationMapper`: role prefixes (`Membre`, `Élève`, `Employé`, `Soldat`…) and "`[Complement]_-_City`" places → an organization proposal with a **confidence score**. Priority: place complement containing an establishment word > tag (if it says more than a role) > "to be determined" (the complement is used as the name) | Deterministic, fast, free, explainable, reproducible |
 | 2. LLM (optional) | A pluggable hook arbitrates cases the rules cannot decide. Prompts are **annotated, then optimized with DSPy** from hand-labelled examples | Only used where rules fail; never replaces human judgement |
 | 3. Human | Validation pages in the app before any bulk transformation | A prosopographic database cannot tolerate silent inventions |
 
@@ -108,7 +108,7 @@ The end-to-end data flow:
 - **Parser**: LRU-cached tokenization, then syntactic analysis, then model building. A **streaming** mode kicks in above 10 MB (about 80% less memory); a **multi-pass** mode resolves cross-references (families, witnesses) on complex databases. They can be combined.
 - **Models**: dataclasses for `Date` (multi-calendar, `~ ? < >` prefixes, intervals), `Person`, `Family`, `Event`, `Place`, `Organization`, all gathered in `Genealogy`.
 - **Validation**: *strict* mode (stops at the first error) or *graceful* mode (collects every error with line, token and suggestion).
-- **Formats**: GEDCOM, JSON and XML export, plus the `.org.json` sidecar file.
+- **Formats**: GEDCOM, JSON and XML export; `.org.json` sidecar file and CSV of candidate organizations, produced by the library (`formats.org_sidecar`) and by the webapp's Export tab (the JSON export does not contain them).
 - **REST API**: FastAPI, built on **ephemeral in-memory sessions** (see [Notable technical choices](#notable-technical-choices)).
 - **CLI**: `geneweb-py parse` and `geneweb-py export`.
 - **Analytics**: builds a person↔organization network and exports it to NetworkX, GraphML, GEXF (Gephi), vis.js or Pyvis (HTML).
@@ -226,6 +226,23 @@ docker compose -f app/docker-compose.yml up -d --build
 ```
 
 > Any change to `core/` requires rebuilding the Docker image.
+
+### Validate and enrich
+
+The API webapp ("Organisations" tab, routes `#/organisations` and `#/organisation/<id>`) lists the candidate organizations deduced by the rules, with the linked persons, and a "Reste à classer" section for events without an organization. The Export tab offers three files: `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) and `liens_organisations.csv` (`/export/organization-links-csv`). The CSV files are UTF-8 with BOM and a `;` delimiter, so they open directly in a spreadsheet.
+
+The `.gw` file is never modified: candidates are proposals to validate before any use. The validated result is meant to come back as a clean `.org.json`, which the library can read again (`formats.org_sidecar.import_organizations`).
+
+Two validation paths:
+
+| Path | Purpose | Method |
+|---|---|---|
+| 1. The repository's Streamlit app | Have an LLM arbitrate cases the rules cannot decide, then validate | `uv sync --all-packages --all-extras` once, then `./run_app.sh` (http://localhost:8501) or Docker (section 6). The provider key is entered in the sidebar and never written. |
+| 2. Spreadsheet (LibreOffice Calc, Excel, Google Sheets) | Review and decide | Open `liens_organisations.csv`, fill in a status (to review / validated / rejected) and a chosen name; sort by organization then date. |
+| 2. OpenRefine | Merge duplicates | Import `organisations.csv`, cluster names (fingerprint, then n-gram), merge, export. |
+| 2. Gephi | See the circles | With `uv sync --extra analytics`, export the person-organization network as GEXF. |
+| 2. GeneWeb | Improve the source | Harmonize tags and complete places as `[Complement]_-_City`, then reload. The only path where the `.gw` changes, done by the user in their own tool. |
+| 2. Lightweight database (Airtable, NocoDB, Baserow) | Validate as a team | Import `liens_organisations.csv`, one view per reviewer, a shared status field. |
 
 ### Network analysis
 
