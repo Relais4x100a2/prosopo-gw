@@ -528,8 +528,9 @@ class EventToOrganizationMapper:
             )
 
         # 2 bis. adresse (numéro + mot de voie) dans le tag, sinon dans le complément ;
-        # le numéro est écarté de ``tag_name`` : l'adresse se lit dans le tag brut
-        if address_in(tag):
+        # le numéro est écarté de ``tag_name`` : l'adresse se lit dans le tag brut ;
+        # un préfixe de rôle reconnu (``Cours_anglais_1``) exclut l'adresse sur le tag
+        if rule is None and address_in(tag):
             address_name, address_extra = tag.replace("_", " "), extra
         elif address_in(complement):
             address_name, address_extra = complement or "", _extra("tag", tag_name)

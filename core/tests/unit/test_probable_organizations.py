@@ -86,3 +86,17 @@ def test_plain_tag_stays_weak():
     p = _propose("Philatelie_Locale")
     assert p.confidence == 0.5
     assert p.named_from == "tag"
+
+
+def test_role_prefix_tag_is_not_an_address():
+    assert _propose("Cours_anglais_1") is None
+
+
+def test_role_prefix_with_street_word_is_not_an_address():
+    assert _propose("Cours_place_3") is None
+
+
+def test_street_tag_with_year_stays_an_address():
+    """Décision documentée : « Rue_Haute_1945 » (année en fin) reste une adresse."""
+    p = _propose("Rue_Haute_1945")
+    assert p is not None and p.named_from == "address"
