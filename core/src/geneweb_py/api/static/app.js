@@ -110,8 +110,7 @@ function resetLoadedData() {
   state.persons = { items: [], page: 1, pages: 1, query: '', loaded: false };
   state.families = { items: [], page: 1, pages: 1, nameMap: {}, loaded: false };
   state.lastRoute = {};
-  closePersonDetail();
-  closeFamilyDetail();
+  closeDetail();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 }
 
@@ -159,6 +158,7 @@ async function init() {
   wireFamiliesTab();
   initEventsTab();
   wireExportTab();
+  wireDrawer();
   window.addEventListener('hashchange', applyRoute);
 
   if (state.token) {
@@ -363,7 +363,7 @@ async function applyRoute() {
     if (route.name === 'personnes') {
       const query = route.params.get('q') || '';
       const page = pageParam(route.params);
-      closePersonDetail();
+      closeDetail();
       document.getElementById('persons-search').value = query;
       if (!state.persons.loaded || state.persons.query !== query || state.persons.page !== page) {
         await loadPersons(page, query);
@@ -373,11 +373,13 @@ async function applyRoute() {
       if (seq === _routeSeq) await openPersonDetail(route.id);
     } else if (route.name === 'familles') {
       const page = pageParam(route.params);
-      closeFamilyDetail();
+      closeDetail();
       if (!state.families.loaded || state.families.page !== page) await loadFamilies(page);
     } else if (route.name === 'famille') {
       if (!state.families.loaded) await loadFamilies(1);
       if (seq === _routeSeq) await openFamilyDetail(route.id);
+    } else {
+      closeDetail();   // Événements, Stats, Export : pas de fiche
     }
   } catch { /* session expirée : gérée par apiFetch ; autres erreurs déjà affichées */ }
 }
@@ -450,10 +452,11 @@ function renderPersons() {
   list.querySelectorAll('.btn-see').forEach(btn => {
     // « Voir » ouvre la fiche ; re-cliquer sur la fiche ouverte la referme.
     btn.addEventListener('click', () => navigate(
-      openDetailId('person-detail-panel', 'personId') === btn.dataset.id
+      drawerShows('person', btn.dataset.id)
         ? personsListHash()
         : personHash(btn.dataset.id)));
   });
+  markActiveRows();
 }
 
 function updatePersonPagination(pagination) {
@@ -465,38 +468,120 @@ function updatePersonPagination(pagination) {
   document.querySelector('#panel-persons .pagination-bar').hidden = !pagination.total;
 }
 
+// ==================== PANNEAU LATÉRAL ====================
+// Une seule fiche à la fois (personne ou famille), à droite de la liste qui reste
+// stable ; plein écran sur mobile. Le fil d'Ariane garde les fiches consultées.
+const TRAIL_MAX = 8;
+let _detailSeq = 0;      // annule les ouvertures dépassées par une plus récente
+let _trail = [];         // [{ hash, label, title }]
+
+function drawerShows(kind, id) {
+  const drawer = document.getElementById('detail-drawer');
+  return !drawer.hidden && drawer.dataset.kind === kind && drawer.dataset.id === id;
+}
+
+function setDrawerOpen(open) {
+  document.getElementById('detail-drawer').hidden = !open;
+  document.body.classList.toggle('drawer-open', open);
+}
+
+// Pendant le chargement : panneau ouvert, contenu précédent grisé.
+function setDrawerLoading(loading) {
+  const drawer = document.getElementById('detail-drawer');
+  drawer.setAttribute('aria-busy', String(loading));
+  if (loading && drawer.hidden) {
+    document.getElementById('drawer-body').innerHTML =
+      '<p class="text-muted drawer-loading">Chargement…</p>';
+    renderTrail();
+    setDrawerOpen(true);
+  }
+}
+
+function showInDrawer(content, kind, id, crumb) {
+  const drawer = document.getElementById('detail-drawer');
+  const body = document.getElementById('drawer-body');
+  drawer.dataset.kind = kind;
+  drawer.dataset.id = id;
+  body.replaceChildren(content);
+  body.scrollTop = 0;
+  if (crumb) pushTrail(crumb);
+  renderTrail();
+  setDrawerLoading(false);
+  setDrawerOpen(true);
+  markActiveRows();
+  // Lecteurs d'écran / clavier : le focus suit la fiche affichée.
+  body.querySelector('.drawer-title')?.focus({ preventScroll: true });
+}
+
+function closeDetail() {
+  _detailSeq++;
+  const drawer = document.getElementById('detail-drawer');
+  if (!drawer) return;
+  delete drawer.dataset.kind;
+  delete drawer.dataset.id;
+  document.getElementById('drawer-body').replaceChildren();
+  _trail = [];
+  setDrawerLoading(false);
+  setDrawerOpen(false);
+  markActiveRows();
+}
+
+// Revenir à une fiche déjà dans le fil le tronque après elle (comme un historique).
+function pushTrail(crumb) {
+  const idx = _trail.findIndex(c => c.hash === crumb.hash);
+  if (idx !== -1) _trail = _trail.slice(0, idx);
+  _trail.push(crumb);
+  if (_trail.length > TRAIL_MAX) _trail = _trail.slice(-TRAIL_MAX);
+}
+
+function renderTrail() {
+  const nav = document.getElementById('drawer-trail');
+  nav.innerHTML = _trail.map((c, i) => i === _trail.length - 1
+    ? `<span class="crumb current" aria-current="page" title="${escHtml(c.title)}">${escHtml(c.label)}</span>`
+    : `<a class="crumb" href="${escHtml(c.hash)}" title="${escHtml(c.title)}">${escHtml(c.label)}</a>`
+  ).join('<span class="crumb-sep" aria-hidden="true">›</span>');
+}
+
+// La ligne de la fiche ouverte reste repérable dans la liste.
+function markActiveRows() {
+  const drawer = document.getElementById('detail-drawer');
+  const open = drawer && !drawer.hidden ? drawer.dataset : {};
+  for (const [listId, kind] of [['persons-list', 'person'], ['families-list', 'family']]) {
+    document.querySelectorAll(`#${listId} .item-row`).forEach(row => {
+      const btn = row.querySelector('.btn-see');
+      const active = !!btn && open.kind === kind && open.id === btn.dataset.id;
+      row.classList.toggle('is-active', active);
+      if (btn) btn.setAttribute('aria-expanded', String(active));
+    });
+  }
+}
+
+// Fermer revient à la liste de l'onglet courant (l'adresse suit).
+function closeDrawerRoute() {
+  navigate(parseRoute().tab === 'families' ? familiesListHash() : personsListHash());
+}
+
+function wireDrawer() {
+  document.getElementById('drawer-close').addEventListener('click', closeDrawerRoute);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || document.getElementById('detail-drawer').hidden) return;
+    if (e.target.closest && e.target.closest('input, select, textarea')) return;
+    closeDrawerRoute();
+  });
+}
+
+function drawerError(message) {
+  const p = document.createElement('p');
+  p.className = 'alert-pgw error';
+  p.textContent = message;
+  return p;
+}
+
 // ==================== FICHE PERSONNE ====================
-function openDetailId(panelId, key) {
-  const panel = document.getElementById(panelId);
-  return panel ? panel.dataset[key] : null;
-}
-
-function closePersonDetail() {
-  _personDetailSeq++;   // annule une ouverture encore en vol
-  document.getElementById('person-detail-panel')?.remove();
-  document.getElementById('person-detail-error')?.remove();
-}
-
-// Ligne de la liste correspondant à un id (absente si la fiche vient d'un lien).
-function listRowFor(listId, id) {
-  const btn = document.querySelector(`#${listId} .btn-see[data-id="${CSS.escape(id)}"]`);
-  return btn ? btn.closest('.item-row') : null;
-}
-
-// Place un panneau sous sa ligne, ou en tête de liste si la ligne n'est pas affichée.
-function placeDetailPanel(panel, listId, id) {
-  const row = listRowFor(listId, id);
-  if (row) row.insertAdjacentElement('afterend', panel);
-  else document.getElementById(listId).prepend(panel);
-  panel.scrollIntoView({ block: 'nearest' });
-}
-
-let _personDetailSeq = 0;
-
 async function openPersonDetail(personId) {
-  if (openDetailId('person-detail-panel', 'personId') === personId) return;
-  closePersonDetail();
-  const seq = _personDetailSeq;
+  if (drawerShows('person', personId)) return;
+  const seq = ++_detailSeq;
+  setDrawerLoading(true);
 
   let personResp, familiesResp;
   try {
@@ -505,15 +590,11 @@ async function openPersonDetail(personId) {
       apiJson('/api/v1/persons/' + encodeURIComponent(personId) + '/families'),
     ]);
   } catch (err) {
-    if (err.message === 'session-expired' || seq !== _personDetailSeq) return;
-    const errPanel = document.createElement('div');
-    errPanel.id = 'person-detail-error';
-    errPanel.className = 'alert-pgw error';
-    errPanel.textContent = 'Impossible de charger la fiche.';
-    placeDetailPanel(errPanel, 'persons-list', personId);
+    if (err.message === 'session-expired' || seq !== _detailSeq) return;
+    showInDrawer(drawerError('Impossible de charger la fiche.'), 'person', personId, null);
     return;
   }
-  if (seq !== _personDetailSeq) return;
+  if (seq !== _detailSeq) return;
 
   const person = personResp.data;
   const families = familiesResp.data || [];
@@ -523,6 +604,7 @@ async function openPersonDetail(personId) {
   const parentIds = [];
   const childIds = [];
   const partnerIds = [];
+  const unions = [];   // familles où la personne est conjoint : lien vers la fiche famille
 
   // myId = authoritative ID from server (avoids any HTML-attribute encoding drift)
   const myId = person.id || personId;
@@ -541,6 +623,8 @@ async function openPersonDetail(personId) {
       for (const sid of [fam.husband_id, fam.wife_id]) {
         if (sid && sid !== myId) partnerIds.push(sid);
       }
+      const partnerId = [fam.husband_id, fam.wife_id].find(sid => sid && sid !== myId) || null;
+      unions.push({ familyId: fam.id, partnerId, date: fam.marriage_date, place: fam.marriage_place });
     } else {
       // person is a child in this family → collect parents
       if (fam.husband_id) parentIds.push(fam.husband_id);
@@ -554,7 +638,7 @@ async function openPersonDetail(personId) {
   const allIds = [...new Set([...uniqueParentIds, ...uniqueChildIds, ...uniquePartnerIds])];
 
   const nameMap = await resolvePersonNames(allIds);
-  if (seq !== _personDetailSeq) return;   // une autre fiche a été demandée entre-temps
+  if (seq !== _detailSeq) return;   // une autre fiche a été demandée entre-temps
 
   const parents = uniqueParentIds.map(id => ({ id, label: nameMap[id] || id }));
   const children = uniqueChildIds.map(id => ({ id, label: nameMap[id] || id }));
@@ -562,8 +646,25 @@ async function openPersonDetail(personId) {
 
   const panel = buildPersonDetailPanel(person, parents, partners, children);
   panel.dataset.personId = personId;
+  if (unions.length) panel.append(buildUnionsSection(unions, nameMap));
 
-  placeDetailPanel(panel, 'persons-list', personId);
+  showInDrawer(panel, 'person', personId, {
+    hash: personHash(personId),
+    label: formatGwName(person.first_name) || formatGwName(person.surname) || personId,
+    title: personLabel(person.surname, person.first_name),
+  });
+}
+
+function buildUnionsSection(unions, nameMap) {
+  const section = document.createElement('div');
+  section.className = 'drawer-section';
+  section.innerHTML = `<div class="mini-tree-label">Familles</div>` + unions.map(u => {
+    const who = u.partnerId ? `avec ${nameMap[u.partnerId] || u.partnerId}` : 'conjoint inconnu';
+    const when = [u.date ? '⚭ ' + shortDate(u.date) : '', formatGwName(u.place)].filter(Boolean).join(' · ');
+    return `<a class="mini-tree-person" href="${escHtml(familyHash(u.familyId))}">${escHtml(who)}`
+      + (when ? ` <span class="item-meta">${escHtml(when)}</span>` : '') + '</a>';
+  }).join('');
+  return section;
 }
 
 // Au plus MAX_NAME_IDS identifiants par appel (plafond de GET /persons/names).
@@ -626,9 +727,7 @@ function buildPersonDetailPanel(person, parents, partners, children) {
     : '';
 
   panel.innerHTML = `
-    <div>
-      <strong>${fullName}</strong>${datesHtml}
-    </div>
+    <h2 class="drawer-title" tabindex="-1">${fullName}${datesHtml}</h2>
     <div class="mini-tree">
       <div class="mini-tree-col">
         <div class="mini-tree-label">Parents</div>
@@ -718,10 +817,11 @@ function renderFamilies() {
   }).join('');
   list.querySelectorAll('.btn-see').forEach(btn => {
     btn.addEventListener('click', () => navigate(
-      openDetailId('family-detail-panel', 'familyId') === btn.dataset.id
+      drawerShows('family', btn.dataset.id)
         ? familiesListHash()
         : familyHash(btn.dataset.id)));
   });
+  markActiveRows();
 }
 
 function updateFamiliesPagination(pagination) {
@@ -732,43 +832,44 @@ function updateFamiliesPagination(pagination) {
   document.querySelector('#panel-families .pagination-bar').hidden = !pagination.total;
 }
 
-let _familyDetailSeq = 0;
-
-function closeFamilyDetail() {
-  _familyDetailSeq++;
-  document.getElementById('family-detail-panel')?.remove();
-  document.getElementById('family-detail-error')?.remove();
-}
-
 async function openFamilyDetail(familyId) {
-  if (openDetailId('family-detail-panel', 'familyId') === familyId) return;
-  closeFamilyDetail();
-  const seq = _familyDetailSeq;
+  if (drawerShows('family', familyId)) return;
+  const seq = ++_detailSeq;
+  setDrawerLoading(true);
 
-  let childrenResp;
+  let familyResp, childrenResp;
   try {
-    childrenResp = await apiJson('/api/v1/families/' + encodeURIComponent(familyId) + '/children');
+    [familyResp, childrenResp] = await Promise.all([
+      apiJson('/api/v1/families/' + encodeURIComponent(familyId)),
+      apiJson('/api/v1/families/' + encodeURIComponent(familyId) + '/children'),
+    ]);
   } catch (err) {
-    if (err.message === 'session-expired' || seq !== _familyDetailSeq) return;
-    const errPanel = document.createElement('div');
-    errPanel.id = 'family-detail-error';
-    errPanel.className = 'alert-pgw error';
-    errPanel.textContent = 'Impossible de charger les enfants.';
-    placeDetailPanel(errPanel, 'families-list', familyId);
+    if (err.message === 'session-expired' || seq !== _detailSeq) return;
+    showInDrawer(drawerError('Impossible de charger la famille.'), 'family', familyId, null);
     return;
   }
-  if (seq !== _familyDetailSeq) return;
+  if (seq !== _detailSeq) return;
 
+  const family = familyResp.data || {};
   const children = childrenResp.data || [];
+  const spouseIds = [family.husband_id, family.wife_id].filter(Boolean);
+  const nameMap = await resolvePersonNames(spouseIds);
+  if (seq !== _detailSeq) return;
 
-  const panel = document.createElement('div');
-  panel.id = 'family-detail-panel';
-  panel.className = 'person-detail';
-  panel.dataset.familyId = familyId;
+  const spouseLink = id => id
+    ? `<a class="mini-tree-person" href="${escHtml(personHash(id))}">${escHtml(nameMap[id] || id)}</a>`
+    : '<span class="mini-tree-person placeholder">—</span>';
+  const surname = id => (id && (nameMap[id] || '').split(',')[0]) || '?';
+  const title = `${surname(family.husband_id)} & ${surname(family.wife_id)}`;
 
-  let childrenHtml;
-  if (children.length) {
-    childrenHtml = children.map(child => {
+  const facts = [];
+  if (family.marriage_date || family.marriage_place) {
+    facts.push(`⚭ ${[shortDate(family.marriage_date), formatGwName(family.marriage_place)].filter(Boolean).join(' · ')}`);
+  }
+  if (family.divorce_date) facts.push(`Divorce ${shortDate(family.divorce_date)}`);
+
+  const childrenHtml = children.length
+    ? children.map(child => {
       const person = child.person || {};
       const childId = child.person_id || person.id || '';
       const label = person.surname || person.first_name
@@ -777,17 +878,30 @@ async function openFamilyDetail(familyId) {
       return childId
         ? `<a class="mini-tree-person" href="${escHtml(personHash(childId))}" data-id="${escHtml(childId)}">${label}</a>`
         : `<span class="mini-tree-person placeholder">${label}</span>`;
-    }).join('');
-  } else {
-    childrenHtml = '<em style="color:var(--text-muted);font-size:0.85rem">Aucun enfant enregistré.</em>';
-  }
+    }).join('')
+    : '<em class="text-muted">Aucun enfant enregistré.</em>';
 
+  const panel = document.createElement('div');
+  panel.id = 'family-detail-panel';
+  panel.className = 'person-detail';
+  panel.dataset.familyId = familyId;
   panel.innerHTML = `
-    <div><strong>Enfants :</strong></div>
-    <div>${childrenHtml}</div>
-  `;
+    <h2 class="drawer-title" tabindex="-1">Famille ${escHtml(title)}</h2>
+    ${facts.length ? `<p class="item-meta">${escHtml(facts.join(' — '))}</p>` : ''}
+    <div class="drawer-section">
+      <div class="mini-tree-label">Conjoints</div>
+      ${spouseLink(family.husband_id)}${spouseLink(family.wife_id)}
+    </div>
+    <div class="drawer-section">
+      <div class="mini-tree-label">Enfants (${children.length})</div>
+      ${childrenHtml}
+    </div>`;
 
-  placeDetailPanel(panel, 'families-list', familyId);
+  showInDrawer(panel, 'family', familyId, {
+    hash: familyHash(familyId),
+    label: '⚭ ' + title,
+    title: 'Famille ' + title,
+  });
 }
 
 // ==================== ÉVÉNEMENTS ====================

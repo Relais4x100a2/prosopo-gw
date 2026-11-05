@@ -59,11 +59,22 @@ def test_event_filter_ids_used_by_app_js_exist_in_index():
         assert f'id="{i}"' in html, i
 
 
-def test_empty_state_hidden_when_detail_panel_open():
-    """Un « Aucun résultat » périmé ne doit pas rester sous une fiche ouverte."""
-    css = (STATIC / "style.css").read_text(encoding="utf-8")
+def test_detail_opens_in_side_drawer_not_inside_list():
+    """La fiche s'ouvre dans un panneau latéral : la liste reste stable."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    assert "#persons-list:has(#person-detail-panel) .list-empty" in css
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    for i in ("detail-drawer", "drawer-trail", "drawer-body", "drawer-close"):
+        assert f'id="{i}"' in html, i
+    # Plus d'insertion de la fiche dans la liste.
+    assert "insertAdjacentElement" not in js
+    assert "placeDetailPanel" not in js
+    # Fil d'Ariane, fermeture au clavier, plein écran sur mobile.
+    assert "function pushTrail(" in js and "TRAIL_MAX" in js
+    assert "e.key !== 'Escape'" in js
+    assert "@media (max-width: 767.98px)" in css
+    # Une seule fiche à la fois : un seul compteur d'annulation.
+    assert "_personDetailSeq" not in js and "_familyDetailSeq" not in js
     assert js.count('class="text-muted list-empty"') == 2
 
 

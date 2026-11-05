@@ -124,8 +124,12 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
   padding: 0 1rem;
+  overflow-x: auto;          /* mobile : les onglets défilent au lieu d'élargir la page */
+  scrollbar-width: none;
 }
 .pgw-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: 0.6rem 1rem;
   font-size: 0.9rem;
   color: var(--text-muted);
@@ -429,10 +433,6 @@ body {
 
 /* États vides des listes */
 .list-empty { font-style: italic; padding: 0.5rem; }
-/* Une fiche ouverte depuis un lien (sans ligne source) ne doit pas
-   s'afficher au-dessus d'un « Aucun résultat » périmé. */
-#persons-list:has(#person-detail-panel) .list-empty,
-#families-list:has(#family-detail-panel) .list-empty { display: none; }
 .pagination-bar[hidden] { display: none; }
 
 .evt-more-types { flex-basis: 100%; margin-top: 0.2rem; }
@@ -507,3 +507,71 @@ body {
 .tabulator-edit-list .tabulator-edit-list-item.active,
 .tabulator-edit-list .tabulator-edit-list-item:hover { background: var(--bg-active); color: var(--text); }
 .tabulator-edit-list .tabulator-edit-list-placeholder { color: var(--text-muted); }
+
+/* ==================== Panneau latéral (fiche) ==================== */
+.app-body { display: flex; align-items: flex-start; }
+.app-body > .container-fluid { flex: 1 1 auto; min-width: 0; }
+.detail-drawer {
+  flex: 0 0 min(440px, 42vw);
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border-left: 2px solid var(--accent-light);
+  box-shadow: -4px 0 12px rgba(44, 24, 16, 0.06);
+}
+.detail-drawer[aria-busy="true"] .drawer-body { opacity: 0.55; transition: opacity 0.15s; }
+.drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem 0.5rem 1rem;
+  background: var(--bg-active);
+  border-bottom: 1px solid var(--border);
+}
+.drawer-trail { flex: 1; min-width: 0; font-size: 0.82rem; line-height: 1.6; }
+.drawer-trail .crumb { color: var(--accent); text-decoration: none; }
+.drawer-trail a.crumb:hover { text-decoration: underline; }
+.drawer-trail .crumb.current { color: var(--text); font-weight: bold; }
+.drawer-trail .crumb-sep { color: var(--accent-light); margin: 0 0.35rem; }
+.drawer-close {
+  background: none;
+  border: 1px solid var(--accent-light);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+.drawer-close:hover { background: var(--accent); color: #fff; }
+.drawer-body { padding: 1rem; }
+.drawer-loading { font-style: italic; }
+.drawer-title { font-size: 1.1rem; font-weight: bold; margin: 0 0 0.25rem; color: var(--text); }
+.drawer-title:focus { outline: none; }
+.drawer-section { margin-top: 1rem; }
+/* Dans le panneau, la fiche se lit de haut en bas : parents ↓ personne ↓ enfants */
+.detail-drawer .person-detail { border: none; background: none; padding: 0; margin: 0; }
+.detail-drawer .mini-tree { flex-direction: column; align-items: stretch; gap: 0.25rem; }
+.detail-drawer .mini-tree-col { text-align: left; }
+.detail-drawer .mini-tree-arrow { transform: rotate(90deg); align-self: center; line-height: 1; }
+.detail-drawer .mini-tree-person { font-size: 0.85rem; padding: 4px 10px; }
+.detail-drawer .mini-tree-person .item-meta { display: block; }
+.detail-drawer .mini-tree-person:hover .item-meta { color: #fff; }
+.item-row.is-active { background: var(--bg-active) !important; border-left-color: var(--accent); }
+
+@media (max-width: 767.98px) {
+  .detail-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    max-height: none;
+    border-left: none;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  body.drawer-open { overflow: hidden; }
+}

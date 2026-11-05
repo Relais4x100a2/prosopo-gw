@@ -60,6 +60,7 @@
     <div class="pgw-tab" data-tab="export">Export</div>
   </div>
 
+  <div class="app-body">
   <div class="container-fluid py-3">
 
     <!-- === PERSONNES === -->
@@ -153,6 +154,16 @@
       <div id="export-error" class="alert-pgw error mt-2" style="display:none"></div>
     </div>
 
+  </div>
+
+  <!-- Fiche (personne ou famille) : panneau à droite, plein écran sur mobile -->
+  <aside id="detail-drawer" class="detail-drawer" aria-label="Fiche" aria-busy="false" hidden>
+    <div class="drawer-head">
+      <nav id="drawer-trail" class="drawer-trail" aria-label="Fiches consultées"></nav>
+      <button type="button" id="drawer-close" class="drawer-close" aria-label="Fermer la fiche (Échap)">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
   </div>
 </div>
 
