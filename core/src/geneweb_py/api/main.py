@@ -20,7 +20,14 @@ from .limits import get_cors_allow_origins
 from .middleware.error_handler import setup_error_handlers
 from .middleware.logging import setup_logging_middleware
 from .rate_limit import limiter
-from .routers import events, families, genealogy, persons, sessions
+from .routers import (
+    events,
+    families,
+    genealogy,
+    organizations,
+    persons,
+    sessions,
+)
 from .session_store import SessionStore
 
 
@@ -168,6 +175,11 @@ def create_app() -> FastAPI:
         events.router,
         prefix="/api/v1/events",
         tags=["Événements"],
+    )
+    application.include_router(
+        organizations.router,
+        prefix="/api/v1/organizations",
+        tags=["organizations"],
     )
     application.include_router(
         genealogy.router,

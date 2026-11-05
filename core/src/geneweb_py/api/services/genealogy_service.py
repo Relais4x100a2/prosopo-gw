@@ -39,6 +39,7 @@ from ..serialization import (
     stable_event_id,
     titles_from_create_schemas,
 )
+from .organization_candidates import CandidateIndex, build_candidate_index
 
 
 def _normalize_search_text(text: str) -> str:
@@ -90,6 +91,7 @@ class GenealogyService:
         self._genealogy: Optional[Genealogy] = None
         self._parser = GeneWebParser(use_multipass=False)
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
+        self._candidate_index: Optional[CandidateIndex] = None
         if genealogy is not None:
             self._genealogy = genealogy
         else:
@@ -646,6 +648,7 @@ class GenealogyService:
         person.events.append(event)
         genealogy.metadata.modified_date = datetime.now()
         self._witness_index = None
+        self._candidate_index = None
 
         return event
 
@@ -692,6 +695,7 @@ class GenealogyService:
         family.events.append(event)
         genealogy.metadata.modified_date = datetime.now()
         self._witness_index = None
+        self._candidate_index = None
 
         return event
 
@@ -799,6 +803,7 @@ class GenealogyService:
         if event_data.witnesses is not None:
             event.witnesses = [{"person_id": str(w)} for w in event_data.witnesses]
             self._witness_index = None
+            self._candidate_index = None
         if event_data.sources is not None:
             first_src: Optional[str] = None
             for s in event_data.sources:
@@ -829,6 +834,7 @@ class GenealogyService:
                 if uid is not None and uid == event_id:
                     del person.events[i]
                     self._witness_index = None
+                    self._candidate_index = None
                     genealogy.metadata.modified_date = datetime.now()
                     return True
                 if (
@@ -839,6 +845,7 @@ class GenealogyService:
                 ):
                     del person.events[i]
                     self._witness_index = None
+                    self._candidate_index = None
                     genealogy.metadata.modified_date = datetime.now()
                     return True
 
@@ -849,6 +856,7 @@ class GenealogyService:
                 if uid is not None and uid == event_id:
                     del family.events[i]
                     self._witness_index = None
+                    self._candidate_index = None
                     genealogy.metadata.modified_date = datetime.now()
                     return True
                 if (
@@ -859,6 +867,7 @@ class GenealogyService:
                 ):
                     del family.events[i]
                     self._witness_index = None
+                    self._candidate_index = None
                     genealogy.metadata.modified_date = datetime.now()
                     return True
 
@@ -1070,6 +1079,12 @@ class GenealogyService:
                             index.setdefault(wid, set()).add(pid)
         self._witness_index = index
         return self._witness_index
+
+    def get_candidate_index(self) -> CandidateIndex:
+        """Index des organisations candidates (calculé une fois, invalidé à l'écriture)."""
+        if self._candidate_index is None:
+            self._candidate_index = build_candidate_index(self.genealogy)
+        return self._candidate_index
 
     def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:
         """Returns person_ids and family_ids related to person_id up to the given degree.
