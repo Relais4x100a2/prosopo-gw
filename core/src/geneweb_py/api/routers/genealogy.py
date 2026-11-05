@@ -14,7 +14,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from ...formats import GEDCOMExporter, JSONExporter, XMLExporter
 from ..dependencies import get_session_service
@@ -22,6 +22,11 @@ from ..models.responses import StatsResponse, SuccessResponse
 from ..rate_limit import limiter
 from ..router_helpers import raise_internal_server_error
 from ..services.genealogy_service import GenealogyService
+from ..services.organization_exports import (
+    candidates_csv,
+    candidates_sidecar,
+    links_csv,
+)
 
 router = APIRouter()
 
@@ -59,6 +64,52 @@ def _export_with_cleanup(
         path=temp_path,
         filename=download_filename,
         media_type=media_type,
+    )
+
+
+def _download_headers(filename: str) -> Dict[str, str]:
+    return {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    }
+
+
+@router.get("/export/org-json")
+@limiter.limit("40/minute")
+async def export_org_json(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> JSONResponse:
+    """Fichier compagnon ``.org.json`` limité aux organisations candidates."""
+    payload = candidates_sidecar(service.genealogy, service.get_candidate_index())
+    return JSONResponse(payload, headers=_download_headers("genealogie.org.json"))
+
+
+@router.get("/export/organizations-csv")
+@limiter.limit("40/minute")
+async def export_organizations_csv(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> Response:
+    """CSV des organisations candidates (une ligne par candidat)."""
+    return Response(
+        candidates_csv(service.get_candidate_index()).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers=_download_headers("organisations.csv"),
+    )
+
+
+@router.get("/export/organization-links-csv")
+@limiter.limit("40/minute")
+async def export_organization_links_csv(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> Response:
+    """CSV des liens personne - organisation des candidats."""
+    return Response(
+        links_csv(service.get_candidate_index()).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers=_download_headers("liens_organisations.csv"),
     )
 
 

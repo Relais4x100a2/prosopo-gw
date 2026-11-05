@@ -1,5 +1,8 @@
 """Candidats organisations : index, routes liste / détail / reste à classer."""
 
+import csv
+import io
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,6 +11,9 @@ from geneweb_py.api.main import app
 from geneweb_py.api.services import genealogy_service as service_module
 from geneweb_py.api.services.genealogy_service import GenealogyService
 from geneweb_py.api.services.organization_candidates import build_candidate_index
+from geneweb_py.api.services.organization_exports import (
+    CANDIDATES_CSV_HEADER,
+)
 from geneweb_py.core.parser.gw_parser import GeneWebParser
 
 GW = """pevt DUPONT Jean
@@ -163,3 +169,83 @@ def test_requires_session_token():
             403,
             422,
         )  # en-tête X-Session-Token absent
+
+
+EMPTY_GW = """fam DUPONT Jean + MARTIN Marie
+"""
+
+
+def _rows(response):
+    text = response.content.decode("utf-8")
+    assert text.startswith("\ufeff")
+    return list(csv.reader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
+
+
+def test_org_json_export_contains_only_candidates(client):
+    r = client.get("/api/v1/genealogy/export/org-json")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert r.headers["content-type"].startswith("application/json")
+    assert 'filename="genealogie.org.json"' in r.headers["content-disposition"]
+    body = r.json()
+    assert body["version"] == 1
+    ids = {o["id"] for o in body["organizations"]}
+    assert "usine_martin_roubaix" in ids
+    assert "comite_des_fetes_nord" not in ids
+    assert body["links"]
+    assert {link["organization_id"] for link in body["links"]} <= ids
+
+
+def test_candidates_csv_header_and_rows(client):
+    r = client.get("/api/v1/genealogy/export/organizations-csv")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert r.headers["content-type"].startswith("text/csv")
+    assert 'filename="organisations.csv"' in r.headers["content-disposition"]
+    rows = _rows(r)
+    assert rows[0] == (
+        "id;nom;type;lieu;source_du_nom;sources;mot_declencheur;confiance;a_revoir;"
+        "collectif;nb_personnes;nb_evenements;premiere_annee;derniere_annee;lieux;roles"
+    ).split(";")
+    assert rows[0] == CANDIDATES_CSV_HEADER
+    usine = next(r for r in rows if r[0] == "usine_martin_roubaix")
+    assert usine[1] == "Usine Martin" and usine[9] == "oui" and usine[10] == "2"
+    assert usine[5] == "occu|oth" and usine[12] == "1895" and usine[13] == "1902"
+    assert usine[8] in ("oui", "non")
+
+
+def test_links_csv_header_and_readable_names(client):
+    r = client.get("/api/v1/genealogy/export/organization-links-csv")
+    assert r.status_code == 200
+    assert 'filename="liens_organisations.csv"' in r.headers["content-disposition"]
+    rows = _rows(r)
+    assert rows[0] == (
+        "organisation_id;organisation;personne_id;personne;role;date;lieu;"
+        "type_evenement;evenement;nb_temoins;statut;nom_retenu"
+    ).split(";")
+    row = next(
+        r for r in rows if r[2] == "DUPONT_Jean_0" and r[0] == "usine_martin_roubaix"
+    )
+    assert row[3] == "DUPONT Jean" and row[7] == "occu" and row[8] == "Contremaître"
+    assert row[9] == "3"
+    assert row[10] == "" and row[11] == ""
+    cercle = next(r for r in rows if r[0] == "cercle_philatelique")
+    assert cercle[8] == "Cercle Philatelique"
+
+
+def test_csv_exports_without_candidates_have_header_only():
+    service = GenealogyService(GeneWebParser().parse_string(EMPTY_GW))
+    app.dependency_overrides[get_session_service] = lambda: service
+    try:
+        c = TestClient(app)
+        r = c.get("/api/v1/genealogy/export/organizations-csv")
+        assert r.status_code == 200
+        assert _rows(r) == [CANDIDATES_CSV_HEADER]
+        r = c.get("/api/v1/genealogy/export/organization-links-csv")
+        assert r.status_code == 200 and len(_rows(r)) == 1
+        body = c.get("/api/v1/genealogy/export/org-json").json()
+        assert body["organizations"] == [] and body["links"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_unknown_export_format_still_rejected(client):
+    assert client.get("/api/v1/genealogy/export/org-xml").status_code in (400, 404, 422)
