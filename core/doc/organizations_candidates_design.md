@@ -156,7 +156,9 @@ complément de lieu. Elles sont des constantes publiques du module, extensibles 
 `DEFAULT_PREFIX_RULES`.
 
 - **Mots d'établissement → type** (liste de départ, à compléter par le développeur) :
-  usine, société, entreprise, compagnie, manufacture, atelier, magasin, maison, banque, établissement → `company` ;
+  usine, société, entreprise, compagnie, manufacture, atelier, magasin, maison, banque, établissement,
+  agence, boutique, comptoir, fabrique, filature, bureau, étude, commandite, Cie, et les formes
+  `SNC`, `SARL`, `SA`, `SAS`, `Et.` écrites telles quelles → `company` (voir `shared_experiences_design.md` § 3.2 bis) ;
   école, collège, lycée, université, institut, académie, conservatoire → `school` ;
   association, club, cercle, syndicat, fédération, comité, amicale, loge → `association` ;
   mairie, conseil, chambre, tribunal, préfecture, ministère, hôpital, hospice → `institution` ;

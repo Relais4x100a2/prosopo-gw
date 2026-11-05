@@ -139,6 +139,35 @@ Le moteur `EventToOrganizationMapper` peut continuer à produire ces proposition
 (`build_candidate_index`) qui ne les retient plus. Le choix de l'endroit exact est laissé au
 développeur, à condition que l'API, l'onglet et les trois exports d'organisations soient cohérents.
 
+### 3.2 bis Sociétés et témoins (novembre 2026)
+
+**Mots de société.** Avant 1900, les formes juridiques sociétaires étaient rares : le lieu
+d'activité tenait lieu de raison sociale. Les mots d'établissement de type `company` comprennent
+donc aussi `agence`, `boutique`, `comptoir`, `fabrique`, `filature`, `bureau`, `commandite`, `cie`
+(« et Cie », « & Cie. ») et `etude` (singulier seulement : « Études de droit » n'est pas une étude
+notariale). Le point final d'un mot est ignoré (« Cie. »). Aucune règle ne dépend de la date.
+
+Les formes juridiques `SNC`, `SARL`, `SA`, `SAS` et l'abréviation `Et.` (établissements) ne sont
+reconnues que **telles qu'écrites** (`LEGAL_FORMS`, capitales et point compris) : « sa boutique »,
+« Pierre et Marie », « voyage sas » ne déclenchent rien par ces mots.
+
+**Témoins.** Les témoins d'un événement retenu comme organisation sont presque toujours des membres
+de l'organisation ou des acteurs de l'événement (associés d'une SNC, collègues d'une embauche). Chacun
+(présent dans la base et distinct du porteur) reçoit un lien vers l'organisation, avec les mêmes
+dates, le même `source_event_id` et le même `source_event_type` que le porteur, la note `"witness"`
+dans `OrganizationLink.notes` et le rôle « Témoin » (« Parrain ou marraine » pour `#godp`,
+« Officier » pour `#offi`). Cela vaut pour toutes les origines liées à un événement (tag, événement
+typé, complément de lieu, adresse, texte de profession), pas pour l'attribut profession (`occu_attr`)
+ni pour les expériences proches. Le porteur garde son lien.
+
+Pour un tag à mot d'établissement, le seuil « au moins deux personnes » compte porteurs **et**
+témoins : une société portée par une seule personne et ses associés témoins est retenue. Le tag libre
+sans signal fort reste compté sur les seuls porteurs.
+
+Côté API, chaque membre porte `witness: bool` ; `person_count` inclut les témoins et `event_count`
+compte les événements d'origine distincts. L'onglet indique « porteur » ou « témoin » pour chaque
+membre ; les liens figurent dans `.org.json` (note `"witness"`) et dans le CSV des liens (rôle).
+
 ## 4. Expériences proches
 
 ### 4.1 Ce qu'on rapproche
