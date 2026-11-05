@@ -227,6 +227,20 @@ dédoublonnage des liens existant (même personne, même organisation, même év
 une même personne reliée par deux événements différents a deux liens. Le seuil « au moins deux
 personnes » (§ 3.1) s'applique à l'ensemble fusionné.
 
+### 3.9 Découpage par ville et mots ignorés (suites du chantier A)
+
+- **Un tag, une ville, une organisation.** Un même tag employé dans deux villes donne deux
+  organisations distinctes (décision de l'utilisateur, novembre 2026) : un « Cercle » à Lille et un
+  « Cercle » à Roubaix sont a priori deux organisations différentes, même si chacune peut alors
+  rester sous le seuil de deux personnes.
+- **Mots ignorés.** Certains tags « Autre » décrivent une situation et non un groupe (recensement,
+  domicile). Un événement « Autre » dont le tag contient l'un des mots ignorés (mot entier, replié :
+  sans majuscules ni accents) n'est ni candidat ni « à classer » ; il est seulement compté
+  (`ignored_total`). Les événements typés et les professions ne sont pas concernés. Liste par
+  défaut : `recensement`, `domicile` ; l'utilisateur peut en ajouter ou en retirer. C'est un réglage
+  de **session**, côté serveur, qui s'applique à la liste, au reste à classer, à la carte Stats et
+  aux trois exports. Contrôles : lettres uniquement, 40 caractères au plus, 50 mots au plus.
+
 ## 4. API (chantier A)
 
 Nouveau routeur `api/routers/organizations.py`, préfixe `/api/v1/organizations`, protégé par la
@@ -250,7 +264,11 @@ grâce au dédoublonnage des liens, mais inutile).
   lettres, repliés), triés par effectif, chaque groupe avec `word`, `count` et ses événements
   (`person_id`, `person_name`, `event_type_raw`, `date`, `place`), plafonnés à 50 par groupe. Un
   événement peut figurer dans plusieurs groupes. Les événements sans mot fréquent (mot vu une seule
-  fois) forment un dernier groupe « autres ».
+  fois) forment un dernier groupe « autres ». La réponse donne aussi `ignored_total`, le nombre
+  d'événements écartés par les mots ignorés (§ 3.9).
+- `GET /ignored-words` et `PUT /ignored-words` (corps `{"words": [...]}`) : lire ou remplacer les
+  mots ignorés de la session. La réponse renvoie la liste normalisée (repliée, dédoublonnée) ; un
+  mot invalide donne une 422. Remplacer la liste vide le cache des candidats.
 
 Exports, dans le routeur existant `genealogy` à côté de `export/{format}` :
 
@@ -266,7 +284,10 @@ Exports, dans le routeur existant `genealogy` à côté de `export/{format}` :
   dernières colonnes vides, prêtes pour la validation au tableur).
 
 Les CSV sont en UTF-8 avec BOM et séparateur `;`, pour s'ouvrir directement dans un Excel français.
-Les noms GeneWeb y sont lisibles (`_` → espace). `Cache-Control: no-store` comme les autres exports.
+Les noms GeneWeb y sont lisibles (`_` → espace). Les colonnes `type`, `source_du_nom`, `sources` et
+`type_evenement` portent les libellés français de la webapp (« École », « Événement typé »,
+« éducation », « événement libre »…), la confiance a une virgule décimale (`0,8`), et les lignes sont
+triées par nom d'organisation (puis, pour les liens, par personne et année). `Cache-Control: no-store` comme les autres exports.
 
 Les schémas Pydantic vont dans `api/models/organization.py`.
 
@@ -284,9 +305,15 @@ Ce sont des propositions : rien n'est modifié dans votre fichier. ») et une ba
 
 Liste : une carte par candidat avec le nom (passé par `formatGwName`), le type en libellé français,
 le lieu, « N personnes · M événements », la période « 1902–1931 », et des pastilles :
-« collectif », « à revoir », « à déterminer », « cercle » (relation), le mot déclencheur, et la source quand ce n'est
-pas un « Autre » (« professions », « éducation »…). Un clic ouvre la fiche. Le filtre « source »
-de la barre reprend ces valeurs.
+« collectif », « à revoir », « à déterminer », « cercle » (relation), le mot déclencheur, l'origine
+du nom (« Nom : Lieu », « Nom : Nom personnalisé »…) et les types d'événements sources (« Source :
+éducation, profession »). Un clic ouvre la fiche. Le filtre « source » de la barre porte sur
+l'origine du nom.
+
+Sous la barre, une ligne « Mots ignorés » (§ 3.9) : une pastille par mot avec × pour le retirer, un
+champ pour en ajouter, et le nombre d'événements écartés. Chaque groupe du reste à classer (sauf
+« autres ») a un bouton « Ignorer ce mot ». La liste est retenue dans le navigateur
+(`localStorage`) et réappliquée à l'ouverture de la session suivante.
 
 Fiche (panneau latéral) : les mêmes informations, puis la liste des membres (nom cliquable vers la
 fiche personne, rôle, date, lieu, nombre de témoins), les lieux distincts, et un bloc repliable

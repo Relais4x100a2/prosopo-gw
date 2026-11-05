@@ -229,7 +229,9 @@ docker compose -f app/docker-compose.yml up -d --build
 
 ### Validate and enrich
 
-The API webapp ("Organisations" tab, routes `#/organisations` and `#/organisation/<id>`) lists the candidate organizations deduced by the rules, with the linked persons, and a "Reste à classer" section for events without an organization. The Export tab offers three files: `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) and `liens_organisations.csv` (`/export/organization-links-csv`). The CSV files are UTF-8 with BOM and a `;` delimiter, so they open directly in a spreadsheet.
+The API webapp ("Organisations" tab, routes `#/organisations` and `#/organisation/<id>`) lists the candidate organizations deduced by the rules, with the linked persons, and a "Reste à classer" section for events without an organization. The Export tab offers three files: `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) and `liens_organisations.csv` (`/export/organization-links-csv`). The CSV files are UTF-8 with BOM and a `;` delimiter, so they open directly in a spreadsheet; labels are in French, the confidence uses a decimal comma, and rows are sorted by organization.
+
+Some words can be ignored: a custom event whose name contains one of them ("recensement" and "domicile" by default) is neither proposed nor left to classify. The list is set in the tab ("Mots ignorés" row, "Ignorer ce mot" button in the unmatched section), applies to the exports, and is remembered in the browser.
 
 The `.gw` file is never modified: candidates are proposals to validate before any use. The validated result is meant to come back as a clean `.org.json`, which the library can read again (`formats.org_sidecar.import_organizations`).
 
