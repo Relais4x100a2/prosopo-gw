@@ -171,6 +171,10 @@ def event_sources_list(event: Event) -> List[str]:
     return []
 
 
+# Codes « Autre » (personnel et familial) : le tag libre porte le vrai nom.
+_CUSTOM_EVENT_CODES = frozenset({"oth", "other"})
+
+
 def event_to_schema(
     event: Event,
     *,
@@ -238,6 +242,10 @@ def event_to_schema(
     if event.date is not None:
         date_sort_year = event.date.sort_year()
 
+    custom_type: Optional[str] = None
+    if str(getattr(evt_type, "value", evt_type)) in _CUSTOM_EVENT_CODES:
+        custom_type = (event.event_type_raw or "").strip() or None
+
     return EventSchema(
         id=event_id,
         event_type=evt_type,
@@ -253,6 +261,7 @@ def event_to_schema(
         family_label=resolved_family_label,
         witness_names=resolved_witness_names,
         date_sort_year=date_sort_year,
+        custom_type=custom_type,
     )
 
 

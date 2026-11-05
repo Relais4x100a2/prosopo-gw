@@ -130,6 +130,10 @@ class EventSchema(EventBaseSchema):
     date_sort_year: Optional[int] = Field(
         default=None, description="Année de tri numérique"
     )
+    custom_type: Optional[str] = Field(
+        default=None,
+        description="Nom personnalisé d'un événement « Autre » (tag GeneWeb libre)",
+    )
 
     class Config:
         """Configuration Pydantic."""

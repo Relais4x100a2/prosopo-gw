@@ -1191,11 +1191,8 @@ class GenealogyService:
         # Compter les événements familiaux
         for family in genealogy.families.values():
             for family_event in family.events:
-                type_key = (
-                    family_event.event_type.value
-                    if family_event.event_type
-                    else "unknown"
-                )
+                # Même clé que l'onglet Événements (type familial : nmen, marc…).
+                type_key = _api_event_type_value(family_event)
                 events_by_type[type_key] = events_by_type.get(type_key, 0) + 1
                 family_events += 1
 

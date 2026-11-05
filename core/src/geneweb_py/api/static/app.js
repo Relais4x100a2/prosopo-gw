@@ -903,11 +903,11 @@ function timelineEntries(person, myId, unions, nameMap, events) {
   const entries = [];
   for (const e of events) {
     if (e.person_id === myId) {
-      entries.push({ code: e.event_type, date: e.date, place: e.place, note: e.note, sources: e.sources });
+      entries.push({ code: e.event_type, custom: e.custom_type, date: e.date, place: e.place, note: e.note, sources: e.sources });
     } else if (e.family_id && partnerOf.has(e.family_id)) {
       const partnerId = partnerOf.get(e.family_id);
       entries.push({
-        code: e.event_type, date: e.date, place: e.place, note: e.note, sources: e.sources,
+        code: e.event_type, custom: e.custom_type, date: e.date, place: e.place, note: e.note, sources: e.sources,
         withLabel: partnerId ? 'avec ' + (nameMap[partnerId] || partnerId) : '',
         href: familyHash(e.family_id),
       });
@@ -939,7 +939,7 @@ function buildTimelineSection(person, myId, unions, nameMap, eventsResp) {
   const items = entries.map(x => {
     const year = x.year != null ? String(x.year) : '?';
     const fullDate = x.date && String(x.date) !== year ? String(x.date) : '';
-    const what = escHtml(eventTypeLabel(x.code)) + (x.withLabel ? ' ' + escHtml(x.withLabel) : '');
+    const what = escHtml(x.custom ? formatGwName(x.custom) : eventTypeLabel(x.code)) + (x.withLabel ? ' ' + escHtml(x.withLabel) : '');
     const meta = [fullDate, formatGwName(x.place)].filter(Boolean).join(' · ');
     const srcs = (x.sources || []).map(formatGwName).filter(Boolean);
     return `<li class="tl-item"><span class="tl-year">${escHtml(year)}</span><div class="tl-body">`
@@ -1298,7 +1298,7 @@ const EXTRA_EVENT_TYPES = [
   { value: 'nmar', label: 'Non marié' },
   { value: 'nmen', label: 'Sans mention' },
   { value: 'strng', label: 'Texte libre' },
-  { value: 'other', label: 'Autre' },
+  { value: 'other', label: 'Autre (famille)' },
 ];
 
 const EVENT_TYPE_MAP = Object.fromEntries(
@@ -1486,6 +1486,18 @@ function buildEventsTable(data) {
         headerFilterPlaceholder: 'Tous',
         headerFilterFunc: '=',
         formatter: cell => escHtml(eventTypeLabel(cell.getValue())),
+      },
+      {
+        // Tag libre d'un événement « Autre » (#Capitaine_de_navire…).
+        title: 'Nom personnalisé',
+        field: 'custom_type',
+        width: 170,
+        sorter: 'string',
+        visible: data.some(d => d.custom_type),
+        headerFilter: 'input',
+        headerFilterFunc: (term, value) =>
+          formatGwName(value || '').toLowerCase().includes(String(term).toLowerCase()),
+        formatter: cell => escHtml(cell.getValue() ? formatGwName(cell.getValue()) : ''),
       },
       {
         title: 'Date',

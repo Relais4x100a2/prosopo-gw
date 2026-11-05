@@ -216,3 +216,12 @@ def test_source_link_points_to_monorepo():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "https://github.com/Relais4x100a2/prosopo-gw" in html
     assert "github.com/Relais4x100a2/geneweb-py" not in html
+
+
+def test_events_table_shows_custom_type_column():
+    """« Autre » : le nom personnalisé (tag libre) a sa propre colonne."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "field: 'custom_type'" in js and "title: 'Nom personnalisé'" in js
+    assert "visible: data.some(d => d.custom_type)" in js
+    # Deux « Autre » distincts dans les stats : personnel et familial.
+    assert "{ value: 'other', label: 'Autre (famille)' }" in js
