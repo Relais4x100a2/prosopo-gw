@@ -355,7 +355,7 @@ def test_shared_experiences_section_is_wired():
     assert "'/api/v1/organizations/shared-experiences'" in js
     assert "shared-experiences-csv" in js
     assert "address: 'Adresse'" in js
-    assert "Liste limitée aux 500 premières expériences." in js
+    assert "Liste limitée aux 500 premières expériences sur ${fmtInt(data.total)}." in js
     assert "Aucune expérience proche trouvée." in js
 
 

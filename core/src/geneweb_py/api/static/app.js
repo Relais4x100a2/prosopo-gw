@@ -1834,7 +1834,7 @@ function renderSharedExperiences(data) {
     return;
   }
   const notice = data.truncated
-    ? '<p class="text-muted exp-truncated">Liste limitée aux 500 premières expériences.</p>' : '';
+    ? `<p class="text-muted exp-truncated">Liste limitée aux 500 premières expériences sur ${fmtInt(data.total)}.</p>` : '';
   list.innerHTML = notice + data.items.map(exp => {
     const reasons = (exp.reasons || []).map(r => r.kind === 'rare_word'
       ? `Mot commun : ${(r.words || []).join(', ')}` : 'Même lieu');
