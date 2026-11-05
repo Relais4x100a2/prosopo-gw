@@ -259,7 +259,8 @@ comme l'index des candidates.
 
 - `GET /api/v1/organizations/shared-experiences` : `{"items": [...], "total": N,
   "civil_status_total": N, "undated_total": N}`. Pas de pagination (quelques dizaines d'entrées au
-  plus) ; plafond de sécurité à 500 entrées, signalé par un champ `truncated`.
+  plus) ; plafond de sécurité à 500 entrées, signalé par un champ `truncated`. `total` compte
+  toutes les expériences trouvées, avant le plafond (le nombre renvoyé est la longueur de `items`).
 - `GET /api/v1/organizations/unmatched` : ajoute `civil_status_total`.
 - `GET /api/v1/genealogy/export/shared-experiences-csv` : `experiences_proches.csv`, mêmes
   conventions que les autres CSV (UTF-8 avec BOM, séparateur `;`, libellés français, lignes triées).

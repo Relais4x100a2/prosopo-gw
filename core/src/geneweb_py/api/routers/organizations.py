@@ -124,7 +124,7 @@ async def get_shared_experiences(
                 }
                 for e in items
             ],
-            "total": len(items),
+            "total": len(index.items),
             "civil_status_total": service.get_candidate_index().civil_status_total,
             "undated_total": index.undated_total,
             "truncated": len(index.items) > SHARED_EXPERIENCES_CAP,

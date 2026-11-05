@@ -60,6 +60,18 @@ def _by_label(body, label):
     return [i for i in body["items"] if i["label"] == label]
 
 
+def test_shared_experiences_total_counts_before_cap(client, monkeypatch):
+    import geneweb_py.api.routers.organizations as orgs_router
+
+    full = client.get("/api/v1/organizations/shared-experiences").json()
+    assert full["total"] >= 2
+    monkeypatch.setattr(orgs_router, "SHARED_EXPERIENCES_CAP", 1)
+    body = client.get("/api/v1/organizations/shared-experiences").json()
+    assert len(body["items"]) == 1
+    assert body["total"] == full["total"]
+    assert body["truncated"] is True
+
+
 def test_shared_experiences_endpoint(client):
     r = client.get("/api/v1/organizations/shared-experiences")
     assert r.status_code == 200
