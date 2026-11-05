@@ -345,3 +345,53 @@ def test_csv_exports_without_candidates_have_header_only():
 def test_unknown_export_format_still_rejected(client):
     assert client.get("/api/v1/genealogy/export/org-xml").status_code in (400, 404, 422)
 
+
+INJECTION_GW = """fam DUPONT Jean + MARTIN Marie
+beg
+end
+
+pevt DUPONT Jean
+#occu 1895
+note ouvrier chez =1+1
+#occu 1896
+note ouvrier chez =1+1
+end pevt
+
+pevt MARTIN Marie
+#occu 1897
+note ouvrier chez =1+1
+end pevt
+"""
+
+
+def test_csv_neutralises_formula_cells_but_not_numbers():
+    from geneweb_py.api.services.organization_exports import candidates_csv, links_csv
+
+    index = GenealogyService(
+        GeneWebParser().parse_string(INJECTION_GW)
+    ).get_candidate_index()
+    for text in (candidates_csv(index), links_csv(index)):
+        rows = list(csv.reader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
+        assert rows[1][1] == "'=1+1"
+    cand = list(
+        csv.reader(io.StringIO(candidates_csv(index).lstrip("\ufeff")), delimiter=";")
+    )[1]
+    assert cand[10] == "2" and cand[12] == "1895"  # colonnes numériques intactes
+
+
+def test_csv_special_characters_round_trip():
+    from geneweb_py.api.services.organization_exports import _render, _text
+
+    cells = ["a;b", 'dit "oui"', "ligne1\nligne2", "-x", "@y", "\tz", "+1", "ok"]
+    text = _render(["h"] * len(cells), [[_text(c) for c in cells]])
+    rows = list(csv.reader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
+    assert rows[1] == [
+        "a;b",
+        'dit "oui"',
+        "ligne1\nligne2",
+        "'-x",
+        "'@y",
+        "'\tz",
+        "'+1",
+        "ok",
+    ]

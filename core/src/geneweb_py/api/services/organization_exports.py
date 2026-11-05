@@ -50,8 +50,17 @@ LINKS_CSV_HEADER: List[str] = [
 ]
 
 
+FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe(text: str) -> str:
+    """Neutralise l'interprétation en formule d'un tableur (préfixe ``'``)."""
+    return "'" + text if text.startswith(FORMULA_PREFIXES) else text
+
+
 def _text(value: Optional[Any]) -> str:
-    return "" if value is None else str(value)
+    """Cellule de texte : jamais interprétée comme une formule."""
+    return "" if value is None else _safe(str(value))
 
 
 def _bool(value: bool) -> str:
@@ -70,8 +79,8 @@ def candidates_csv(index: CandidateIndex) -> str:
     """Une ligne par candidat."""
     rows = [
         [
-            c.id,
-            c.name,
+            _text(c.id),
+            _text(c.name),
             c.type,
             _text(c.place),
             _text(c.named_from),
@@ -84,8 +93,8 @@ def candidates_csv(index: CandidateIndex) -> str:
             str(c.event_count),
             _text(c.first_year),
             _text(c.last_year),
-            LIST_SEPARATOR.join(c.places),
-            LIST_SEPARATOR.join(c.roles),
+            _text(LIST_SEPARATOR.join(c.places)),
+            _text(LIST_SEPARATOR.join(c.roles)),
         ]
         for c in index.candidates.values()
     ]
@@ -96,15 +105,15 @@ def links_csv(index: CandidateIndex) -> str:
     """Une ligne par membre de candidat ; ``statut`` et ``nom_retenu`` à remplir."""
     rows = [
         [
-            c.id,
-            c.name,
-            m.person_id,
-            m.person_name,
+            _text(c.id),
+            _text(c.name),
+            _text(m.person_id),
+            _text(m.person_name),
             _text(m.role),
             _text(m.date),
             _text(m.place),
             m.source_event_type,
-            m.event_label.replace("_", " "),
+            _text(m.event_label.replace("_", " ")),
             str(m.witness_count),
             "",
             "",
