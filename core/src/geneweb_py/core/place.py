@@ -6,6 +6,8 @@ from typing import Optional
 
 # "[Atelier Rose] - Lyon" (lieu décodé par le parser ; séparateur " - ", ou "_-_" brut)
 _COMPLEMENT_RE = re.compile(r"^(?P<complement>.+?)(?:_-_|\s+-\s+)(?P<name>.+)$")
+# "[Rue X - Petit séminaire] - Arras" : le complément entre crochets peut contenir " - "
+_BRACKET_RE = re.compile(r"^\[(?P<complement>[^\]]*)\](?:_-_|\s+-\s+)(?P<name>.+)$")
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ def parse_place(raw: Optional[str]) -> Optional[ParsedPlace]:
         return None
 
     text = raw.strip()
-    match = _COMPLEMENT_RE.match(text)
+    match = _BRACKET_RE.match(text) or _COMPLEMENT_RE.match(text)
     if match is None:
         return ParsedPlace(raw=raw, name=_humanize(text))
 

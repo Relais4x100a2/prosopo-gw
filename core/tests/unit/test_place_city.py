@@ -67,3 +67,27 @@ end pevt
     index = build_candidate_index(GeneWebParser().parse_string(gw))
     [candidate] = index.candidates.values()
     assert candidate.place == "Lille" and candidate.person_count == 2
+
+
+def test_complement_with_inner_dash_stays_whole():
+    from geneweb_py.core.place import parse_place
+
+    for raw in (
+        "[Rue_Fictive_-_Petit_seminaire]_-_Lyon,_Rhone",
+        "[Rue Fictive - Petit seminaire] - Lyon, Rhone",
+    ):
+        parsed = parse_place(raw)
+        assert parsed is not None
+        assert parsed.complement in (
+            "Rue_Fictive_-_Petit_seminaire",
+            "Rue Fictive - Petit seminaire",
+        )
+        assert parsed.name == "Lyon,_Rhone" or parsed.name == "Lyon, Rhone"
+        assert parsed.city == "Lyon"
+
+
+def test_unclosed_bracket_falls_back_to_first_dash():
+    from geneweb_py.core.place import parse_place
+
+    parsed = parse_place("[Atelier_-_Lyon")
+    assert parsed is not None and parsed.name == "Lyon"

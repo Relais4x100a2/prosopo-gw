@@ -136,3 +136,13 @@ def test_witness_links_survive_the_sidecar(tmp_path):
     witness = [lk for lk in fresh.organization_links if WITNESS_NOTE in lk.notes]
     assert [fresh.persons[lk.person_id].last_name for lk in witness] == ["MARTIN"]
     assert witness[0].role == WITNESS_ROLE
+
+
+def test_bracketed_complement_with_dash_names_the_organization():
+    g = _parse(
+        "#educ 1904 #p [Rue_Fictive_-_Petit_seminaire]_-_Lyon\nwit m: DURAND Paul"
+    )
+    g.infer_organizations()
+    org = next(iter(g.organizations.values()))
+    assert org.name == "Rue Fictive - Petit seminaire"
+    assert org.place == "Lyon"
