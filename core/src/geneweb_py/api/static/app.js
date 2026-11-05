@@ -1971,12 +1971,16 @@ async function openOrganizationDetail(id) {
 function buildOrganizationPanel(org) {
   const meta = [ORG_TYPE_LABELS[org.type] || org.type, formatGwName(org.place), orgCounts(org), orgPeriod(org)]
     .filter(Boolean).join(' · ');
+  // Porteur de l'événement ou témoin : précisé dès qu'un membre est témoin.
+  const hasWitnesses = (org.members || []).some(m => m.witness);
   const members = (org.members || []).map(m => {
     const label = formatGwName(m.event_label);
+    const role = formatGwName(m.role);
+    const status = !hasWitnesses ? '' : m.witness ? (role === 'Témoin' ? '' : 'témoin') : 'porteur';
     // Pour une profession, l'événement porte le même texte que le rôle.
-    const bits = [formatGwName(m.role), label === formatGwName(m.role) ? '' : label,
+    const bits = [status, role, label === role ? '' : label,
       shortDate(m.date), formatGwName(m.place)].filter(Boolean);
-    if (m.witness_count > 0) bits.push(`${m.witness_count} témoin${m.witness_count > 1 ? 's' : ''}`);
+    if (!m.witness && m.witness_count > 0) bits.push(`${m.witness_count} témoin${m.witness_count > 1 ? 's' : ''}`);
     return `<li><a href="${escHtml(personHash(m.person_id))}">${escHtml(formatGwName(m.person_name) || m.person_id)}</a>`
       + (bits.length ? ` <span class="item-meta">${escHtml(bits.join(' · '))}</span>` : '') + '</li>';
   }).join('');

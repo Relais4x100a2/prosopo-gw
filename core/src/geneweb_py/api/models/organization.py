@@ -26,6 +26,9 @@ class OrganizationMemberSchema(BaseModel):
     event_label: str = ""
     witness_count: int = 0
     year: Optional[int] = None
+    witness: bool = Field(
+        False, description="Témoin de l'événement (et non son porteur)"
+    )
 
 
 class OrganizationCandidateSchema(BaseModel):

@@ -27,7 +27,7 @@ from typing import (
 from typing_extensions import Protocol
 
 from .date import Date
-from .event import Event, EventType
+from .event import Event, EventType, WitnessKind
 from .organization import Organization, OrganizationType
 
 if TYPE_CHECKING:
@@ -167,6 +167,18 @@ ESTABLISHMENT_WORDS: Dict[str, OrganizationType] = {
             "maison",
             "banque",
             "etablissement",
+            # Lieux d'activité, qui tenaient lieu de raison sociale avant 1900
+            "agence",
+            "boutique",
+            "comptoir",
+            "fabrique",
+            "filature",
+            "bureau",
+            # Singulier seulement : « Études de droit » n'est pas une étude notariale
+            "etude",
+            # Formes de société (« et Cie », « & Cie. »)
+            "commandite",
+            "cie",
         ),
         OrganizationType.COMPANY,
     ),
@@ -288,6 +300,27 @@ def parse_event_ref(ref: Optional[str]) -> Optional[Tuple[str, int]]:
     return match.group("person"), int(match.group("index"))
 
 
+# Formes juridiques reconnues telles qu'écrites (capitales, « Et. » avec son point)
+LEGAL_FORMS: FrozenSet[str] = frozenset({"SNC", "SARL", "SA", "SAS", "Et."})
+
+# Témoins d'un événement retenu comme organisation : membres ou acteurs de celle-ci
+WITNESS_ROLE = "Témoin"
+WITNESS_NOTE = "witness"
+WITNESS_KIND_ROLES: Dict[WitnessKind, str] = {
+    WitnessKind.GODPARENT: "Parrain ou marraine",
+    WitnessKind.OFFICER: "Officier",
+}
+
+
+def _witness_ids(event: Event, genealogy: "Genealogy") -> Set[str]:
+    """Témoins de l'événement présents dans la généalogie."""
+    return {
+        w["person_id"]
+        for w in event.witnesses
+        if w.get("person_id") in genealogy.persons
+    }
+
+
 def _words(text: str) -> List[str]:
     """Mots repliés (sans casse ni accents), séparés par ``_ - espace`` et apostrophes."""
     return [w for w in re.split(r"[_\-\s'’]+", _fold(text)) if w]
@@ -295,7 +328,11 @@ def _words(text: str) -> List[str]:
 
 def _establishment_in(text: str) -> Optional[Tuple[str, OrganizationType]]:
     """Premier mot d'établissement du texte : (mot replié, type)."""
-    words = _words(text)
+    # Formes juridiques sensibles à la casse : « sa », « et » sont des mots courants
+    for raw in re.split(r"[_\-\s'’]+", text):
+        if raw in LEGAL_FORMS:
+            return _fold(raw), OrganizationType.COMPANY
+    words = [w.rstrip(".") for w in _words(text)]
     for i, word in enumerate(words):
         org_type = ESTABLISHMENT_WORDS.get(word)
         if org_type is None:
@@ -455,6 +492,7 @@ class EventToOrganizationMapper:
         event: Event,
         tag_person_counts: Optional[Mapping[str, int]] = None,
         person_occupation: Optional[str] = None,
+        tag_member_counts: Optional[Mapping[str, int]] = None,
     ) -> Optional[OrganizationProposal]:
         """Proposition déterministe pour un événement, ``None`` sans signal.
 
@@ -463,6 +501,9 @@ class EventToOrganizationMapper:
             tag_person_counts: nombre de personnes distinctes par tag replié
                 (nom d'organisation), pour les tags sans préfixe de rôle.
             person_occupation: attribut profession, rôle de repli d'un ``occu``.
+            tag_member_counts: comme ``tag_person_counts``, témoins compris ;
+                seul un tag à mot d'établissement s'en sert (une société portée
+                par une personne et ses associés témoins).
         """
         parts = event.place_parts
         complement = parts.complement if parts else None
@@ -501,9 +542,10 @@ class EventToOrganizationMapper:
         # 2. tag qui dit plus qu'un rôle
         extra = _extra("complement", complement)
         found_tag = _establishment_in(tag_name) if tag_name else None
-        shared = (
-            bool(tag_name)
-            and (tag_person_counts or {}).get(_fold(tag_name or ""), 0) >= 2
+        tag_key = _fold(tag_name or "")
+        shared = bool(tag_name) and (tag_person_counts or {}).get(tag_key, 0) >= 2
+        shared_with_witnesses = shared or (
+            bool(tag_name) and (tag_member_counts or {}).get(tag_key, 0) >= 2
         )
         if tag_name and rule is not None:
             return OrganizationProposal(
@@ -516,7 +558,7 @@ class EventToOrganizationMapper:
                 trigger=found_tag[0] if found_tag else None,
                 extra=extra,
             )
-        if tag_name and shared and found_tag is not None:
+        if tag_name and shared_with_witnesses and found_tag is not None:
             return OrganizationProposal(
                 name=tag_name,
                 type=found_tag[1],
@@ -695,17 +737,31 @@ class EventToOrganizationMapper:
         return merged
 
     # -- Application à une généalogie --------------------------------------
-    def _tag_person_counts(self, genealogy: "Genealogy") -> Dict[str, int]:
-        """Nombre de personnes distinctes par tag (replié) des événements « Autre »."""
+    def _tag_counts(
+        self, genealogy: "Genealogy"
+    ) -> Tuple[Dict[str, int], Dict[str, int]]:
+        """Personnes distinctes par tag (replié) des événements « Autre ».
+
+        Returns:
+            (porteurs seuls, porteurs et témoins)
+        """
         holders: Dict[str, Set[str]] = {}
+        members: Dict[str, Set[str]] = {}
         for person_id, person in genealogy.persons.items():
             for event in person.events:
                 if event.event_type is not EventType.OTHER or not event.event_type_raw:
                     continue
                 _, name = _split_tag(event.event_type_raw, self.rules)
                 if name:
-                    holders.setdefault(_fold(name), set()).add(person_id)
-        return {key: len(ids) for key, ids in holders.items()}
+                    key = _fold(name)
+                    holders.setdefault(key, set()).add(person_id)
+                    members.setdefault(key, set()).update(
+                        {person_id, *_witness_ids(event, genealogy)}
+                    )
+        return (
+            {key: len(ids) for key, ids in holders.items()},
+            {key: len(ids) for key, ids in members.items()},
+        )
 
     def apply(self, genealogy: "Genealogy") -> Tuple[int, int]:
         """Ajoute organisations et liens.
@@ -728,7 +784,7 @@ class EventToOrganizationMapper:
             )
             for link in genealogy.organization_links
         }
-        counts = self._tag_person_counts(genealogy)
+        counts, member_counts = self._tag_counts(genealogy)
 
         def register(
             person_id: str,
@@ -736,6 +792,7 @@ class EventToOrganizationMapper:
             source_type: Optional[str],
             source_id: Optional[str],
             start: Optional[Date],
+            event: Optional[Event] = None,
         ) -> None:
             nonlocal created_orgs, created_links
             org = Organization.create(proposal.name, place=proposal.place)
@@ -771,31 +828,48 @@ class EventToOrganizationMapper:
                         existing.notes.append(note)
                 org = existing
 
-            key = (
-                person_id,
-                org.id,
-                source_type,
-                proposal.role,
-                start.display_text if start else None,
-                source_id,
-            )
-            if key in seen:
+            def link(member_id: str, role: Optional[str], notes: List[str]) -> None:
+                nonlocal created_links
+                key = (
+                    member_id,
+                    org.id,
+                    source_type,
+                    role,
+                    start.display_text if start else None,
+                    source_id,
+                )
+                if key in seen:
+                    return
+                seen.add(key)
+                genealogy.link_person_to_organization(
+                    member_id,
+                    org.id,
+                    role=role,
+                    start_date=start,
+                    source_event_id=source_id,
+                    source_event_type=source_type,
+                    notes=notes,
+                )
+                created_links += 1
+
+            link(person_id, proposal.role, [])
+            if event is None:
                 return
-            seen.add(key)
-            genealogy.link_person_to_organization(
-                person_id,
-                org.id,
-                role=proposal.role,
-                start_date=start,
-                source_event_id=source_id,
-                source_event_type=source_type,
-            )
-            created_links += 1
+            # Témoins : membres de l'organisation ou acteurs de l'événement
+            for witness in event.witnesses:
+                witness_id = witness.get("person_id")
+                if witness_id == person_id or witness_id not in genealogy.persons:
+                    continue
+                kind = witness.get("witness_kind")
+                role = WITNESS_KIND_ROLES.get(kind, WITNESS_ROLE) if kind else None
+                link(witness_id, role or WITNESS_ROLE, [WITNESS_NOTE])
 
         for person_id, person in genealogy.persons.items():
             for index, event in enumerate(person.events):
                 proposal = self._refine(
-                    person_id, event, self.propose(event, counts, person.occupation)
+                    person_id,
+                    event,
+                    self.propose(event, counts, person.occupation, member_counts),
                 )
                 if (
                     proposal is None
@@ -818,6 +892,7 @@ class EventToOrganizationMapper:
                     source_type,
                     event_ref(person_id, index),
                     event.date,
+                    event,
                 )
 
             if person.occupation:

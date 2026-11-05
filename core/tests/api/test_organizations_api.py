@@ -79,11 +79,12 @@ def _members(client, org_id):
 def test_candidates_default_sort_by_persons(client):
     data = client.get("/api/v1/organizations/candidates").json()
     ids = [c["id"] for c in data["items"]]
-    # Trois candidats à deux personnes : égalité départagée par le nom replié.
-    assert ids == ["cercle_philatelique", "societe_histoire", "usine_martin_roubaix"]
+    # L'usine compte ses trois témoins (4 personnes) ; les autres en ont deux,
+    # égalité départagée par le nom replié.
+    assert ids == ["usine_martin_roubaix", "cercle_philatelique", "societe_histoire"]
     assert not any(i.startswith("comite_des_fetes") for i in ids)  # une personne chacun
     first = next(c for c in data["items"] if c["id"] == "usine_martin_roubaix")
-    assert first["collective"] is True and first["person_count"] == 2
+    assert first["collective"] is True and first["person_count"] == 4
     assert first["event_count"] == 2
     assert first["first_year"] == 1895 and first["last_year"] == 1902
     assert first["sources"] == ["occu", "oth"]
@@ -137,7 +138,12 @@ def test_candidate_detail_lists_members(client):
         "event_label": "Contremaître",
         "witness_count": 3,
         "year": 1895,
+        "witness": False,
     }
+    # Les trois témoins de l'embauche sont rattachés à l'usine
+    witnesses = sorted(x["person_id"] for x in d["members"] if x["witness"])
+    assert witnesses == ["DURAND_Paul_0", "MARTIN_Marie_0", "MARTIN_Pierre_0"]
+    assert {x["role"] for x in d["members"] if x["witness"]} == {"Témoin"}
 
 
 def test_candidate_detail_unknown_id_is_404(client):
@@ -302,7 +308,7 @@ def test_candidates_csv_header_and_rows(client):
     ).split(";")
     assert rows[0] == CANDIDATES_CSV_HEADER
     usine = next(r for r in rows if r[0] == "usine_martin_roubaix")
-    assert usine[1] == "Usine Martin" and usine[9] == "oui" and usine[10] == "2"
+    assert usine[1] == "Usine Martin" and usine[9] == "oui" and usine[10] == "4"
     assert (
         usine[5] == "profession|événement libre"
         and usine[12] == "1895"

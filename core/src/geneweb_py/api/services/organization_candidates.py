@@ -13,6 +13,7 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set
 from ...core.event import Event, EventType
 from ...core.event_to_organization import (
     REVIEW_THRESHOLD,
+    WITNESS_NOTE,
     _words,
     is_civil_status,
     parse_event_ref,
@@ -50,6 +51,9 @@ class CandidateMember:
     event_label: str
     witness_count: int
     year: Optional[int]
+    # Témoin de l'événement (et non son porteur)
+    witness: bool = False
+    source_event_id: Optional[str] = None
 
 
 @dataclass
@@ -230,6 +234,8 @@ def _build_member(genealogy: Genealogy, link: OrganizationLink) -> CandidateMemb
         event_label=label,
         witness_count=len(event.witnesses) if event is not None else 0,
         year=date.sort_year() if date else None,
+        witness=WITNESS_NOTE in link.notes,
+        source_event_id=link.source_event_id,
     )
 
 
@@ -277,7 +283,13 @@ def _build_candidates(
                 m.witness_count >= COLLECTIVE_MIN_WITNESSES for m in org_members
             ),
             person_count=len(persons),
-            event_count=len(org_members),
+            # Un événement à témoins ne compte qu'une fois
+            event_count=len(
+                {
+                    m.source_event_id or f"{m.person_id}:{i}"
+                    for i, m in enumerate(org_members)
+                }
+            ),
             first_year=min(years) if years else None,
             last_year=max(years) if years else None,
             places=sorted({m.place for m in org_members if m.place}),
