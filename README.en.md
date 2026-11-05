@@ -233,7 +233,7 @@ The API webapp ("Organisations" tab, routes `#/organisations` and `#/organisatio
 
 The `.gw` file is never modified: candidates are proposals to validate before any use. The validated result is meant to come back as a clean `.org.json`, which the library can read again (`formats.org_sidecar.import_organizations`).
 
-Two validation paths:
+Two validation paths (path 1 depends on a later step, Chantier B: the Streamlit app's validation page does not read the `.org.json` yet, so it is not available for now):
 
 | Path | Purpose | Method |
 |---|---|---|

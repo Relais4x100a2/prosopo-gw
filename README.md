@@ -233,7 +233,7 @@ La webapp de l'API (onglet « Organisations », routes `#/organisations` et `#/o
 
 Le `.gw` n'est jamais modifié : les candidates sont des propositions, à valider avant toute exploitation. Le résultat validé a vocation à revenir dans un `.org.json` propre, que la bibliothèque relit (`formats.org_sidecar.import_organizations`).
 
-Deux voies de validation :
+Deux voies de validation (la voie 1 dépend d'un chantier ultérieur, le chantier B : la page Validation de l'application Streamlit ne lit pas encore le `.org.json`, elle n'est donc pas utilisable pour l'instant) :
 
 | Voie | Pour quoi | Méthode |
 |---|---|---|
