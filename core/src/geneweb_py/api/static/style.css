@@ -45,6 +45,56 @@ body {
   border-radius: 4px;
   font-size: 0.8rem;
 }
+.pgw-nav .timer.timer-warn { background: #fde8e8; color: var(--danger); }
+
+/* Bandeau d'expiration de session */
+.session-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-active);
+  border-bottom: 1px solid var(--accent-light);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.session-banner[hidden] { display: none; }
+.session-banner .btn-primary-pgw { padding: 0.25rem 1rem; font-size: 0.9rem; }
+.session-banner .btn-primary-pgw:disabled { opacity: 0.6; cursor: progress; }
+
+/* Écran « Session expirée » */
+.expired-view {
+  max-width: 560px;
+  margin: 4rem auto;
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.expired-view .icon { font-size: 2.5rem; }
+.expired-view h1 { color: var(--accent); font-size: 1.6rem; outline: none; }
+.expired-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-top: 1.5rem;
+}
+.btn-link-pgw {
+  background: none;
+  border: 0;
+  padding: 0.25rem;
+  color: var(--accent);
+  text-decoration: underline;
+  font-family: Georgia, serif;
+  cursor: pointer;
+}
+.btn-link-pgw:hover { color: var(--text); }
+.btn-primary-pgw:focus-visible,
+.btn-link-pgw:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
 .btn-quit {
   font-size: 0.8rem;
   color: var(--danger);
@@ -568,6 +618,33 @@ body {
 .detail-drawer .mini-tree-person { font-size: 0.85rem; padding: 4px 10px; }
 .detail-drawer .mini-tree-person .item-meta { display: block; }
 .detail-drawer .mini-tree-person:hover .item-meta { color: #fff; }
+/* Frise chronologique de la fiche personne */
+.timeline { list-style: none; margin: 0.25rem 0 0.5rem; padding: 0; border-left: 2px solid var(--accent-light); }
+.tl-item { display: flex; gap: 0.6rem; position: relative; padding: 0.3rem 0 0.3rem 0.75rem; font-size: 0.88rem; }
+.tl-item::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 0.65rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.tl-year { flex: 0 0 2.6rem; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: bold; }
+.tl-body { min-width: 0; overflow-wrap: anywhere; }
+.tl-body a { color: var(--text); text-decoration: underline; text-decoration-color: var(--accent-light); }
+.tl-body a:hover { color: var(--accent); }
+.tl-body .item-meta, .tl-note { display: block; color: var(--text-muted); font-size: 0.8rem; }
+.tl-note { font-style: italic; }
+.tl-empty { font-size: 0.85rem; margin: 0.25rem 0; }
+.tl-more { display: inline-block; font-size: 0.85rem; color: var(--accent); }
+.drawer-details { border-top: 1px solid var(--border); padding: 0.4rem 0; font-size: 0.88rem; }
+.drawer-details summary { cursor: pointer; color: var(--accent); }
+.drawer-details summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.drawer-details ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.drawer-note { margin: 0.4rem 0 0; white-space: pre-line; overflow-wrap: anywhere; }
 .item-row.is-active { background: var(--bg-active) !important; border-left-color: var(--accent); }
 
 @media (max-width: 767.98px) {

@@ -3,7 +3,9 @@
 // ==================== STATE ====================
 const state = {
   token: sessionStorage.getItem('gwToken') || null,
-  expiresAt: sessionStorage.getItem('gwExpiresAt') || null,
+  // Échéance de la session en millisecondes, horloge locale : recalculée à partir du
+  // temps restant renvoyé par le serveur (pas de dépendance à l'heure du poste).
+  expiresAt: Number(sessionStorage.getItem('gwExpiresAt')) || null,
   stats: null,
   persons: { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false },
   families: { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false },
@@ -37,6 +39,9 @@ async function apiFetch(path, options = {}) {
     handleExpiry();
     throw new Error('session-expired');
   }
+  // Chaque requête prolonge la session : le serveur renvoie le temps restant.
+  const left = res.headers.get(SESSION_EXPIRES_IN_HEADER);
+  if (left !== null && state.token) setSessionExpiry(Number(left));
   return res;
 }
 
@@ -77,9 +82,8 @@ async function uploadFile(file) {
 
   const data = await res.json();
   state.token = data.session_token;
-  state.expiresAt = data.expires_at;
   sessionStorage.setItem('gwToken', state.token);
-  sessionStorage.setItem('gwExpiresAt', state.expiresAt);
+  setSessionExpiry(data.expires_in);
   await enterApp();
 }
 
@@ -102,6 +106,7 @@ function clearSession() {
   sessionStorage.removeItem('gwToken');
   sessionStorage.removeItem('gwExpiresAt');
   if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+  hideSessionBanner();
   showLanding();
 }
 
@@ -115,21 +120,31 @@ function resetLoadedData() {
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 }
 
+// Session expirée (compte à rebours à zéro ou 401) : écran dédié, données oubliées.
 function handleExpiry() {
+  if (!state.token) return;
+  const token = state.token;
   clearSession();
-  showLanding();
-  showUploadError('Votre session a expiré. Rechargez votre fichier pour continuer.');
+  // Le serveur a pu garder la session quelques secondes de plus : on la supprime.
+  fetch(`/api/v1/sessions/${token}`, { method: 'DELETE', headers: { 'X-Session-Token': token } })
+    .catch(() => {});
+  showExpired();
 }
 
 // ==================== VIEWS ====================
-function showLanding() {
-  document.getElementById('view-landing').style.display = '';
-  document.getElementById('view-app').style.display = 'none';
+function showView(id) {
+  for (const v of ['view-landing', 'view-app', 'view-expired']) {
+    document.getElementById(v).style.display = v === id ? '' : 'none';
+  }
 }
 
-function showApp() {
-  document.getElementById('view-landing').style.display = 'none';
-  document.getElementById('view-app').style.display = '';
+function showLanding() { showView('view-landing'); }
+
+function showApp() { showView('view-app'); }
+
+function showExpired() {
+  showView('view-expired');
+  document.getElementById('expired-title').focus();
 }
 
 function showUploadError(msg) {
@@ -166,8 +181,8 @@ async function init() {
     try {
       await enterApp();
     } catch {
-      clearSession();
-      showLanding();
+      // Une session expirée a déjà basculé sur l'écran dédié (handleExpiry).
+      if (state.token) clearSession();
     }
   } else {
     showLanding();
@@ -253,6 +268,18 @@ function wireQuit() {
   document.getElementById('btn-quit').addEventListener('click', async () => {
     await deleteSession();
   });
+  document.getElementById('session-extend').addEventListener('click', extendSession);
+  // « Recharger le fichier » : retour à l'accueil, sélecteur ouvert (geste de l'utilisateur).
+  document.getElementById('expired-reload').addEventListener('click', () => {
+    hideUploadError();
+    showLanding();
+    document.getElementById('file-input').click();
+  });
+  document.getElementById('expired-home').addEventListener('click', () => {
+    hideUploadError();
+    showLanding();
+    document.getElementById('drop-zone').focus();
+  });
 }
 
 // ==================== NAVBAR ====================
@@ -263,21 +290,75 @@ async function loadStats() {
     `${state.stats.total_persons} personnes · ${state.stats.total_families} familles`;
 }
 
+// ==================== EXPIRATION DE LA SESSION ====================
+const SESSION_EXPIRES_IN_HEADER = 'X-Session-Expires-In';
+const SESSION_WARN_MS = 5 * 60 * 1000;   // bandeau « Prolonger » 5 min avant la fin
+const TIMER_TICK_MS = 5000;
+
 let _timerInterval = null;
+
+function setSessionExpiry(secondsLeft) {
+  if (!Number.isFinite(secondsLeft)) return;
+  state.expiresAt = Date.now() + secondsLeft * 1000;
+  sessionStorage.setItem('gwExpiresAt', String(state.expiresAt));
+  if (_timerInterval) updateTimer();
+}
 
 function startTimer() {
   if (_timerInterval) clearInterval(_timerInterval);
+  _timerInterval = setInterval(updateTimer, TIMER_TICK_MS);
   updateTimer();
-  _timerInterval = setInterval(updateTimer, 30000);
+}
+
+function minutesLabel(ms) {
+  const min = Math.ceil(ms / 60000);
+  return min <= 1 ? 'moins d’une minute' : `${min} minutes`;
 }
 
 function updateTimer() {
-  if (!state.expiresAt) return;
-  const remaining = Math.max(0, new Date(state.expiresAt) - Date.now());
-  const h = Math.floor(remaining / 3600000);
-  const m = Math.floor((remaining % 3600000) / 60000);
-  document.getElementById('nav-timer').textContent =
-    remaining > 0 ? `⏱ ${h > 0 ? h + 'h ' : ''}${m} min` : '⌛ Expiré';
+  if (!state.token || !state.expiresAt) return;
+  const remaining = state.expiresAt - Date.now();
+  if (remaining <= 0) { handleExpiry(); return; }
+  // Minutes arrondies au-dessus, comme dans le bandeau : « 5 min » tant qu'il en reste plus de 4.
+  const total = Math.ceil(remaining / 60000);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  const timer = document.getElementById('nav-timer');
+  timer.textContent = '⏱ ' + (h > 0 ? `${h} h${m ? ' ' + String(m).padStart(2, '0') : ''}` : `${m} min`);
+  timer.title = 'Temps restant avant l’effacement de la session (prolongé à chaque action)';
+  const warn = remaining <= SESSION_WARN_MS;
+  timer.classList.toggle('timer-warn', warn);
+  if (warn) showSessionBanner(remaining); else hideSessionBanner();
+}
+
+function showSessionBanner(remaining) {
+  const banner = document.getElementById('session-banner');
+  const text = `Votre session expire dans ${minutesLabel(remaining)} : vos données seront alors effacées du serveur.`;
+  const msg = document.getElementById('session-banner-text');
+  // Ne réécrire le texte que s'il change : un lecteur d'écran ne le relit pas toutes les 5 s.
+  if (msg.textContent !== text) msg.textContent = text;
+  banner.hidden = false;
+}
+
+function hideSessionBanner() {
+  const banner = document.getElementById('session-banner');
+  if (banner) banner.hidden = true;
+}
+
+async function extendSession() {
+  const btn = document.getElementById('session-extend');
+  btn.disabled = true;
+  try {
+    const data = await apiJson('/api/v1/sessions/refresh', { method: 'POST' });
+    setSessionExpiry(data.expires_in);
+  } catch (err) {
+    if (err.message !== 'session-expired') {
+      document.getElementById('session-banner-text').textContent =
+        'Impossible de prolonger la session pour le moment. Réessayez.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ==================== TABS ====================
@@ -702,11 +783,16 @@ async function openPersonDetail(personId) {
   const seq = ++_detailSeq;
   setDrawerLoading(true);
 
-  let personResp, familiesResp;
+  let personResp, familiesResp, eventsResp;
   try {
-    [personResp, familiesResp] = await Promise.all([
+    [personResp, familiesResp, eventsResp] = await Promise.all([
       apiJson('/api/v1/persons/' + encodeURIComponent(personId)),
       apiJson('/api/v1/persons/' + encodeURIComponent(personId) + '/families'),
+      // La frise est un complément : son échec n'empêche pas d'afficher la fiche.
+      apiJson(personEventsPath(personId)).catch(err => {
+        if (err.message === 'session-expired') throw err;
+        return null;
+      }),
     ]);
   } catch (err) {
     if (err.message === 'session-expired' || seq !== _detailSeq) return;
@@ -766,6 +852,9 @@ async function openPersonDetail(personId) {
   const panel = buildPersonDetailPanel(person, parents, partners, children);
   panel.dataset.personId = personId;
   if (unions.length) panel.append(buildUnionsSection(unions, nameMap));
+  panel.append(buildTimelineSection(person, myId, unions, nameMap, eventsResp));
+  const notes = buildNotesSection(person);
+  if (notes) panel.append(notes);
 
   showInDrawer(panel, 'person', personId, {
     hash: personHash(personId),
@@ -783,6 +872,109 @@ function buildUnionsSection(unions, nameMap) {
     return `<a class="mini-tree-person" href="${escHtml(familyHash(u.familyId))}">${escHtml(who)}`
       + (when ? ` <span class="item-meta">${escHtml(when)}</span>` : '') + '</a>';
   }).join('');
+  return section;
+}
+
+// ==================== FRISE DE LA FICHE PERSONNE ====================
+const TIMELINE_MAX_EVENTS = 100;   // une page de l'API ; au-delà, lien vers l'onglet Événements
+
+function personEventsPath(personId) {
+  const params = new URLSearchParams({ related_to: personId, degree: '1', size: String(TIMELINE_MAX_EVENTS) });
+  return '/api/v1/events/?' + params;
+}
+
+function personEventsHash(personId) {
+  return '#/evenements?' + new URLSearchParams({ personne: personId, degre: '1' });
+}
+
+// Ordre dans une même année : la naissance avant tout, le décès et l'inhumation en dernier.
+const TIMELINE_RANK = { birt: 0, bapt: 1, deat: 8, buri: 9, crem: 9 };
+
+function eventYear(date) {
+  const m = String(date || '').match(/(\d{4})/);
+  return m ? Number(m[1]) : null;
+}
+
+// Événements de la personne elle-même et de ses unions, triés par date.
+// Les dates portées par la fiche (naissance, baptême, décès, inhumation) complètent
+// les événements explicites sans les dupliquer.
+function timelineEntries(person, myId, unions, nameMap, events) {
+  const partnerOf = new Map(unions.map(u => [u.familyId, u.partnerId]));
+  const entries = [];
+  for (const e of events) {
+    if (e.person_id === myId) {
+      entries.push({ code: e.event_type, date: e.date, place: e.place, note: e.note, sources: e.sources });
+    } else if (e.family_id && partnerOf.has(e.family_id)) {
+      const partnerId = partnerOf.get(e.family_id);
+      entries.push({
+        code: e.event_type, date: e.date, place: e.place, note: e.note, sources: e.sources,
+        withLabel: partnerId ? 'avec ' + (nameMap[partnerId] || partnerId) : '',
+        href: familyHash(e.family_id),
+      });
+    }
+  }
+  const seen = new Set(entries.map(x => x.code));
+  for (const [code, date, place, extra] of [
+    ['birt', person.birth_date, person.birth_place],
+    ['bapt', person.baptism_date, person.baptism_place],
+    ['deat', person.death_date, person.death_place, person.death_cause],
+    ['buri', person.burial_date, person.burial_place],
+  ]) {
+    if ((date || place) && !seen.has(code)) entries.push({ code, date, place, note: extra });
+  }
+  entries.forEach((x, i) => { x.year = eventYear(x.date); x.i = i; });
+  return entries.sort((a, b) =>
+    (a.year ?? Infinity) - (b.year ?? Infinity)
+    || (TIMELINE_RANK[a.code] ?? 5) - (TIMELINE_RANK[b.code] ?? 5)
+    || a.i - b.i);
+}
+
+function buildTimelineSection(person, myId, unions, nameMap, eventsResp) {
+  const section = document.createElement('div');
+  section.className = 'drawer-section';
+  const events = (eventsResp && eventsResp.items) || [];
+  const entries = timelineEntries(person, myId, unions, nameMap, events);
+  const more = eventsResp && eventsResp.pagination && eventsResp.pagination.has_next;
+
+  const items = entries.map(x => {
+    const year = x.year != null ? String(x.year) : '?';
+    const fullDate = x.date && String(x.date) !== year ? String(x.date) : '';
+    const what = escHtml(eventTypeLabel(x.code)) + (x.withLabel ? ' ' + escHtml(x.withLabel) : '');
+    const meta = [fullDate, formatGwName(x.place)].filter(Boolean).join(' · ');
+    const srcs = (x.sources || []).map(formatGwName).filter(Boolean);
+    return `<li class="tl-item"><span class="tl-year">${escHtml(year)}</span><div class="tl-body">`
+      + (x.href ? `<a href="${escHtml(x.href)}">${what}</a>` : `<span class="tl-what">${what}</span>`)
+      + (meta ? `<span class="item-meta">${escHtml(meta)}</span>` : '')
+      + (x.note ? `<span class="tl-note">${escHtml(x.note)}</span>` : '')
+      + (srcs.length ? `<span class="tl-note">Source : ${escHtml(srcs.join(' ; '))}</span>` : '')
+      + '</div></li>';
+  }).join('');
+
+  section.innerHTML = '<div class="mini-tree-label">Chronologie</div>'
+    + (items ? `<ol class="timeline">${items}</ol>` : '<p class="text-muted tl-empty">Aucun événement connu.</p>')
+    + (eventsResp ? '' : '<p class="text-muted tl-empty">Les événements n’ont pas pu être chargés.</p>')
+    + (more ? '<p class="text-muted tl-empty">Frise limitée aux 100 premiers événements liés.</p>' : '')
+    + `<a class="tl-more" href="${escHtml(personEventsHash(myId))}">Voir dans Événements →</a>`;
+  return section;
+}
+
+// Notes et sources de la fiche, repliées par défaut (elles peuvent être longues).
+function buildNotesSection(person) {
+  const notes = (person.notes || []).filter(n => n && String(n).trim());
+  const sources = (person.sources || []).filter(s => s && String(s).trim());
+  if (!notes.length && !sources.length) return null;
+  const section = document.createElement('div');
+  section.className = 'drawer-section';
+  let html = '';
+  if (notes.length) {
+    html += `<details class="drawer-details"><summary>Notes (${notes.length})</summary>`
+      + notes.map(n => `<p class="drawer-note">${escHtml(n)}</p>`).join('') + '</details>';
+  }
+  if (sources.length) {
+    html += `<details class="drawer-details"><summary>Sources (${sources.length})</summary><ul>`
+      + sources.map(s => `<li>${escHtml(formatGwName(s))}</li>`).join('') + '</ul></details>';
+  }
+  section.innerHTML = html;
   return section;
 }
 
@@ -1147,23 +1339,38 @@ function checkEvtGate() {
   document.getElementById('evt-search-btn').disabled = !(hasType || hasLieu || hasPerson || hasNom);
 }
 
-// #/evenements?type=birt,deat&lieu=Paris : coche les filtres et lance la recherche.
-// Sans paramètre, l'onglet garde ses filtres et son tableau.
+// #/evenements?type=birt,deat&lieu=Paris&personne=ID&degre=1 : pose les filtres et lance
+// la recherche. Sans paramètre, l'onglet garde ses filtres et son tableau.
 function applyEventsRoute(params) {
   const types = (params.get('type') || '').split(',').filter(Boolean);
   const lieu = (params.get('lieu') || '').trim();
-  const key = types.join(',') + '|' + lieu;
-  if ((!types.length && !lieu) || key === state.evtRouteKey) return;
+  const personne = (params.get('personne') || '').trim();
+  const degre = ['1', '2', '3'].includes(params.get('degre')) ? params.get('degre') : '1';
+  const key = [types.join(','), lieu, personne, degre].join('|');
+  if ((!types.length && !lieu && !personne) || key === state.evtRouteKey) return;
   state.evtRouteKey = key;
   document.querySelectorAll('.evt-type-cb').forEach(cb => { cb.checked = types.includes(cb.value); });
   const more = document.querySelector('.evt-more-types');
   if (more && more.querySelector('.evt-type-cb:checked')) more.open = true;
   document.getElementById('evt-lieu').value = lieu;
-  document.getElementById('evt-person-id').value = '';
-  document.getElementById('evt-person-name').value = '';
+  setEvtPerson(personne);
+  document.getElementById('evt-degree').value = degre;
   document.getElementById('evt-nom-famille').value = '';
   checkEvtGate();
   runEvtSearch();
+}
+
+function setEvtPerson(personId) {
+  const idInput = document.getElementById('evt-person-id');
+  const nameInput = document.getElementById('evt-person-name');
+  idInput.value = personId;
+  nameInput.value = personId ? formatGwName(state.nameCache.get(personId) || personId) : '';
+  document.getElementById('evt-person-clear').hidden = !personId;
+  if (personId && !state.nameCache.has(personId)) {
+    resolvePersonNames([personId]).then(map => {
+      if (idInput.value === personId) nameInput.value = map[personId] || personId;
+    }).catch(() => {});
+  }
 }
 
 async function runEvtSearch() {

@@ -183,3 +183,36 @@ def test_search_runs_while_typing_in_persons_and_families():
     for i in ("families-search", "families-search-btn", "families-clear-btn"):
         assert f'id="{i}"' in html, i
     assert "params.set('query', query)" in js
+
+
+def test_session_expiry_banner_extend_and_expired_screen():
+    """Compte à rebours recalé sur le serveur, bandeau « Prolonger », écran d'expiration."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    for i in ("session-banner", "session-extend", "view-expired", "expired-reload"):
+        assert f'id="{i}"' in html, i
+    assert "Prolonger" in html and "Recharger le fichier" in html
+    assert "const SESSION_EXPIRES_IN_HEADER = 'X-Session-Expires-In'" in js
+    assert "res.headers.get(SESSION_EXPIRES_IN_HEADER)" in js
+    assert "'/api/v1/sessions/refresh'" in js
+    assert "SESSION_WARN_MS = 5 * 60 * 1000" in js
+    # À zéro, la bascule se fait sans attendre une erreur 401.
+    assert "if (remaining <= 0) { handleExpiry(); return; }" in js
+
+
+def test_person_detail_has_timeline_notes_and_sources():
+    """Fiche personne : frise des événements, notes/sources repliables, lien Événements."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "related_to: personId, degree: '1'" in js
+    assert "function buildTimelineSection(" in js
+    assert '<ol class="timeline">' in js
+    assert js.count('<details class="drawer-details">') == 2
+    assert "Voir dans Événements" in js
+    # Le lien pose la personne dans les filtres de l'onglet Événements.
+    assert "params.get('personne')" in js and "setEvtPerson(personne)" in js
+
+
+def test_source_link_points_to_monorepo():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "https://github.com/Relais4x100a2/prosopo-gw" in html
+    assert "github.com/Relais4x100a2/geneweb-py" not in html

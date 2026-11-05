@@ -39,6 +39,18 @@
   </footer>
 </div>
 
+<!-- ==================== SESSION EXPIRÉE ==================== -->
+<div id="view-expired" class="expired-view" style="display:none">
+  <div class="icon" aria-hidden="true">⌛</div>
+  <h1 id="expired-title" tabindex="-1">Session expirée</h1>
+  <p>Après une heure sans activité, la session est fermée et vos données sont effacées du serveur.</p>
+  <p>Rechargez votre fichier <strong>.gw</strong> pour reprendre l'exploration.</p>
+  <div class="expired-actions">
+    <button type="button" class="btn-primary-pgw" id="expired-reload">Recharger le fichier</button>
+    <button type="button" class="btn-link-pgw" id="expired-home">Retour à l'accueil</button>
+  </div>
+</div>
+
 <!-- ==================== APP ==================== -->
 <div id="view-app" style="display:none">
 
@@ -50,6 +62,12 @@
     <span class="timer" id="nav-timer"></span>
     <button class="btn-quit" id="btn-quit">Quitter la session</button>
   </nav>
+
+  <!-- Bandeau d'expiration : apparaît 5 minutes avant la fin de la session -->
+  <div id="session-banner" class="session-banner" role="status" hidden>
+    <span id="session-banner-text"></span>
+    <button type="button" id="session-extend" class="btn-primary-pgw">Prolonger</button>
+  </div>
 
   <!-- Tabs -->
   <div class="pgw-tabs" role="tablist" aria-label="Vues">
