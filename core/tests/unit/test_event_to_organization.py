@@ -262,7 +262,7 @@ class TestOtherEventRules:
         two = _parse_two("#Cercle_Philatelique 1900", "#Cercle_Philatelique 1905")
         assert two.infer_organizations() == (1, 2)
         org = two.get_organization("cercle_philatelique")
-        assert org.confidence == 0.5 and org.needs_review is True
+        assert org.confidence == 0.8 and org.needs_review is False
         assert org.type is OrganizationType.ASSOCIATION
         assert org.metadata["trigger"] == "cercle"
 

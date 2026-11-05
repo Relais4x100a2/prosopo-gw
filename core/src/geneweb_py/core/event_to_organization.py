@@ -306,6 +306,104 @@ def _establishment_in(text: str) -> Optional[Tuple[str, OrganizationType]]:
     return None
 
 
+CIVIL_STATUS_WORDS: FrozenSet[str] = frozenset(
+    {
+        "naissance",
+        "bapteme",
+        "mariage",
+        "divorce",
+        "separation",
+        "fiancailles",
+        "bans",
+        "reconnaissance",
+        "legitimation",
+        "adoption",
+        "deces",
+        "inhumation",
+        "sepulture",
+        "recensement",
+        "domicile",
+    }
+)
+
+STREET_WORDS: FrozenSet[str] = frozenset(
+    {
+        "rue",
+        "passage",
+        "avenue",
+        "boulevard",
+        "place",
+        "impasse",
+        "quai",
+        "chemin",
+        "allee",
+        "cours",
+        "square",
+        "villa",
+        "cite",
+    }
+)
+
+MONTH_WORDS: FrozenSet[str] = frozenset(
+    {
+        "janvier",
+        "fevrier",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "aout",
+        "septembre",
+        "octobre",
+        "novembre",
+        "decembre",
+    }
+)
+
+_BIS_WORDS = frozenset({"bis", "ter", "quater"})
+
+
+def is_civil_status(tag: Optional[str]) -> bool:
+    """Vrai si un mot du tag relève de l'état civil (``CIVIL_STATUS_WORDS``)."""
+    return bool(tag) and any(w in CIVIL_STATUS_WORDS for w in _words(tag or ""))
+
+
+def _is_number(word: str) -> bool:
+    return word.isdigit() and len(word) <= 4
+
+
+def address_in(text: Optional[str]) -> bool:
+    """Vrai si le texte est une adresse : mot de voie et numéro en tête ou en fin.
+
+    Un nombre au milieu fait partie du nom de la voie (« rue du 14 Juillet »).
+    Un numéro en tête est refusé si le mot suivant est un mois ; un numéro en fin
+    est refusé si le mot précédent est un mois et que le nombre a 4 chiffres
+    (une année).
+    """
+    if not text:
+        return False
+    words = [w for w in re.split(r"[_,\s]+", _fold(text)) if w]
+    if not any(w in STREET_WORDS for w in words):
+        return False
+    # numéro en tête
+    if _is_number(words[0]):
+        nxt = words[1] if len(words) > 1 else ""
+        if nxt in _BIS_WORDS:
+            nxt = words[2] if len(words) > 2 else ""
+        if nxt not in MONTH_WORDS:
+            return True
+    # numéro en fin (éventuellement suivi de bis/ter/quater)
+    end = len(words) - 1
+    if end > 0 and words[end] in _BIS_WORDS:
+        end -= 1
+    if end > 0 and _is_number(words[end]):
+        before = words[end - 1]
+        if not (before in MONTH_WORDS and len(words[end]) == 4):
+            return True
+    return False
+
+
 def _relation_in(text: str) -> Optional[str]:
     """Premier mot de relation du texte (replié), ``None`` sinon."""
     for word in _words(text):
@@ -401,44 +499,75 @@ class EventToOrganizationMapper:
                 )
 
         # 2. tag qui dit plus qu'un rôle
-        if tag_name:
-            extra = _extra("complement", complement)
-            found_tag = _establishment_in(tag_name)
-            if rule is not None:
+        extra = _extra("complement", complement)
+        found_tag = _establishment_in(tag_name) if tag_name else None
+        shared = (
+            bool(tag_name)
+            and (tag_person_counts or {}).get(_fold(tag_name or ""), 0) >= 2
+        )
+        if tag_name and rule is not None:
+            return OrganizationProposal(
+                name=tag_name,
+                type=found_tag[1] if found_tag else rule.type,
+                role=role,
+                place=city,
+                confidence=_CONF_STRONG,
+                named_from="tag",
+                trigger=found_tag[0] if found_tag else None,
+                extra=extra,
+            )
+        if tag_name and shared and found_tag is not None:
+            return OrganizationProposal(
+                name=tag_name,
+                type=found_tag[1],
+                place=city,
+                confidence=_CONF_STRONG,
+                named_from="tag",
+                trigger=found_tag[0],
+                extra=extra,
+            )
+
+        # 2 bis. adresse (numéro + mot de voie) dans le tag, sinon dans le complément ;
+        # le numéro est écarté de ``tag_name`` : l'adresse se lit dans le tag brut
+        if address_in(tag):
+            address_name, address_extra = tag.replace("_", " "), extra
+        elif address_in(complement):
+            address_name, address_extra = complement or "", _extra("tag", tag_name)
+        else:
+            address_name, address_extra = None, extra
+        if address_name is not None:
+            return OrganizationProposal(
+                name=address_name,
+                type=OrganizationType.OTHER,
+                role=role,
+                place=city,
+                confidence=_CONF_OCCUPATION_TEXT,
+                named_from="address",
+                extra=address_extra,
+            )
+
+        if tag_name and shared:
+            relation = _relation_in(tag_name)
+            if relation is not None:
                 return OrganizationProposal(
                     name=tag_name,
-                    type=found_tag[1] if found_tag else rule.type,
-                    role=role,
-                    place=city,
-                    confidence=_CONF_STRONG,
-                    named_from="tag",
-                    trigger=found_tag[0] if found_tag else None,
-                    extra=extra,
-                )
-            counts = tag_person_counts or {}
-            if counts.get(_fold(tag_name), 0) >= 2:
-                relation = _relation_in(tag_name)
-                if relation is not None:
-                    return OrganizationProposal(
-                        name=tag_name,
-                        type=OrganizationType.OTHER,
-                        place=city,
-                        confidence=_CONF_WEAK,
-                        notes=["relation"],
-                        relation=True,
-                        named_from="tag",
-                        trigger=relation,
-                        extra=extra,
-                    )
-                return OrganizationProposal(
-                    name=tag_name,
-                    type=found_tag[1] if found_tag else OrganizationType.OTHER,
+                    type=OrganizationType.OTHER,
                     place=city,
                     confidence=_CONF_WEAK,
+                    notes=["relation"],
+                    relation=True,
                     named_from="tag",
-                    trigger=found_tag[0] if found_tag else None,
+                    trigger=relation,
                     extra=extra,
                 )
+            return OrganizationProposal(
+                name=tag_name,
+                type=OrganizationType.OTHER,
+                place=city,
+                confidence=_CONF_WEAK,
+                named_from="tag",
+                extra=extra,
+            )
 
         # 3. à déterminer : le complément restant sert de nom
         if complement:
