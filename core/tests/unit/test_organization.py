@@ -18,10 +18,12 @@ from geneweb_py.core.organization import (
 from geneweb_py.core.parser.gw_parser import GeneWebParser
 from geneweb_py.core.person import Person
 from geneweb_py.formats.org_sidecar import (
+    SIDECAR_VERSION,
     export_organizations,
     import_organizations,
     load_sidecar_for,
     sidecar_path_for,
+    sidecar_payload,
 )
 
 
@@ -257,6 +259,28 @@ class TestSidecarJson:
             jean, "o", role="Elève", start_date=Date.parse("1860")
         )
         return genealogy, jean
+
+    def test_sidecar_payload_can_be_restricted_to_some_organizations(self):
+        genealogy, jean = self._filled()
+        genealogy.add_organization(
+            Organization(id="usine_martin_roubaix", name="Usine Martin")
+        )
+        genealogy.add_organization(Organization(id="atelier_autre", name="Atelier"))
+        genealogy.link_person_to_organization(
+            jean, "usine_martin_roubaix", role="Ouvrier"
+        )
+        genealogy.link_person_to_organization(jean, "atelier_autre")
+
+        payload = sidecar_payload(genealogy, {"usine_martin_roubaix"})
+        assert [o["id"] for o in payload["organizations"]] == ["usine_martin_roubaix"]
+        assert {link["organization_id"] for link in payload["links"]} == {
+            "usine_martin_roubaix"
+        }
+        assert payload["version"] == SIDECAR_VERSION
+
+        everything = sidecar_payload(genealogy)
+        assert len(everything["organizations"]) == 3
+        assert len(everything["links"]) == 3
 
     def test_sidecar_path_naming(self):
         assert sidecar_path_for("base/exemple.gw").name == "exemple.org.json"

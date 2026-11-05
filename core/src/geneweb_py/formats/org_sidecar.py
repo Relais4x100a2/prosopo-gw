@@ -6,7 +6,7 @@ leurs liens vivent à côté, référencés par identifiant de personne.
 
 import json
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Any, Collection, Dict, Optional, Tuple, Union
 
 from ..core.exceptions import GeneWebValidationError
 from ..core.genealogy import Genealogy
@@ -22,13 +22,33 @@ def sidecar_path_for(gw_path: PathLike) -> Path:
     return Path(gw_path).with_suffix(".org.json")
 
 
+def sidecar_payload(
+    genealogy: Genealogy, organization_ids: Optional[Collection[str]] = None
+) -> Dict[str, Any]:
+    """Contenu du fichier compagnon ; avec ``organization_ids``, seules ces organisations.
+
+    Avec un filtre, ne sont gardés que les organisations listées et les liens qui les
+    pointent. ``None`` désigne toutes les organisations.
+    """
+    wanted = None if organization_ids is None else set(organization_ids)
+    organizations = [
+        o for o in genealogy.organizations.values() if wanted is None or o.id in wanted
+    ]
+    links = [
+        link
+        for link in genealogy.organization_links
+        if wanted is None or link.organization_id in wanted
+    ]
+    return {
+        "version": SIDECAR_VERSION,
+        "organizations": [o.to_dict() for o in organizations],
+        "links": [link.to_dict() for link in links],
+    }
+
+
 def export_organizations(genealogy: Genealogy, path: PathLike) -> Path:
     """Écrit les organisations et liens de la généalogie dans ``path`` (UTF-8)."""
-    payload = {
-        "version": SIDECAR_VERSION,
-        "organizations": [o.to_dict() for o in genealogy.organizations.values()],
-        "links": [link.to_dict() for link in genealogy.organization_links],
-    }
+    payload = sidecar_payload(genealogy)
     target = Path(path)
     target.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
