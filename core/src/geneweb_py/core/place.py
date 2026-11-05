@@ -16,10 +16,29 @@ class ParsedPlace:
     name: str
     complement: Optional[str] = None
 
+    @property
+    def city(self) -> str:
+        """Ville : ``name`` jusqu'à la première virgule (« Lille, Nord » -> « Lille »)."""
+        return _city_of(self.name)
+
 
 def _humanize(text: str) -> str:
     """Retire les espaces de bord ; le parser a déjà décodé les ``_`` GeneWeb."""
     return text.strip()
+
+
+def _city_of(name: str) -> str:
+    head = name.replace("_", " ").split(",", 1)[0].strip()
+    if head:
+        return head
+    # Rien avant la virgule : garder le reste plutôt qu'une ville vide.
+    return name.replace("_", " ").strip(" ,")
+
+
+def place_city(raw: Optional[str]) -> Optional[str]:
+    """Ville d'un lieu brut (complément ``[…]`` exclu), ``None`` si le lieu est vide."""
+    parsed = parse_place(raw)
+    return parsed.city if parsed is not None else None
 
 
 def parse_place(raw: Optional[str]) -> Optional[ParsedPlace]:

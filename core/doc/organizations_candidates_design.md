@@ -233,6 +233,9 @@ personnes » (§ 3.1) s'applique à l'ensemble fusionné.
   organisations distinctes (décision de l'utilisateur, novembre 2026) : un « Cercle » à Lille et un
   « Cercle » à Roubaix sont a priori deux organisations différentes, même si chacune peut alors
   rester sous le seuil de deux personnes.
+  La ville est le lieu sans son complément `[…]`, coupé à la première virgule (`place_city`,
+  `ParsedPlace.city`) : « [Usine] - Lille, Nord » et « Lille » désignent la même ville. La même
+  règle sert au comptage des lieux de l'onglet Stats.
 - **Mots ignorés.** Certains tags « Autre » décrivent une situation et non un groupe (recensement,
   domicile). Un événement « Autre » dont le tag contient l'un des mots ignorés (mot entier, replié :
   sans majuscules ni accents) n'est ni candidat ni « à classer » ; il est seulement compté

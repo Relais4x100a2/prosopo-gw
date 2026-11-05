@@ -8,7 +8,7 @@ les données généalogiques.
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from ...core.date import Date
 from ...core.models import (
@@ -22,6 +22,7 @@ from ...core.models import (
     PersonalEvent,
 )
 from ...core.parser import GeneWebParser
+from ...core.place import place_city
 from ..models.event import (
     EventUpdateSchema,
     FamilyEventCreateSchema,
@@ -1380,13 +1381,7 @@ def _build_advanced_genealogy_stats(genealogy: Genealogy) -> Dict[str, Any]:
         "coverage": _coverage(persons),
         "longevity": longevity,
         "geography": {
-            "distinct_birth_places": len(
-                {
-                    (p.birth_place or "").strip().lower()
-                    for p in persons
-                    if p.birth_place and str(p.birth_place).strip()
-                }
-            ),
+            "distinct_birth_places": _distinct_places(persons, "birth_place"),
             "top_birth_places": birth_places,
             "top_death_places": death_places,
         },
@@ -1449,19 +1444,28 @@ def _coverage(persons: List[Person]) -> Dict[str, int]:
     }
 
 
-def _top_places_from_persons(
-    persons: List[Person], attr: str, limit: int
-) -> List[Dict[str, Any]]:
-    """Agrège les lieux les plus fréquents pour l'attribut ``attr`` sur ``Person``."""
-    counts: Dict[str, int] = {}
-    label_for_key: Dict[str, str] = {}
+def _person_cities(persons: Iterable[Any], attr: str) -> Iterator[str]:
+    """Villes de l'attribut lieu ``attr`` (complément et précisions après la virgule exclus)."""
     for person in persons:
         raw = getattr(person, attr, None)
-        if raw is None:
-            continue
-        place = str(raw).strip()
-        if not place:
-            continue
+        city = place_city(str(raw)) if raw is not None else None
+        if city:
+            yield city
+
+
+def _distinct_places(persons: Iterable[Any], attr: str) -> int:
+    """Nombre de villes distinctes (sans tenir compte des majuscules)."""
+    return len({city.lower() for city in _person_cities(persons, attr)})
+
+
+def _top_places_from_persons(
+    persons: Iterable[Any], attr: str, limit: int
+) -> List[Dict[str, Any]]:
+    """Villes les plus fréquentes pour l'attribut lieu ``attr`` (« Lille, Nord » compte
+    pour « Lille », « [Maternité] - Lille » aussi)."""
+    counts: Dict[str, int] = {}
+    label_for_key: Dict[str, str] = {}
+    for place in _person_cities(persons, attr):
         key = place.lower()
         counts[key] = counts.get(key, 0) + 1
         if key not in label_for_key:

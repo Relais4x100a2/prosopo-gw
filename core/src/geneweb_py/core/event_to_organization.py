@@ -368,7 +368,7 @@ class EventToOrganizationMapper:
         """
         parts = event.place_parts
         complement = parts.complement if parts else None
-        city = parts.name if parts else None
+        city = parts.city if parts else None
 
         typed = TYPED_EVENT_RULES.get(event.event_type)
         if typed is not None:
@@ -673,7 +673,7 @@ class EventToOrganizationMapper:
                     and event.notes
                     and not (event.place_parts and event.place_parts.complement)
                 ):
-                    city = event.place_parts.name if event.place_parts else None
+                    city = event.place_parts.city if event.place_parts else None
                     proposal = self.propose_from_occupation(event.notes[0], city)
                 if proposal is None:
                     continue
