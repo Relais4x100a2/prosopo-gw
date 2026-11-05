@@ -75,7 +75,7 @@ def test_detail_opens_in_side_drawer_not_inside_list():
     assert "@media (max-width: 767.98px)" in css
     # Une seule fiche à la fois : un seul compteur d'annulation.
     assert "_personDetailSeq" not in js and "_familyDetailSeq" not in js
-    assert js.count('class="text-muted list-empty"') == 2
+    assert js.count('class="text-muted list-empty"') == 3
 
 
 def test_every_event_type_code_has_a_french_label():
@@ -134,7 +134,15 @@ def test_views_are_driven_by_hash_routes():
     """Onglets et fiches passent par l'adresse (#/…) : retour, rechargement, liens."""
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "window.addEventListener('hashchange', applyRoute)" in js
-    for route in ("personnes", "personne", "familles", "famille", "evenements"):
+    for route in (
+        "personnes",
+        "personne",
+        "familles",
+        "famille",
+        "evenements",
+        "organisations",
+        "organisation",
+    ):
         assert f"{route}:" in js or f"'{route}'" in js
     # Plus d'ouverture directe de fiche depuis un clic : tout passe par navigate().
     assert "showPersonDetail" not in js and "showFamilyDetail" not in js
@@ -162,9 +170,9 @@ def test_tabs_are_keyboard_accessible_buttons():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert 'role="tablist"' in html
-    assert html.count('role="tab"') == 5 and html.count('role="tabpanel"') == 5
+    assert html.count('role="tab"') == 6 and html.count('role="tabpanel"') == 6
     assert not re.search(r'<div class="pgw-tab[ "]', html)
-    assert len(re.findall(r'<button type="button" class="pgw-tab', html)) == 5
+    assert len(re.findall(r'<button type="button" class="pgw-tab', html)) == 6
     for key in ("ArrowRight", "ArrowLeft", "Home", "End"):
         assert key in js
     assert "t.setAttribute('aria-selected', String(on))" in js
@@ -225,3 +233,65 @@ def test_events_table_shows_custom_type_column():
     assert "visible: data.some(d => d.custom_type)" in js
     # Deux « Autre » distincts dans les stats : personnel et familial.
     assert "{ value: 'other', label: 'Autre (famille)' }" in js
+
+
+def test_organizations_tab_routes_list_and_detail():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert 'id="tab-organizations"' in html and 'id="panel-organizations"' in html
+    assert (
+        html.index('id="tab-events"')
+        < html.index('id="tab-organizations"')
+        < html.index('id="tab-stats"')
+    )
+    for i in (
+        "orgs-sort",
+        "orgs-type",
+        "orgs-source",
+        "orgs-search",
+        "orgs-list",
+        "orgs-unmatched",
+        "orgs-unmatched-body",
+    ):
+        assert f'id="{i}"' in html, i
+    assert "organisations: 'organizations'" in js
+    assert "organisation: 'organizations'" in js
+    assert "name === 'organisation'" in js
+    assert "function openOrganizationDetail(" in js
+    assert "function renderUnmatched(" in js
+    assert "'/api/v1/organizations/candidates" in js
+    assert "'/api/v1/organizations/unmatched'" in js
+    assert "drawerError('Impossible de charger l" in js
+    assert "Pourquoi cette proposition" in js
+    assert js.count('class="text-muted list-empty"') == 3
+
+
+def test_organizations_visible_values_are_labelled():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    from geneweb_py.core.organization import OrganizationType
+
+    for t in OrganizationType:
+        assert f"{t.value}:" in js, t
+    for source in ("tag", "place", "typed_event", "occupation_text"):
+        assert f"{source}:" in js
+    assert "formatGwName(org.name)" in js or "formatGwName(o.name)" in js
+
+
+def test_export_tab_offers_organization_files():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    for i in (
+        "btn-export-org-json",
+        "btn-export-org-csv",
+        "btn-export-org-links-csv",
+    ):
+        assert f'id="{i}"' in html, i
+    assert "#valider-et-enrichir" in html
+    assert "'organization-links-csv': 'liens_organisations.csv'" in js
+    assert "EXPORT_EXT" not in js
+
+
+def test_stats_show_candidate_count_linking_to_tab():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "'/api/v1/organizations/candidates?size=1'" in js
+    assert "Organisations candidates" in js and "#/organisations" in js

@@ -74,6 +74,7 @@
     <button type="button" class="pgw-tab active" role="tab" id="tab-persons" data-tab="persons" aria-selected="true" aria-controls="panel-persons">Personnes</button>
     <button type="button" class="pgw-tab" role="tab" id="tab-families" data-tab="families" aria-selected="false" aria-controls="panel-families" tabindex="-1">Familles</button>
     <button type="button" class="pgw-tab" role="tab" id="tab-events" data-tab="events" aria-selected="false" aria-controls="panel-events" tabindex="-1">Événements</button>
+    <button type="button" class="pgw-tab" role="tab" id="tab-organizations" data-tab="organizations" aria-selected="false" aria-controls="panel-organizations" tabindex="-1">Organisations</button>
     <button type="button" class="pgw-tab" role="tab" id="tab-stats" data-tab="stats" aria-selected="false" aria-controls="panel-stats" tabindex="-1">Stats</button>
     <button type="button" class="pgw-tab" role="tab" id="tab-export" data-tab="export" aria-selected="false" aria-controls="panel-export" tabindex="-1">Export</button>
   </div>
@@ -160,6 +161,51 @@
       <div id="events-table" style="margin-top:0.5rem"></div>
     </div>
 
+    <!-- === ORGANISATIONS === -->
+    <div id="panel-organizations" role="tabpanel" aria-labelledby="tab-organizations" class="tab-panel">
+      <p class="orgs-intro">Regroupements déduits des événements personnalisés, des professions et des événements typés. Ce sont des propositions : rien n'est modifié dans votre fichier.</p>
+      <div class="orgs-bar">
+        <label for="orgs-sort">Tri</label>
+        <select id="orgs-sort">
+          <option value="persons">Personnes</option>
+          <option value="period">Période</option>
+          <option value="name">Nom</option>
+        </select>
+        <label for="orgs-type">Type</label>
+        <select id="orgs-type">
+          <option value="">Tous les types</option>
+          <option value="company">Entreprise</option>
+          <option value="school">École</option>
+          <option value="association">Association</option>
+          <option value="institution">Institution</option>
+          <option value="religious">Religieux</option>
+          <option value="military">Militaire</option>
+          <option value="other">Autre</option>
+        </select>
+        <label for="orgs-source">Source du nom</label>
+        <select id="orgs-source">
+          <option value="">Toutes les sources</option>
+          <option value="tag">Nom personnalisé</option>
+          <option value="place">Lieu</option>
+          <option value="typed_event">Événement typé</option>
+          <option value="occupation_text">Profession</option>
+        </select>
+        <input type="search" id="orgs-search" placeholder="Rechercher une organisation…" aria-label="Rechercher une organisation" autocomplete="off">
+        <button type="button" id="orgs-clear-btn" class="search-clear" aria-label="Effacer la recherche et les filtres">✕</button>
+      </div>
+      <div id="orgs-list"></div>
+      <div class="pagination-bar">
+        <button id="orgs-prev" disabled>← Précédent</button>
+        <span id="orgs-page-info"></span>
+        <button id="orgs-next" disabled>Suivant →</button>
+      </div>
+      <details id="orgs-unmatched" class="unmatched">
+        <summary id="orgs-unmatched-summary">Reste à classer</summary>
+        <p class="text-muted">C'est ici que l'on voit quelles règles manquent.</p>
+        <div id="orgs-unmatched-body"></div>
+      </details>
+    </div>
+
     <!-- === STATS === -->
     <div id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" class="tab-panel">
       <div id="stats-content"></div>
@@ -175,6 +221,15 @@
         <button class="btn-export" id="btn-export-json">{ } Télécharger en JSON</button>
         <button class="btn-export" id="btn-export-xml">🗂 Télécharger en XML</button>
       </div>
+      <section class="export-orgs">
+        <h3>Organisations candidates</h3>
+        <p>Le fichier compagnon <code>.org.json</code> contient les organisations proposées et leurs liens avec les personnes ; votre <code>.gw</code> n'est pas modifié. Les deux CSV s'ouvrent dans un tableur pour valider ligne à ligne : voir « Valider et enrichir » dans le <a href="https://github.com/Relais4x100a2/prosopo-gw#valider-et-enrichir" target="_blank" rel="noopener">README</a>.</p>
+        <div class="export-btns">
+          <button class="btn-export" id="btn-export-org-json">{ } Fichier compagnon .org.json</button>
+          <button class="btn-export" id="btn-export-org-csv">Organisations (CSV)</button>
+          <button class="btn-export" id="btn-export-org-links-csv">Liens personnes-organisations (CSV)</button>
+        </div>
+      </section>
       <div id="export-error" class="alert-pgw error mt-2" style="display:none"></div>
     </div>
 

@@ -444,6 +444,33 @@ body {
   color: var(--text-muted);
 }
 
+/* Organisations candidates */
+.orgs-intro { color: var(--text-muted); font-style: italic; margin-bottom: 0.75rem; }
+.orgs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+.orgs-bar label { font-size: 0.82rem; color: var(--text-muted); }
+.orgs-bar input[type="search"] { flex: 1 1 12rem; min-width: 0; }
+.org-card .org-meta { display: block; }
+.org-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0 0; }
+.badge-pgw { display: inline-block; font-size: 0.75rem; padding: 0.05rem 0.5rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-muted); }
+.badge-review { border-color: var(--accent); color: var(--accent); }
+.badge-collective { border-style: dashed; }
+.badge-circle { font-style: italic; }
+.org-members { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.org-members li { padding: 0.25rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.unmatched { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.unmatched > summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.unmatched-group { margin: 0.25rem 0 0 0.5rem; }
+.unmatched-group summary { cursor: pointer; }
+.stat-card-link { display: block; text-decoration: none; color: inherit; }
+.stat-card-link:hover { border-color: var(--accent); }
+.stat-card-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.export-orgs { margin-top: 2rem; max-width: 40rem; }
+
+@media (max-width: 767.98px) {
+  .orgs-bar { flex-direction: column; align-items: stretch; }
+}
+
 /* Export */
 .export-btns {
   display: flex;

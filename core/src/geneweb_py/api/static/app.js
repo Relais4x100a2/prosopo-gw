@@ -9,6 +9,9 @@ const state = {
   stats: null,
   persons: { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false },
   families: { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false },
+  organizations: { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false },
+  unmatchedLoaded: false,
+  orgCount: null,
   // Dernière adresse vue par onglet : revenir sur un onglet retrouve son contexte.
   lastRoute: {},
   // id → « NOM, Prénoms » : évite de redemander un nom déjà connu.
@@ -115,6 +118,9 @@ function resetLoadedData() {
   state.persons = { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false };
   state.evtRouteKey = '';
   state.families = { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false };
+  state.organizations = { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false };
+  state.unmatchedLoaded = false;
+  state.orgCount = null;
   state.lastRoute = {};
   closeDetail();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -172,6 +178,7 @@ async function init() {
   wireTabs();
   wirePersonsTab();
   wireFamiliesTab();
+  wireOrganizationsTab();
   initEventsTab();
   wireExportTab();
   wireDrawer();
@@ -403,14 +410,16 @@ function showTab(name) {
 //   #/personnes?q=…&page=N   #/personne/<id>
 //   #/familles?page=N        #/famille/<id>
 //   #/evenements   #/stats   #/export
+//   #/organisations?sort=…&type=…&source=…&q=…&page=N   #/organisation/<id>
 // Les clics ne font que changer l'adresse ; applyRoute() est le seul à afficher.
 const ROUTE_TABS = {
   personnes: 'persons', personne: 'persons',
   familles: 'families', famille: 'families',
   evenements: 'events', stats: 'stats', export: 'export',
+  organisations: 'organizations', organisation: 'organizations',
 };
 const TAB_ROUTES = {
-  persons: 'personnes', families: 'familles', events: 'evenements', stats: 'stats', export: 'export',
+  persons: 'personnes', families: 'familles', events: 'evenements', organizations: 'organisations', stats: 'stats', export: 'export',
 };
 
 function parseRoute(hash = location.hash) {
@@ -424,7 +433,7 @@ function parseRoute(hash = location.hash) {
   if (slash !== -1) {
     try { id = decodeURIComponent(path.slice(slash + 1)) || null; } catch { id = null; }
   }
-  const known = name in ROUTE_TABS && (id !== null) === (name === 'personne' || name === 'famille');
+  const known = name in ROUTE_TABS && (id !== null) === (name === 'personne' || name === 'famille' || name === 'organisation');
   return known
     ? { known, name, tab: ROUTE_TABS[name], id, params }
     : { known, name: 'personnes', tab: 'persons', id: null, params: new URLSearchParams() };
@@ -477,6 +486,19 @@ function familiesListHash(page = state.families.page, query = state.families.que
 }
 const personHash = id => '#/personne/' + encodeURIComponent(id);
 const familyHash = id => '#/famille/' + encodeURIComponent(id);
+const organizationHash = id => '#/organisation/' + encodeURIComponent(id);
+
+// filters : { sort, type, named_from, q } ; les valeurs par défaut restent hors de l'adresse.
+function organizationsListHash(page = state.organizations.page, filters = state.organizations) {
+  const p = new URLSearchParams();
+  if (filters.q) p.set('q', filters.q);
+  if (filters.sort && filters.sort !== 'persons') p.set('sort', filters.sort);
+  if (filters.type) p.set('type', filters.type);
+  if (filters.named_from) p.set('source', filters.named_from);
+  if (page > 1) p.set('page', page);
+  const qs = p.toString();
+  return '#/organisations' + (qs ? '?' + qs : '');
+}
 
 // replace : remplace l'entrée d'historique courante (frappe dans une recherche)
 // au lieu d'en empiler une par lettre.
@@ -552,6 +574,12 @@ async function applyRoute() {
     } else if (route.name === 'famille') {
       if (!state.families.loaded) await loadFamilies(1, '');
       if (seq === _routeSeq) await openFamilyDetail(route.id);
+    } else if (route.name === 'organisations') {
+      await applyOrganizationsRoute(route.params);
+    } else if (route.name === 'organisation') {
+      if (!state.organizations.loaded) await loadOrganizations();
+      loadUnmatched();
+      if (seq === _routeSeq) await openOrganizationDetail(route.id);
     } else {
       closeDetail();   // Événements, Stats, Export : pas de fiche
       if (route.name === 'evenements') applyEventsRoute(route.params);
@@ -746,7 +774,7 @@ function renderTrail() {
 function markActiveRows() {
   const drawer = document.getElementById('detail-drawer');
   const open = drawer && !drawer.hidden ? drawer.dataset : {};
-  for (const [listId, kind] of [['persons-list', 'person'], ['families-list', 'family']]) {
+  for (const [listId, kind] of [['persons-list', 'person'], ['families-list', 'family'], ['orgs-list', 'organization']]) {
     document.querySelectorAll(`#${listId} .item-row`).forEach(row => {
       const btn = row.querySelector('.btn-see');
       const active = !!btn && open.kind === kind && open.id === btn.dataset.id;
@@ -758,7 +786,9 @@ function markActiveRows() {
 
 // Fermer revient à la liste de l'onglet courant (l'adresse suit).
 function closeDrawerRoute() {
-  navigate(parseRoute().tab === 'families' ? familiesListHash() : personsListHash());
+  const tab = parseRoute().tab;
+  navigate(tab === 'families' ? familiesListHash()
+    : tab === 'organizations' ? organizationsListHash() : personsListHash());
 }
 
 function wireDrawer() {
@@ -1657,6 +1687,235 @@ function wirePersonAutocomplete() {
   nameInput.addEventListener('blur', () => { setTimeout(close, 150); });
 }
 
+// ==================== ORGANISATIONS ====================
+const ORG_TYPE_LABELS = {
+  company: 'Entreprise', school: 'École', association: 'Association',
+  institution: 'Institution', religious: 'Religieux', military: 'Militaire', other: 'Autre',
+};
+// Origine du nom proposé.
+const NAMED_FROM_LABELS = {
+  tag: 'Nom personnalisé', place: 'Lieu', typed_event: 'Événement typé', occupation_text: 'Profession',
+};
+// Types d'événements à l'origine d'un candidat.
+const SOURCE_LABELS = {
+  oth: 'événement libre', occu: 'profession', educ: 'éducation', grad: 'diplôme', degr: 'diplôme',
+  adhe: 'adhésion', hosp: 'hospitalisation', mser: 'service militaire', demm: 'service militaire',
+  elec: 'élection', ordn: 'ordination', occu_attr: 'profession (attribut)',
+};
+let _orgsSeq = 0;
+
+function wireOrganizationsTab() {
+  const orgsSearch = document.getElementById('orgs-search');
+  const withFilters = patch => organizationsListHash(1, { ...state.organizations, ...patch });
+
+  wireInstantSearch(orgsSearch, q => withFilters({ q }), () => state.organizations.q);
+  document.getElementById('orgs-sort').addEventListener('change', e => navigate(withFilters({ sort: e.target.value })));
+  document.getElementById('orgs-type').addEventListener('change', e => navigate(withFilters({ type: e.target.value })));
+  document.getElementById('orgs-source').addEventListener('change', e => navigate(withFilters({ named_from: e.target.value })));
+  document.getElementById('orgs-clear-btn').addEventListener('click', () => {
+    orgsSearch.value = '';
+    navigate(organizationsListHash(1, {}));
+  });
+  document.getElementById('orgs-prev').addEventListener('click',
+    () => navigate(organizationsListHash(state.organizations.page - 1)));
+  document.getElementById('orgs-next').addEventListener('click',
+    () => navigate(organizationsListHash(state.organizations.page + 1)));
+}
+
+async function applyOrganizationsRoute(params) {
+  const want = {
+    sort: ['persons', 'period', 'name'].includes(params.get('sort')) ? params.get('sort') : 'persons',
+    type: params.get('type') || '',
+    named_from: params.get('source') || '',
+    q: (params.get('q') || '').trim(),
+  };
+  const page = pageParam(params);
+  const o = state.organizations;
+  closeDetail();
+  syncSearchInput('orgs-search', want.q);
+  document.getElementById('orgs-sort').value = want.sort;
+  document.getElementById('orgs-type').value = want.type;
+  document.getElementById('orgs-source').value = want.named_from;
+  loadUnmatched();
+  if (!o.loaded || o.page !== page || o.sort !== want.sort || o.type !== want.type
+      || o.named_from !== want.named_from || o.q !== want.q) {
+    Object.assign(o, want);
+    await loadOrganizations(page);
+  }
+}
+
+async function loadOrganizations(page = state.organizations.page) {
+  const seq = ++_orgsSeq;
+  const o = state.organizations;
+  const params = new URLSearchParams({ page, size: 20, sort: o.sort });
+  if (o.type) params.set('type', o.type);
+  if (o.named_from) params.set('named_from', o.named_from);
+  if (o.q) params.set('q', o.q);
+  let data;
+  try {
+    data = await apiJson('/api/v1/organizations/candidates?' + params);
+  } catch (err) {
+    if (seq === _orgsSeq) {
+      document.getElementById('orgs-list').innerHTML =
+        '<p class="alert-pgw error">Impossible de charger les organisations.</p>';
+    }
+    throw err;
+  }
+  if (seq !== _orgsSeq) return;
+  o.loaded = true;
+  o.items = data.items;
+  o.page = data.pagination.page;
+  o.pages = data.pagination.pages;
+  o.total = data.pagination.total;
+  renderOrganizations();
+  document.getElementById('orgs-prev').disabled = !data.pagination.has_prev;
+  document.getElementById('orgs-next').disabled = !data.pagination.has_next;
+  document.getElementById('orgs-page-info').textContent =
+    `Page ${o.page} / ${o.pages} (${o.total} organisation${o.total > 1 ? 's' : ''})`;
+  document.querySelector('#panel-organizations .pagination-bar').hidden = !o.total;
+}
+
+function orgPeriod(org) {
+  if (org.first_year == null) return '';
+  return org.last_year != null && org.last_year !== org.first_year
+    ? `${org.first_year}–${org.last_year}` : String(org.first_year);
+}
+
+// Pastilles d'état et de provenance d'un candidat (texte toujours lisible, pas de couleur seule).
+function orgBadges(org) {
+  const b = [];
+  if (org.collective) b.push('<span class="badge-pgw badge-collective">collectif</span>');
+  if (org.needs_review) b.push('<span class="badge-pgw badge-review">à revoir</span>');
+  if (org.to_determine) b.push('<span class="badge-pgw badge-review">à déterminer</span>');
+  if (org.relation) b.push('<span class="badge-pgw badge-circle">cercle</span>');
+  if (org.trigger) b.push(`<span class="badge-pgw">${escHtml(org.trigger)}</span>`);
+  if (org.named_from && org.named_from !== 'tag') {
+    b.push(`<span class="badge-pgw">${escHtml(NAMED_FROM_LABELS[org.named_from] || org.named_from)}</span>`);
+  }
+  return b.join('');
+}
+
+function orgCounts(org) {
+  return `${fmtInt(org.person_count)} personne${org.person_count > 1 ? 's' : ''} · `
+    + `${fmtInt(org.event_count)} événement${org.event_count > 1 ? 's' : ''}`;
+}
+
+function renderOrganizations() {
+  const list = document.getElementById('orgs-list');
+  const unmatched = document.getElementById('orgs-unmatched');
+  if (!state.organizations.items.length) {
+    list.innerHTML = '<p class="text-muted list-empty">Aucune organisation candidate.</p>';
+    unmatched.open = true;
+    return;
+  }
+  list.innerHTML = state.organizations.items.map(org => {
+    const meta = [ORG_TYPE_LABELS[org.type] || org.type, formatGwName(org.place), orgCounts(org), orgPeriod(org)]
+      .filter(Boolean).join(' · ');
+    return `<div class="item-row org-card">
+      <span><span class="item-name"><strong>${escHtml(formatGwName(org.name))}</strong></span>
+        <span class="item-meta org-meta">${escHtml(meta)}</span>
+        <span class="org-badges">${orgBadges(org)}</span></span>
+      <button class="btn-see" data-id="${escHtml(org.id)}">Voir ›</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.btn-see').forEach(btn => {
+    btn.addEventListener('click', () => navigate(
+      drawerShows('organization', btn.dataset.id)
+        ? organizationsListHash()
+        : organizationHash(btn.dataset.id)));
+  });
+  markActiveRows();
+}
+
+async function openOrganizationDetail(id) {
+  if (drawerShows('organization', id)) return;
+  const seq = ++_detailSeq;
+  setDrawerLoading(true);
+  let org;
+  try {
+    org = await apiJson('/api/v1/organizations/candidates/' + encodeURIComponent(id));
+  } catch (err) {
+    if (err.message === 'session-expired' || seq !== _detailSeq) return;
+    showInDrawer(drawerError('Impossible de charger l\'organisation.'), 'organization', id, null);
+    return;
+  }
+  if (seq !== _detailSeq) return;
+  const name = formatGwName(org.name);
+  showInDrawer(buildOrganizationPanel(org), 'organization', id, {
+    hash: organizationHash(id),
+    label: name,
+    title: 'Organisation ' + name,
+  });
+}
+
+function buildOrganizationPanel(org) {
+  const meta = [ORG_TYPE_LABELS[org.type] || org.type, formatGwName(org.place), orgCounts(org), orgPeriod(org)]
+    .filter(Boolean).join(' · ');
+  const members = (org.members || []).map(m => {
+    const bits = [m.role, m.event_label, shortDate(m.date), formatGwName(m.place)].filter(Boolean);
+    if (m.witness_count > 0) bits.push(`${m.witness_count} témoin${m.witness_count > 1 ? 's' : ''}`);
+    return `<li><a href="${escHtml(personHash(m.person_id))}">${escHtml(formatGwName(m.person_name) || m.person_id)}</a>`
+      + (bits.length ? ` <span class="item-meta">${escHtml(bits.join(' · '))}</span>` : '') + '</li>';
+  }).join('');
+  const places = (org.places || []).map(formatGwName).filter(Boolean);
+  const why = [];
+  if (org.named_from) why.push(`Nom issu de : ${NAMED_FROM_LABELS[org.named_from] || org.named_from}`);
+  if (org.trigger) why.push(`Mot déclencheur : ${org.trigger}`);
+  if (org.confidence != null) why.push(`Confiance : ${Math.round(org.confidence * 100)} %`);
+  const sources = (org.sources || []).map(c => SOURCE_LABELS[c] || c);
+  if (sources.length) why.push(`Événements sources : ${sources.join(', ')}`);
+
+  const panel = document.createElement('div');
+  panel.className = 'person-detail org-detail';
+  panel.dataset.organizationId = org.id;
+  panel.innerHTML = `
+    <h2 class="drawer-title" tabindex="-1">${escHtml(formatGwName(org.name))}</h2>
+    <p class="item-meta">${escHtml(meta)}</p>
+    <p class="org-badges">${orgBadges(org)}</p>
+    <div class="drawer-section">
+      <div class="mini-tree-label">Membres (${(org.members || []).length})</div>
+      <ul class="org-members">${members || '<li class="text-muted">Aucun membre.</li>'}</ul>
+    </div>
+    ${places.length ? `<div class="drawer-section"><div class="mini-tree-label">Lieux</div><p>${escHtml(places.join(' · '))}</p></div>` : ''}
+    <details class="drawer-details org-why"><summary>Pourquoi cette proposition ?</summary>
+      <ul>${why.map(w => `<li>${escHtml(w)}</li>`).join('')}</ul>
+    </details>`;
+  return panel;
+}
+
+// Reste à classer : événements « Autre » sans candidat, groupés par mot.
+async function loadUnmatched() {
+  if (state.unmatchedLoaded) return;
+  state.unmatchedLoaded = true;
+  const body = document.getElementById('orgs-unmatched-body');
+  try {
+    renderUnmatched(await apiJson('/api/v1/organizations/unmatched'));
+  } catch (err) {
+    state.unmatchedLoaded = false;
+    if (err.message === 'session-expired') return;
+    body.innerHTML = '<p class="alert-pgw error">Impossible de charger le reste à classer.</p>';
+  }
+}
+
+function renderUnmatched(data) {
+  const summary = document.getElementById('orgs-unmatched-summary');
+  const body = document.getElementById('orgs-unmatched-body');
+  summary.textContent = `Reste à classer (${fmtInt(data.total)} événement${data.total > 1 ? 's' : ''})`;
+  if (!data.groups.length) {
+    body.innerHTML = '<p class="text-muted unmatched-empty">Aucun événement à classer.</p>';
+    return;
+  }
+  body.innerHTML = data.groups.map(g => {
+    const events = g.events.map(e => {
+      const bits = [e.event_type_raw, shortDate(e.date), formatGwName(e.place)].filter(Boolean);
+      return `<li><a href="${escHtml(personHash(e.person_id))}">${escHtml(formatGwName(e.person_name) || e.person_id)}</a>`
+        + ` <span class="item-meta">${escHtml(bits.join(' · '))}</span></li>`;
+    }).join('');
+    return `<details class="unmatched-group"><summary>${escHtml(g.word)} · ${fmtInt(g.count)}</summary>`
+      + `<ul class="org-members">${events}</ul></details>`;
+  }).join('');
+}
+
 // ==================== STATS ====================
 function renderStats() {
   const container = document.getElementById('stats-content');
@@ -1711,6 +1970,25 @@ function renderStats() {
   ].filter(Boolean).join('');
 
   container.innerHTML = gridHtml + `<div class="charts-grid">${charts}</div>`;
+  renderOrganizationsStat();
+}
+
+// Carte « Organisations candidates » : effectif lu sur la pagination, lien vers l'onglet.
+async function renderOrganizationsStat() {
+  const grid = document.querySelector('#stats-content .stats-grid');
+  if (!grid) return;
+  if (state.orgCount === null) {
+    try {
+      const data = await apiJson('/api/v1/organizations/candidates?size=1');
+      state.orgCount = data.pagination.total;
+    } catch { return; }   // complément : la page Stats reste complète sans lui
+  }
+  if (!grid.isConnected || grid.querySelector('.stat-card-link')) return;
+  grid.insertAdjacentHTML('beforeend',
+    `<a class="stat-card stat-card-link" href="#/organisations">
+      <div class="stat-value">${escHtml(String(state.orgCount))}</div>
+      <div class="stat-label">Organisations candidates</div>
+    </a>`);
 }
 
 const fmtInt = n => Number(n || 0).toLocaleString('fr-FR');
@@ -1789,7 +2067,12 @@ function coverageCard(cov) {
 }
 
 // ==================== EXPORT ====================
-const EXPORT_EXT = { gedcom: 'ged', json: 'json', xml: 'xml' };
+const EXPORT_FILENAMES = {
+  gedcom: 'genealogie.ged', json: 'genealogie.json', xml: 'genealogie.xml',
+  'org-json': 'genealogie.org.json',
+  'organizations-csv': 'organisations.csv',
+  'organization-links-csv': 'liens_organisations.csv',
+};
 
 async function downloadExport(format) {
   const errorEl = document.getElementById('export-error');
@@ -1805,7 +2088,7 @@ async function downloadExport(format) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'genealogie.' + EXPORT_EXT[format];
+    a.download = EXPORT_FILENAMES[format];
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1821,4 +2104,7 @@ function wireExportTab() {
   document.getElementById('btn-export-gedcom').addEventListener('click', () => downloadExport('gedcom'));
   document.getElementById('btn-export-json').addEventListener('click', () => downloadExport('json'));
   document.getElementById('btn-export-xml').addEventListener('click', () => downloadExport('xml'));
+  document.getElementById('btn-export-org-json').addEventListener('click', () => downloadExport('org-json'));
+  document.getElementById('btn-export-org-csv').addEventListener('click', () => downloadExport('organizations-csv'));
+  document.getElementById('btn-export-org-links-csv').addEventListener('click', () => downloadExport('organization-links-csv'));
 }
