@@ -197,14 +197,14 @@ def test_rare_word_links_different_cities() -> None:
             "MARTIN Marie",
             "Deportation",
             "1943",
-            "Bourgneuf",
+            "Fontfictive",
             ("Arrivée à Fictivecamp en hiver",),
         )
     )
     assert len(idx.items) == 1
     exp = idx.items[0]
     assert exp.reasons == [SharedReason(kind="rare_word", words=("fictivecamp",))]
-    assert exp.places == ["Bourgneuf", "Villefictive"]
+    assert exp.places == ["Fontfictive", "Villefictive"]
 
 
 def test_both_reasons_recorded() -> None:
@@ -223,7 +223,7 @@ def test_both_reasons_recorded() -> None:
 def test_common_word_in_six_notes_does_not_link() -> None:
     text = _block(
         "DUPONT Jean", "Deportation", "1943", "Villefictive", ("Fictivecamp",)
-    ) + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("Fictivecamp",))
+    ) + _block("MARTIN Marie", "Deportation", "1943", "Fontfictive", ("Fictivecamp",))
     for name in ("Paul", "Luc", "Anne", "Zoe"):
         text += _block(f"DURAND {name}", "birt", "1900", notes=("Fictivecamp",))
     idx = _find(text)
@@ -233,7 +233,7 @@ def test_common_word_in_six_notes_does_not_link() -> None:
 def test_five_notes_is_still_rare() -> None:
     text = _block(
         "DUPONT Jean", "Deportation", "1943", "Villefictive", ("Fictivecamp",)
-    ) + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("Fictivecamp",))
+    ) + _block("MARTIN Marie", "Deportation", "1943", "Fontfictive", ("Fictivecamp",))
     for name in ("Paul", "Luc", "Anne"):
         text += _block(f"DURAND {name}", "birt", "1900", notes=("Fictivecamp",))
     assert len(_find(text).items) == 1
@@ -242,7 +242,7 @@ def test_five_notes_is_still_rare() -> None:
 def test_singular_and_plural_link() -> None:
     idx = _find(
         _block("DUPONT Jean", "Deportation", "1943", "Villefictive", ("le camp",))
-        + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("les camps",))
+        + _block("MARTIN Marie", "Deportation", "1943", "Fontfictive", ("les camps",))
     )
     assert len(idx.items) == 1
     assert idx.items[0].reasons == [SharedReason(kind="rare_word", words=("camp",))]
@@ -251,7 +251,9 @@ def test_singular_and_plural_link() -> None:
 def test_event_city_in_notes_does_not_link() -> None:
     idx = _find(
         _block("DUPONT Jean", "Deportation", "1943", "Villefictive", ("Villefictive",))
-        + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("Villefictive",))
+        + _block(
+            "MARTIN Marie", "Deportation", "1943", "Fontfictive", ("Villefictive",)
+        )
     )
     assert idx.items == []
 
@@ -262,7 +264,7 @@ def test_other_place_in_notes_links() -> None:
             "DUPONT Jean", "Deportation", "1943", "Villefictive", ("vers Montfictif",)
         )
         + _block(
-            "MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("depuis Montfictif",)
+            "MARTIN Marie", "Deportation", "1943", "Fontfictive", ("depuis Montfictif",)
         )
     )
     assert len(idx.items) == 1
@@ -274,7 +276,7 @@ def test_other_place_in_notes_links() -> None:
 def test_theme_words_do_not_link() -> None:
     idx = _find(
         _block("DUPONT Jean", "Deportation", "1943", "Villefictive", ("deporte",))
-        + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", ("déportés",))
+        + _block("MARTIN Marie", "Deportation", "1943", "Fontfictive", ("déportés",))
     )
     assert idx.items == []
 
@@ -282,7 +284,7 @@ def test_theme_words_do_not_link() -> None:
 def test_tag_words_do_not_link() -> None:
     idx = _find(
         _block("DUPONT Jean", "Cercle_Lecture", "1943", "Villefictive", ("lecture",))
-        + _block("MARTIN Marie", "Cercle_Lecture", "1943", "Bourgneuf", ("lecture",))
+        + _block("MARTIN Marie", "Cercle_Lecture", "1943", "Fontfictive", ("lecture",))
     )
     assert idx.items == []
 
@@ -382,8 +384,8 @@ def test_order_independent() -> None:
     blocks = [
         _block("DUPONT Jean", "Voyage", "1940", "Villefictive"),
         _block("MARTIN Marie", "Voyage", "1941", "Villefictive"),
-        _block("DURAND Paul", "Voyage", "1942", "Bourgneuf", ("Montfictif",)),
-        _block("LEROY Anne", "Voyage", "1942", "Bourgneuf", ("Montfictif",)),
+        _block("DURAND Paul", "Voyage", "1942", "Fontfictive", ("Montfictif",)),
+        _block("LEROY Anne", "Voyage", "1942", "Fontfictive", ("Montfictif",)),
         _block("DUPONT Luc", "Deportation", "1943", "Villefictive"),
         _block("MARTIN Zoe", "Deportation", "1943", "Villefictive"),
         _block("DURAND Anne", "Cercle_2", "1950", "Villefictive"),
@@ -433,7 +435,7 @@ def test_notes_with_only_stopwords_city_and_short_words() -> None:
     notes = ("dans Villefictive avec eux en mai, date et année",)
     idx = _find(
         _block("DUPONT Jean", "Deportation", "1943", "Villefictive", notes)
-        + _block("MARTIN Marie", "Deportation", "1943", "Bourgneuf", notes)
+        + _block("MARTIN Marie", "Deportation", "1943", "Fontfictive", notes)
     )
     assert idx.items == []
 
@@ -469,10 +471,12 @@ def _reference_components(genealogy: Genealogy) -> List[Tuple[str, List[str]]]:
                 continue
             chunk = [i]
             placed[i] = True
+            limit = max(events[i][0] + span, events[i][1])
             for j in range(i + 1, len(events)):
-                if not placed[j] and events[j][1] <= events[i][0] + span:
+                if not placed[j] and events[j][0] <= limit:
                     placed[j] = True
                     chunk.append(j)
+                    limit = max(limit, events[j][1])
             parent = {k: k for k in chunk}
 
             for x, a in enumerate(chunk):
@@ -504,7 +508,7 @@ def test_same_place_sweep_matches_pairwise(seed: int) -> None:
     rng = random.Random(seed)
     names = ["DUPONT Jean", "MARTIN Marie", "DURAND Paul", "LEROY Anne", "PETIT Luc"]
     tags = ["Deportation", "Voyage", "Amitie", "Cercle"]
-    cities = ["Villefictive", "Bourgneuf", "?", ""]
+    cities = ["Villefictive", "Fontfictive", "?", ""]
     text = ""
     for name in names:
         lines = []
@@ -531,7 +535,7 @@ def test_rare_word_same_person_does_not_link() -> None:
     text = (
         "pevt DUPONT Jean\n"
         "#Deportation 1943 #p Villefictive\nnote Fictivecamp\n"
-        "#Deportation 1943 #p Bourgneuf\nnote Fictivecamp\n"
+        "#Deportation 1943 #p Fontfictive\nnote Fictivecamp\n"
         "end pevt\n"
     )
     assert _find(text).items == []
@@ -540,6 +544,62 @@ def test_rare_word_same_person_does_not_link() -> None:
 def test_rare_word_too_far_in_same_slice() -> None:
     idx = _find(
         _block("DUPONT Jean", "Voyage", "1940", "Villefictive", ("Montfictif",))
-        + _block("MARTIN Marie", "Voyage", "1942", "Bourgneuf", ("Montfictif",))
+        + _block("MARTIN Marie", "Voyage", "1942", "Fontfictive", ("Montfictif",))
     )
     assert idx.items == []
+
+
+# --- revue finale : tranches par début, clés de ville, lieux ---------------
+
+
+def test_identical_ranges_are_linked() -> None:
+    idx = _find(
+        _block("DUPONT Jean", "Deportation", "1942..1944", "Villefictive")
+        + _block("MARTIN Marie", "Deportation", "1942..1944", "Villefictive")
+    )
+    assert len(idx.items) == 1
+
+
+def test_alternative_dates_link_with_inner_year() -> None:
+    idx = _find(
+        _block("DUPONT Jean", "Deportation", "1940|1946", "Villefictive")
+        + _block("MARTIN Marie", "Deportation", "1943", "Villefictive")
+    )
+    assert len(idx.items) == 1
+
+
+def test_wide_range_links_with_inner_year() -> None:
+    idx = _find(
+        _block("DUPONT Jean", "Deportation", "1941..1943", "Villefictive")
+        + _block("MARTIN Marie", "Deportation", "1943", "Villefictive")
+    )
+    assert len(idx.items) == 1
+
+
+def test_city_key_ignores_hyphen_and_underscore() -> None:
+    idx = _find(
+        _block("DUPONT Jean", "Deportation", "1943", "Saint-Fictif")
+        + _block("MARTIN Marie", "Deportation", "1943", "Saint_Fictif")
+    )
+    assert len(idx.items) == 1
+    assert idx.items[0].places == ["Saint-Fictif"]
+
+
+def test_places_deduplicated_by_city_key() -> None:
+    idx = _find(
+        _block("DUPONT Jean", "Deportation", "1943", "Évreux-Fictif")
+        + _block("MARTIN Marie", "Deportation", "1943", "evreux-fictif")
+    )
+    assert len(idx.items) == 1
+    assert len(idx.items[0].places) == 1
+
+
+def test_theme_of_skips_empty_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from geneweb_py.core import shared_experiences as se
+
+    empty = se.Theme(key="vide", label="Vide", window=1, prefix="")
+    monkeypatch.setattr(
+        se, "SHARED_EXPERIENCE_THEMES", (empty, *se.SHARED_EXPERIENCE_THEMES)
+    )
+    theme = se.theme_of("Deportation")
+    assert theme is not None and theme.key != "vide"

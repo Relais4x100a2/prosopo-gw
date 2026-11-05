@@ -228,8 +228,7 @@ def theme_of(tag: str) -> Optional[Theme]:
         return None
     words = _words(tag)
     for theme in SHARED_EXPERIENCE_THEMES:
-        prefix = theme.prefix or ""
-        if any(w.startswith(prefix) for w in words):
+        if theme.prefix and any(w.startswith(theme.prefix) for w in words):
             return theme
     if any(w in RELATION_WORDS for w in words):
         return RELATION_THEME
@@ -278,7 +277,7 @@ def note_words(text: str) -> FrozenSet[str]:
 
 def _city_key(city: Optional[str]) -> str:
     """Ville repliée comparable ; chaîne vide si la ville est absente ou inconnue (``?``)."""
-    key = _fold(city or "").strip()
+    key = re.sub(r"[-_\s]+", " ", _fold(city or "")).strip()
     return "" if key == "?" else key
 
 
@@ -376,15 +375,18 @@ def _slices(entries: List[_Entry], window: int) -> List[List[_Entry]]:
         if placed[i]:
             continue
         placed[i] = True
-        limit = first.event.year_start + span
+        limit = max(first.event.year_start + span, first.event.year_end)
         current = [first]
         for j in range(i + 1, len(entries)):
             other = entries[j].event
             if other.year_start > limit:
-                break  # trié par début : aucune fin suivante ne peut être <= limit
-            if not placed[j] and other.year_end <= limit:
+                break  # trié par début : aucun début suivant ne peut être <= limit
+            if not placed[j]:
                 placed[j] = True
                 current.append(entries[j])
+                # Une période longue étend la tranche jusqu'à sa fin : sans cela,
+                # ``1941..1943`` et ``1943`` ne seraient jamais dans la même tranche.
+                limit = max(limit, other.year_end)
         result.append(current)
     return result
 
@@ -470,6 +472,16 @@ def _link_chunk(
     return reasons
 
 
+def _distinct_places(chunk: List[_Entry], members: List[int]) -> List[str]:
+    """Villes distinctes (par clé repliée), première graphie rencontrée, triées."""
+    seen: Dict[str, str] = {}
+    for i in members:
+        entry = chunk[i]
+        if entry.event.city and entry.city_key and entry.city_key not in seen:
+            seen[entry.city_key] = entry.event.city
+    return sorted(seen.values())
+
+
 def _experiences_of_chunk(chunk: List[_Entry]) -> List[SharedExperience]:
     window = chunk[0].theme.window
     uf = _UnionFind(len(chunk))
@@ -498,13 +510,7 @@ def _experiences_of_chunk(chunk: List[_Entry]) -> List[SharedExperience]:
                 label=theme.label,
                 year_min=min(ev.year_start for ev in events),
                 year_max=max(ev.year_end for ev in events),
-                places=sorted(
-                    {
-                        ev.city
-                        for ev, i in zip(events, members)
-                        if ev.city and chunk[i].city_key
-                    }
-                ),
+                places=_distinct_places(chunk, members),
                 reasons=sorted(
                     component_reasons.get(root, set()),
                     key=lambda r: (r.kind, r.place or "", r.words),
