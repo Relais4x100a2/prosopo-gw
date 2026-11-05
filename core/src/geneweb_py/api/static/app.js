@@ -136,6 +136,16 @@ function resetLoadedData() {
   state.ignoredWords = null;
   _ignoredSync = null;
   state.lastRoute = {};
+  for (const id of ['exp-list', 'orgs-list', 'orgs-unmatched-body']) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  }
+  for (const id of ['exp-count', 'orgs-count']) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '0';
+  }
+  const excluded = document.getElementById('orgs-excluded-info');
+  if (excluded) excluded.textContent = '';
   closeDetail();
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 }
@@ -1762,7 +1772,15 @@ async function applyOrganizationsRoute(params) {
   document.getElementById('orgs-source').value = want.named_from;
   await syncIgnoredWords();
   loadUnmatched();
-  if (!state.experiences.loaded) loadSharedExperiences().catch(() => {});
+  const expReady = state.experiences.loaded
+    ? Promise.resolve() : loadSharedExperiences().catch(() => {});
+  if (params.get('section') === 'experiences') {
+    // Lien de la carte Stats : défiler jusqu'aux expériences une fois la section remplie.
+    expReady.then(() => {
+      const section = document.getElementById('exp-section');
+      if (section) section.scrollIntoView({ block: 'start' });
+    });
+  }
   if (!o.loaded || o.page !== page || o.sort !== want.sort || o.type !== want.type
       || o.named_from !== want.named_from || o.q !== want.q) {
     Object.assign(o, want);
@@ -1793,7 +1811,9 @@ async function loadOrganizations(page = state.organizations.page) {
   o.page = data.pagination.page;
   o.pages = data.pagination.pages;
   o.total = data.pagination.total;
-  document.getElementById('orgs-count').textContent = fmtInt(o.total);
+  // Le titre donne le nombre d'organisations, pas celui de la recherche en cours.
+  if (!o.type && !o.named_from && !o.q) state.orgCount = o.total;
+  document.getElementById('orgs-count').textContent = fmtInt(state.orgCount ?? o.total);
   renderOrganizations();
   document.getElementById('orgs-prev').disabled = !data.pagination.has_prev;
   document.getElementById('orgs-next').disabled = !data.pagination.has_next;
@@ -2183,13 +2203,13 @@ async function renderOrganizationsStat() {
     } catch { /* complément : la page Stats reste complète sans lui */ }
   }
   if (!grid.isConnected) return;
-  for (const [key, count, label] of [
-    ['orgs', state.orgCount, 'Organisations candidates'],
-    ['exps', state.expCount, 'Expériences proches'],
+  for (const [key, count, label, href] of [
+    ['orgs', state.orgCount, 'Organisations candidates', '#/organisations'],
+    ['exps', state.expCount, 'Expériences proches', '#/organisations?section=experiences'],
   ]) {
     if (count === null || grid.querySelector(`[data-stat="${key}"]`)) continue;
     grid.insertAdjacentHTML('beforeend',
-      `<a class="stat-card stat-card-link" data-stat="${key}" href="#/organisations">
+      `<a class="stat-card stat-card-link" data-stat="${key}" href="${href}">
         <div class="stat-value">${escHtml(String(count))}</div>
         <div class="stat-label">${label}</div>
       </a>`);

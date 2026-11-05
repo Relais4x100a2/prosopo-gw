@@ -373,3 +373,21 @@ def test_initial_state_has_shared_experiences_keys():
     block = js[js.index("const state = {") : js.index("\n};")]
     for key in ("experiences:", "expCount:", "civilTotal:"):
         assert key in block, key
+
+
+def test_review_fixes_wiring_in_app_js():
+    """Carte Stats vers la section, reset de session et ids existants (revue finale)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "#/organisations?section=experiences" in js
+    assert "params.get('section') === 'experiences'" in js
+    reset = js[js.index("function resetLoadedData") : js.index("function handleExpiry")]
+    for i in (
+        "exp-list",
+        "exp-count",
+        "orgs-excluded-info",
+        "orgs-list",
+        "orgs-unmatched-body",
+    ):
+        assert f"'{i}'" in reset, i
+        assert f'id="{i}"' in html, i
