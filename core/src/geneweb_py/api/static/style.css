@@ -471,6 +471,12 @@ body {
 .orgs-ignored-form input { width: 10rem; max-width: 100%; }
 .orgs-ignored-info { font-size: 0.82rem; color: var(--text-muted); }
 .orgs-ignored-help { font-size: 0.8rem; margin: 0 0 0.75rem; }
+.orgs-section { margin-top: 1.25rem; }
+.orgs-section > h3 { margin: 0 0 0.5rem; }
+.exp-truncated { font-size: 0.82rem; }
+.exp-card { display: block; }
+.exp-card > summary { cursor: pointer; }
+.exp-card[open] > summary { margin-bottom: 0.25rem; }
 .unmatched-ignore { margin-left: 0.5rem; font-size: 0.75rem; }
 .stat-card-link { display: block; text-decoration: none; color: inherit; }
 .stat-card-link:hover { border-color: var(--accent); }

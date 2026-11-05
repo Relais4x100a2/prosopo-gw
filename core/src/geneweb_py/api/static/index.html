@@ -163,7 +163,9 @@
 
     <!-- === ORGANISATIONS === -->
     <div id="panel-organizations" role="tabpanel" aria-labelledby="tab-organizations" class="tab-panel">
-      <p class="orgs-intro">Regroupements déduits des événements personnalisés, des professions et des événements typés. Ce sont des propositions : rien n'est modifié dans votre fichier.</p>
+      <p class="orgs-intro">Organisations déduites de vos événements, et personnes ayant vécu une expérience proche. Ce sont des propositions : rien n'est modifié dans votre fichier.</p>
+      <section id="orgs-section" class="orgs-section">
+      <h3>Organisations (<span id="orgs-count">0</span>)</h3>
       <div class="orgs-bar">
         <label for="orgs-sort">Tri</label>
         <select id="orgs-sort">
@@ -189,10 +191,25 @@
           <option value="place">Lieu</option>
           <option value="typed_event">Événement typé</option>
           <option value="occupation_text">Profession</option>
+          <option value="address">Adresse</option>
         </select>
         <input type="search" id="orgs-search" placeholder="Rechercher une organisation…" aria-label="Rechercher une organisation" autocomplete="off">
         <button type="button" id="orgs-clear-btn" class="search-clear" aria-label="Effacer la recherche et les filtres">✕</button>
       </div>
+      <div id="orgs-list"></div>
+      <div class="pagination-bar">
+        <button id="orgs-prev" disabled>← Précédent</button>
+        <span id="orgs-page-info"></span>
+        <button id="orgs-next" disabled>Suivant →</button>
+      </div>
+      </section>
+      <section id="exp-section" class="orgs-section">
+        <h3>Expériences proches (<span id="exp-count">0</span>)</h3>
+        <p class="text-muted">Personnes ayant vécu un événement de même nature, à la même période, au même lieu ou avec un indice commun dans leurs notes. Ce n'est pas une appartenance à une organisation.</p>
+        <div id="exp-list"></div>
+      </section>
+      <details id="orgs-settings" class="unmatched">
+        <summary>Réglages et événements non classés</summary>
       <div class="orgs-ignored" aria-labelledby="orgs-ignored-label">
         <span id="orgs-ignored-label" class="orgs-ignored-label">Mots ignorés</span>
         <span id="orgs-ignored-chips" class="orgs-ignored-chips"></span>
@@ -203,16 +220,12 @@
         <span id="orgs-ignored-info" class="orgs-ignored-info" role="status"></span>
       </div>
       <p class="orgs-ignored-help text-muted">Les événements libres dont le nom contient l'un de ces mots (mot entier, sans tenir compte des majuscules ni des accents) ne sont ni proposés ni à classer.</p>
-      <div id="orgs-list"></div>
-      <div class="pagination-bar">
-        <button id="orgs-prev" disabled>← Précédent</button>
-        <span id="orgs-page-info"></span>
-        <button id="orgs-next" disabled>Suivant →</button>
-      </div>
-      <details id="orgs-unmatched" class="unmatched">
-        <summary id="orgs-unmatched-summary">Reste à classer</summary>
-        <p class="text-muted">C'est ici que l'on voit quelles règles manquent.</p>
-        <div id="orgs-unmatched-body"></div>
+        <p id="orgs-excluded-info" class="text-muted"></p>
+<details id="orgs-unmatched" class="unmatched">
+          <summary id="orgs-unmatched-summary">Reste à classer</summary>
+          <p class="text-muted">C'est ici que l'on voit quelles règles manquent.</p>
+          <div id="orgs-unmatched-body"></div>
+        </details>
       </details>
     </div>
 
@@ -233,12 +246,14 @@
       </div>
       <section class="export-orgs">
         <h3>Organisations candidates</h3>
-        <p>Le fichier compagnon <code>.org.json</code> contient les organisations proposées et leurs liens avec les personnes ; votre <code>.gw</code> n'est pas modifié. Les deux CSV s'ouvrent dans un tableur pour valider ligne à ligne : voir « Valider et enrichir » dans le <a href="https://github.com/Relais4x100a2/prosopo-gw#valider-et-enrichir" target="_blank" rel="noopener">README</a>.</p>
+        <p>Le fichier compagnon <code>.org.json</code> contient les organisations proposées et leurs liens avec les personnes ; votre <code>.gw</code> n'est pas modifié. Les CSV s'ouvrent dans un tableur pour valider ligne à ligne : voir « Valider et enrichir » dans le <a href="https://github.com/Relais4x100a2/prosopo-gw#valider-et-enrichir" target="_blank" rel="noopener">README</a>.</p>
         <div class="export-btns">
           <button class="btn-export" id="btn-export-org-json">{ } Fichier compagnon .org.json</button>
           <button class="btn-export" id="btn-export-org-csv">Organisations (CSV)</button>
           <button class="btn-export" id="btn-export-org-links-csv">Liens personnes-organisations (CSV)</button>
+          <button class="btn-export" id="btn-export-exp-csv">Expériences proches (CSV)</button>
         </div>
+        <p class="text-muted">Personnes ayant vécu une expérience proche (non enregistré dans le fichier compagnon).</p>
       </section>
       <div id="export-error" class="alert-pgw error mt-2" style="display:none"></div>
     </div>

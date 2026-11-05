@@ -332,3 +332,35 @@ def test_ignored_words_controls_are_wired():
 def test_unmatched_events_use_readable_label():
     js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "const bits = [e.label, shortDate(e.date)" in js
+
+
+def test_shared_experiences_section_is_wired():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    for i in (
+        "orgs-section",
+        "orgs-count",
+        "exp-section",
+        "exp-count",
+        "exp-list",
+        "orgs-settings",
+        "orgs-excluded-info",
+        "orgs-unmatched",
+        "btn-export-exp-csv",
+    ):
+        assert f'id="{i}"' in html, i
+    assert 'value="address"' in html
+    assert "Réglages et événements non classés" in html
+    assert "Ce n'est pas une appartenance à une organisation." in html
+    assert "'/api/v1/organizations/shared-experiences'" in js
+    assert "shared-experiences-csv" in js
+    assert "address: 'Adresse'" in js
+    assert "Liste limitée aux 500 premières expériences." in js
+    assert "Aucune expérience proche trouvée." in js
+
+
+def test_shared_experience_cards_avoid_member_vocabulary():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    start = js.index("function renderSharedExperiences")
+    end = js.index("\nfunction ", start + 1)
+    assert "membre" not in js[start:end].lower()

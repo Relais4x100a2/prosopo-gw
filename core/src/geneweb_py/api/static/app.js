@@ -123,6 +123,9 @@ function resetLoadedData() {
   state.evtRouteKey = '';
   state.families = { items: [], page: 1, pages: 1, query: '', nameMap: {}, loaded: false };
   state.organizations = { items: [], page: 1, pages: 1, total: 0, sort: 'persons', type: '', named_from: '', q: '', loaded: false };
+  state.experiences = { loaded: false, undated: 0 };
+  state.expCount = null;
+  state.civilTotal = 0;
   state.unmatchedLoaded = false;
   state.orgCount = null;
   state.ignoredWords = null;
@@ -585,6 +588,7 @@ async function applyRoute() {
     } else if (route.name === 'organisation') {
       if (!state.organizations.loaded) await loadOrganizations();
       loadUnmatched();
+      if (!state.experiences.loaded) loadSharedExperiences().catch(() => {});
       if (seq === _routeSeq) await openOrganizationDetail(route.id);
     } else {
       closeDetail();   // Événements, Stats, Export : pas de fiche
@@ -1701,6 +1705,7 @@ const ORG_TYPE_LABELS = {
 // Origine du nom proposé.
 const NAMED_FROM_LABELS = {
   tag: 'Nom personnalisé', place: 'Lieu', typed_event: 'Événement typé', occupation_text: 'Profession',
+  address: 'Adresse',
 };
 // Types d'événements à l'origine d'un candidat.
 const SOURCE_LABELS = {
@@ -1709,6 +1714,7 @@ const SOURCE_LABELS = {
   elec: 'élection', ordn: 'ordination', occu_attr: 'profession (attribut)',
 };
 let _orgsSeq = 0;
+let _expSeq = 0;
 
 function wireOrganizationsTab() {
   const orgsSearch = document.getElementById('orgs-search');
@@ -1751,6 +1757,7 @@ async function applyOrganizationsRoute(params) {
   document.getElementById('orgs-source').value = want.named_from;
   await syncIgnoredWords();
   loadUnmatched();
+  if (!state.experiences.loaded) loadSharedExperiences().catch(() => {});
   if (!o.loaded || o.page !== page || o.sort !== want.sort || o.type !== want.type
       || o.named_from !== want.named_from || o.q !== want.q) {
     Object.assign(o, want);
@@ -1781,12 +1788,82 @@ async function loadOrganizations(page = state.organizations.page) {
   o.page = data.pagination.page;
   o.pages = data.pagination.pages;
   o.total = data.pagination.total;
+  document.getElementById('orgs-count').textContent = fmtInt(o.total);
   renderOrganizations();
   document.getElementById('orgs-prev').disabled = !data.pagination.has_prev;
   document.getElementById('orgs-next').disabled = !data.pagination.has_next;
   document.getElementById('orgs-page-info').textContent =
     `Page ${o.page} / ${o.pages} (${o.total} organisation${o.total > 1 ? 's' : ''})`;
   document.querySelector('#panel-organizations .pagination-bar').hidden = !o.total;
+}
+
+// Expériences proches : chargées avec la liste des organisations, indépendantes de ses filtres.
+async function loadSharedExperiences() {
+  const seq = ++_expSeq;
+  let data;
+  try {
+    data = await apiJson('/api/v1/organizations/shared-experiences');
+  } catch (err) {
+    if (seq === _expSeq) {
+      document.getElementById('exp-list').innerHTML =
+        '<p class="alert-pgw error">Impossible de charger les expériences proches.</p>';
+    }
+    throw err;
+  }
+  if (seq !== _expSeq) return;
+  state.experiences.loaded = true;
+  state.experiences.undated = data.undated_total || 0;
+  state.expCount = data.total;
+  if (data.civil_status_total != null) state.civilTotal = data.civil_status_total;
+  renderSharedExperiences(data);
+  renderExcludedInfo();
+}
+
+function experienceTitle(exp) {
+  const places = (exp.places || []).map(formatGwName).filter(Boolean);
+  const years = exp.year_max != null && exp.year_max !== exp.year_min
+    ? `${exp.year_min}-${exp.year_max}` : String(exp.year_min);
+  return [formatGwName(exp.label), places.length ? places.join(', ') : 'lieu inconnu', years].join(' · ');
+}
+
+function renderSharedExperiences(data) {
+  const list = document.getElementById('exp-list');
+  document.getElementById('exp-count').textContent = fmtInt(data.total);
+  if (!data.items.length) {
+    list.innerHTML = '<p class="text-muted exp-empty">Aucune expérience proche trouvée.</p>';
+    return;
+  }
+  const notice = data.truncated
+    ? '<p class="text-muted exp-truncated">Liste limitée aux 500 premières expériences.</p>' : '';
+  list.innerHTML = notice + data.items.map(exp => {
+    const reasons = (exp.reasons || []).map(r => r.kind === 'rare_word'
+      ? `Mot commun : ${(r.words || []).join(', ')}` : 'Même lieu');
+    const badges = [...new Set(reasons)]
+      .map(r => `<span class="badge-pgw">${escHtml(r)}</span>`).join('');
+    const rows = (exp.persons || []).map(p => {
+      const bits = [p.label, p.year_end != null && p.year_end !== p.year_start
+        ? `${p.year_start}-${p.year_end}` : p.year_start, formatGwName(p.place)]
+        .filter(b => b !== null && b !== undefined && b !== '');
+      return `<li><a href="${escHtml(personHash(p.person_id))}">${escHtml(formatGwName(p.person_name) || p.person_id)}</a>`
+        + ` <span class="item-meta">${escHtml(bits.join(' · '))}</span></li>`;
+    }).join('');
+    return `<details class="item-row org-card exp-card">
+      <summary><strong>${escHtml(experienceTitle(exp))}</strong>
+        <span class="item-meta org-meta">${fmtInt(exp.person_count)} personne${exp.person_count > 1 ? 's' : ''}</span>
+        <span class="org-badges">${badges}</span></summary>
+      <ul class="org-members">${rows}</ul>
+    </details>`;
+  }).join('');
+}
+
+// Phrase du panneau replié : actes d'état civil écartés d'office, événements sans date.
+function renderExcludedInfo() {
+  const civil = state.civilTotal || 0;
+  const undated = state.experiences.undated || 0;
+  const bits = [];
+  if (civil) bits.push(`${fmtInt(civil)} acte${civil > 1 ? 's' : ''} d'état civil écarté${civil > 1 ? 's' : ''} d'office`);
+  if (undated) bits.push(`${fmtInt(undated)} événement${undated > 1 ? 's' : ''} sans date`);
+  document.getElementById('orgs-excluded-info').textContent = bits.join(' · ');
 }
 
 function orgPeriod(org) {
@@ -1960,6 +2037,8 @@ async function setIgnoredWords(words) {
   renderIgnoredWords();
   // Candidats, reste à classer et carte Stats sont recalculés avec le nouveau réglage.
   state.organizations.loaded = false;
+  state.experiences.loaded = false;
+  state.expCount = null;
   state.unmatchedLoaded = false;
   state.orgCount = null;
   navigate(organizationsListHash(1));
@@ -1996,6 +2075,8 @@ function renderUnmatched(data) {
   const summary = document.getElementById('orgs-unmatched-summary');
   const body = document.getElementById('orgs-unmatched-body');
   summary.textContent = `Reste à classer (${fmtInt(data.total)} événement${data.total > 1 ? 's' : ''})`;
+  state.civilTotal = data.civil_status_total || 0;
+  renderExcludedInfo();
   const ignored = data.ignored_total || 0;
   document.getElementById('orgs-ignored-info').textContent = ignored
     ? `${fmtInt(ignored)} événement${ignored > 1 ? 's' : ''} écarté${ignored > 1 ? 's' : ''}` : '';
@@ -2079,23 +2160,35 @@ function renderStats() {
   renderOrganizationsStat();
 }
 
-// Carte « Organisations candidates » : effectif lu sur la pagination, lien vers l'onglet.
+// Cartes « Organisations candidates » et « Expériences proches » : effectifs, liens vers l'onglet.
 async function renderOrganizationsStat() {
   const grid = document.querySelector('#stats-content .stats-grid');
   if (!grid) return;
-  if (state.orgCount === null) {
+  if (state.orgCount === null || state.expCount === null) {
     await syncIgnoredWords();
     try {
-      const data = await apiJson('/api/v1/organizations/candidates?size=1');
-      state.orgCount = data.pagination.total;
-    } catch { return; }   // complément : la page Stats reste complète sans lui
+      if (state.orgCount === null) {
+        const data = await apiJson('/api/v1/organizations/candidates?size=1');
+        state.orgCount = data.pagination.total;
+      }
+      if (state.expCount === null) {
+        const data = await apiJson('/api/v1/organizations/shared-experiences');
+        state.expCount = data.total;
+      }
+    } catch { /* complément : la page Stats reste complète sans lui */ }
   }
-  if (!grid.isConnected || grid.querySelector('.stat-card-link')) return;
-  grid.insertAdjacentHTML('beforeend',
-    `<a class="stat-card stat-card-link" href="#/organisations">
-      <div class="stat-value">${escHtml(String(state.orgCount))}</div>
-      <div class="stat-label">Organisations candidates</div>
-    </a>`);
+  if (!grid.isConnected) return;
+  for (const [key, count, label] of [
+    ['orgs', state.orgCount, 'Organisations candidates'],
+    ['exps', state.expCount, 'Expériences proches'],
+  ]) {
+    if (count === null || grid.querySelector(`[data-stat="${key}"]`)) continue;
+    grid.insertAdjacentHTML('beforeend',
+      `<a class="stat-card stat-card-link" data-stat="${key}" href="#/organisations">
+        <div class="stat-value">${escHtml(String(count))}</div>
+        <div class="stat-label">${label}</div>
+      </a>`);
+  }
 }
 
 const fmtInt = n => Number(n || 0).toLocaleString('fr-FR');
@@ -2179,13 +2272,14 @@ const EXPORT_FILENAMES = {
   'org-json': 'genealogie.org.json',
   'organizations-csv': 'organisations.csv',
   'organization-links-csv': 'liens_organisations.csv',
+  'shared-experiences-csv': 'experiences_proches.csv',
 };
 
 async function downloadExport(format) {
   const errorEl = document.getElementById('export-error');
   errorEl.style.display = 'none';
   try {
-    if (format.startsWith('org')) await syncIgnoredWords();
+    if (format.startsWith('org') || format.startsWith('shared')) await syncIgnoredWords();
     const res = await apiFetch('/api/v1/genealogy/export/' + format);
     if (!res.ok) {
       errorEl.textContent = "Erreur lors de la génération de l'export.";
@@ -2215,4 +2309,5 @@ function wireExportTab() {
   document.getElementById('btn-export-org-json').addEventListener('click', () => downloadExport('org-json'));
   document.getElementById('btn-export-org-csv').addEventListener('click', () => downloadExport('organizations-csv'));
   document.getElementById('btn-export-org-links-csv').addEventListener('click', () => downloadExport('organization-links-csv'));
+  document.getElementById('btn-export-exp-csv').addEventListener('click', () => downloadExport('shared-experiences-csv'));
 }
