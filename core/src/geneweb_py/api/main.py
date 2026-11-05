@@ -130,6 +130,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Accept", "X-Session-Token"],
+        expose_headers=["X-Session-Expires-In"],
     )
 
     setup_logging_middleware(application)

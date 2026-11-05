@@ -2,7 +2,7 @@
 
 from typing import Tuple
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, Response, status
 
 import geneweb_py.api.limits as _limits_mod
 
@@ -15,17 +15,25 @@ def get_store(request: Request) -> SessionStore:
     return request.app.state.session_store
 
 
+# Temps restant (secondes) renvoyé à chaque requête de session : le client recale son
+# compte à rebours sans dépendre de son horloge.
+SESSION_EXPIRES_IN_HEADER = "X-Session-Expires-In"
+
+
 def get_session_service(
+    response: Response,
     x_session_token: str = Header(..., alias="X-Session-Token"),
     store: SessionStore = Depends(get_store),
 ) -> GenealogyService:
-    """Résout le token de session et retourne un GenealogyService."""
-    genealogy = store.get(x_session_token)
-    if genealogy is None:
+    """Résout le token de session (et prolonge son TTL) ; retourne un GenealogyService."""
+    touched = store.touch(x_session_token)
+    if touched is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session inconnue ou expirée",
         )
+    genealogy, expires_at = touched
+    response.headers[SESSION_EXPIRES_IN_HEADER] = str(store.seconds_left(expires_at))
     return GenealogyService(genealogy=genealogy)
 
 

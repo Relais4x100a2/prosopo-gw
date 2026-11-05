@@ -52,8 +52,8 @@ class SessionStore:
             self._store[token] = entry
             return token, expires_at
 
-    def get(self, token: str) -> Optional[Genealogy]:
-        """Retourne la Genealogy si active, None sinon. Prolonge le TTL."""
+    def touch(self, token: str) -> Optional[Tuple[Genealogy, datetime]]:
+        """Prolonge le TTL d'une session active ; retourne (Genealogy, nouvelle échéance)."""
         with self._lock:
             entry = self._store.get(token)
             if entry is None:
@@ -62,7 +62,16 @@ class SessionStore:
                 self._store.pop(token, None)
                 return None
             entry.expires_at = self._new_expiry()
-            return entry.genealogy
+            return entry.genealogy, entry.expires_at
+
+    def get(self, token: str) -> Optional[Genealogy]:
+        """Retourne la Genealogy si active, None sinon. Prolonge le TTL."""
+        touched = self.touch(token)
+        return touched[0] if touched else None
+
+    def seconds_left(self, expires_at: datetime) -> int:
+        """Secondes restantes avant ``expires_at`` (indépendant de l'horloge du client)."""
+        return max(0, int((expires_at - self._now()).total_seconds()))
 
     def delete(self, token: str) -> bool:
         """Supprime une session. Retourne True si trouvée, False sinon."""

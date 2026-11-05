@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Set
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from ...core.parser import GeneWebParser
@@ -95,10 +95,30 @@ async def create_session(
         content={
             "session_token": token,
             "expires_at": expires_at.isoformat(),
+            "expires_in": store.seconds_left(expires_at),
             "stats": {
                 "persons": len(genealogy.persons),
                 "families": len(genealogy.families),
             },
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/refresh")
+async def refresh_session(
+    x_session_token: str = Header(..., alias="X-Session-Token"),
+    store: SessionStore = Depends(get_store),
+) -> JSONResponse:
+    """Prolonge une session active (bouton « Prolonger » avant l'expiration)."""
+    touched = store.touch(x_session_token)
+    if touched is None:
+        raise HTTPException(401, "Session inconnue ou expirée")
+    _, expires_at = touched
+    return JSONResponse(
+        content={
+            "expires_at": expires_at.isoformat(),
+            "expires_in": store.seconds_left(expires_at),
         },
         headers={"Cache-Control": "no-store"},
     )
