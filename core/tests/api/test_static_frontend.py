@@ -139,3 +139,19 @@ def test_views_are_driven_by_hash_routes():
     # Plus d'ouverture directe de fiche depuis un clic : tout passe par navigate().
     assert "showPersonDetail" not in js and "showFamilyDetail" not in js
     assert 'href="${escHtml(personHash(' in js
+
+
+def test_stats_charts_link_to_filtered_views():
+    """Stats visuelles : chaque barre mène à la liste ou aux événements filtrés."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for fn in ("function decadeChart(", "function barCard(", "function coverageCard("):
+        assert fn in js, fn
+    # Filtres posés par les graphiques, lus depuis l'adresse puis passés à l'API.
+    assert "personsListHash(1, '', { nom: r.surname })" in js
+    assert "params.set('birth_year_from', years[0])" in js
+    assert "'#/evenements?type=' + encodeURIComponent(code)" in js
+    assert "applyEventsRoute(route.params)" in js
+    assert 'id="persons-filters"' in html
+    # Aucune bibliothèque de graphiques : HTML/CSS seulement (CSP self).
+    assert "chart.js" not in html.lower() and "<canvas" not in js

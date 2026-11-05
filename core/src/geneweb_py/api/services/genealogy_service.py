@@ -1307,6 +1307,9 @@ def _build_advanced_genealogy_stats(genealogy: Genealogy) -> Dict[str, Any]:
     }
 
     return {
+        "births_by_decade": _births_by_decade(persons),
+        "top_surnames": _top_surnames(persons, limit=15),
+        "coverage": _coverage(persons),
         "longevity": longevity,
         "geography": {
             "distinct_birth_places": len(
@@ -1320,6 +1323,61 @@ def _build_advanced_genealogy_stats(genealogy: Genealogy) -> Dict[str, Any]:
             "top_death_places": death_places,
         },
         "family_sizes": family_sizes,
+    }
+
+
+_SOURCE_ATTRS = (
+    "birth_source",
+    "death_source",
+    "baptism_source",
+    "burial_source",
+    "person_source",
+)
+
+
+def _births_by_decade(persons: List[Person]) -> Dict[str, int]:
+    """Naissances datées par décennie (« 1850 » = 1850-1859), en ordre chronologique."""
+    counts: Dict[int, int] = {}
+    for person in persons:
+        year = person.birth_date.sort_year() if person.birth_date else None
+        if year is None or year <= 0:
+            continue
+        decade = year - year % 10
+        counts[decade] = counts.get(decade, 0) + 1
+    return {str(decade): counts[decade] for decade in sorted(counts)}
+
+
+def _top_surnames(persons: List[Person], limit: int) -> List[Dict[str, Any]]:
+    """Patronymes les plus portés (comparaison insensible à la casse ; ``?`` exclu)."""
+    counts: Dict[str, int] = {}
+    label_for_key: Dict[str, str] = {}
+    for person in persons:
+        surname = (person.last_name or "").strip()
+        if not surname or surname == "?":
+            continue
+        key = surname.casefold()
+        counts[key] = counts.get(key, 0) + 1
+        label_for_key.setdefault(key, surname)
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [
+        {"surname": label_for_key[key], "count": count}
+        for key, count in ordered[:limit]
+    ]
+
+
+def _coverage(persons: List[Person]) -> Dict[str, int]:
+    """Nombre de personnes renseignées pour chaque information clé."""
+    return {
+        "persons": len(persons),
+        "with_birth_date": sum(1 for p in persons if p.birth_date),
+        "with_birth_place": sum(1 for p in persons if (p.birth_place or "").strip()),
+        "with_death_date": sum(1 for p in persons if p.death_date),
+        "with_occupation": sum(1 for p in persons if (p.occupation or "").strip()),
+        "with_source": sum(
+            1
+            for p in persons
+            if any((getattr(p, attr) or "").strip() for attr in _SOURCE_ATTRS)
+        ),
     }
 
 

@@ -367,7 +367,7 @@ body {
 /* Stats */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -574,4 +574,121 @@ body {
     padding-top: env(safe-area-inset-top, 0px);
   }
   body.drawer-open { overflow: hidden; }
+}
+
+/* ==================== Stats : graphiques ==================== */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 1rem;
+}
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1rem 0.75rem;
+  min-width: 0;
+}
+.chart-card.chart-wide { grid-column: 1 / -1; }
+.chart-card h3 { font-size: 1rem; color: var(--text); margin: 0 0 0.15rem; }
+.chart-sub { font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.75rem; }
+
+/* Histogramme vertical (décennies) */
+.col-chart {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 56px));   /* peu de décennies : pas de blocs */
+  gap: 2px;
+  align-items: end;
+  height: 180px;
+  padding-bottom: 1.4rem;             /* place des graduations */
+  border-bottom: 1px solid var(--border);
+}
+.col {
+  position: relative;
+  height: 100%;                       /* cible de clic = toute la hauteur */
+  display: flex;
+  align-items: flex-end;
+  text-decoration: none;
+  min-width: 4px;
+}
+.col-bar {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+}
+a.col:hover .col-bar, a.col:focus-visible .col-bar { background: var(--text); }
+.col-tick {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.col[data-tip]:hover::after, .col[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Barres horizontales (classements, complétude) */
+.hbar-list { list-style: none; padding: 0; margin: 0; }
+.hbar {
+  display: grid;
+  grid-template-columns: minmax(6rem, 38%) 1fr 3.2rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 3px 4px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--text);
+  text-decoration: none;
+}
+a.hbar:hover, a.hbar:focus-visible { background: var(--bg-active); color: var(--text); }
+a.hbar:hover .hbar-label { text-decoration: underline; }
+.hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { height: 8px; }
+.hbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+.hbar-value { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Filtres actifs de la liste Personnes */
+.filter-bar[hidden] { display: none; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+.filter-chip {
+  background: var(--bg-active);
+  border: 1px solid var(--accent-light);
+  border-radius: 999px;
+  padding: 2px 4px 2px 10px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.filter-chip a {
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+.filter-chip a:hover { background: var(--accent); color: #fff; }
+
+@media (max-width: 575.98px) {
+  .stats-grid { gap: 0.5rem; }
+  .stat-card { padding: 0.6rem; }
+  .stat-card .stat-value { font-size: 1.5rem; }
 }

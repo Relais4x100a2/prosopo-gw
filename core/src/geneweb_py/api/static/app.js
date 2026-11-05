@@ -5,7 +5,7 @@ const state = {
   token: sessionStorage.getItem('gwToken') || null,
   expiresAt: sessionStorage.getItem('gwExpiresAt') || null,
   stats: null,
-  persons: { items: [], page: 1, pages: 1, query: '', loaded: false },
+  persons: { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false },
   families: { items: [], page: 1, pages: 1, nameMap: {}, loaded: false },
   // Dernière adresse vue par onglet : revenir sur un onglet retrouve son contexte.
   lastRoute: {},
@@ -107,7 +107,8 @@ function clearSession() {
 
 // Une nouvelle session ne doit rien afficher de la précédente.
 function resetLoadedData() {
-  state.persons = { items: [], page: 1, pages: 1, query: '', loaded: false };
+  state.persons = { items: [], page: 1, pages: 1, query: '', filters: {}, loaded: false };
+  state.evtRouteKey = '';
   state.families = { items: [], page: 1, pages: 1, nameMap: {}, loaded: false };
   state.lastRoute = {};
   closeDetail();
@@ -331,9 +332,36 @@ function pageParam(params) {
   return Math.max(1, parseInt(params.get('page'), 10) || 1);
 }
 
-function personsListHash(page = state.persons.page, query = state.persons.query) {
+// Filtres de liste posés depuis les Stats : nom de famille, décennie de naissance, lieu.
+//   #/personnes?nom=DUPONT   ?ne=1850-1859   ?lieu=Paris
+const PERSON_FILTERS = {
+  nom: 'Nom',
+  ne: 'Naissance',
+  lieu: 'Lieu',
+};
+
+function personFiltersFrom(params) {
+  const f = {};
+  for (const key of Object.keys(PERSON_FILTERS)) {
+    const v = (params.get(key) || '').trim();
+    if (v) f[key] = v;
+  }
+  return f;
+}
+
+const sameFilters = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// « 1850-1859 » → [1850, 1859] ; « 1850 » → [1850, 1850] ; sinon null.
+function yearRange(text) {
+  const m = /^(\d{3,4})(?:-(\d{3,4}))?$/.exec(text || '');
+  return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
+}
+
+function personsListHash(page = state.persons.page, query = state.persons.query,
+                         filters = state.persons.filters) {
   const p = new URLSearchParams();
   if (query) p.set('q', query);
+  for (const [k, v] of Object.entries(filters || {})) p.set(k, v);
   if (page > 1) p.set('page', page);
   const qs = p.toString();
   return '#/personnes' + (qs ? '?' + qs : '');
@@ -362,14 +390,16 @@ async function applyRoute() {
   try {
     if (route.name === 'personnes') {
       const query = route.params.get('q') || '';
+      const filters = personFiltersFrom(route.params);
       const page = pageParam(route.params);
       closeDetail();
       document.getElementById('persons-search').value = query;
-      if (!state.persons.loaded || state.persons.query !== query || state.persons.page !== page) {
-        await loadPersons(page, query);
+      if (!state.persons.loaded || state.persons.query !== query || state.persons.page !== page
+          || !sameFilters(state.persons.filters, filters)) {
+        await loadPersons(page, query, filters);
       }
     } else if (route.name === 'personne') {
-      if (!state.persons.loaded) await loadPersons(1, '');
+      if (!state.persons.loaded) await loadPersons(1, '', {});
       if (seq === _routeSeq) await openPersonDetail(route.id);
     } else if (route.name === 'familles') {
       const page = pageParam(route.params);
@@ -380,6 +410,7 @@ async function applyRoute() {
       if (seq === _routeSeq) await openFamilyDetail(route.id);
     } else {
       closeDetail();   // Événements, Stats, Export : pas de fiche
+      if (route.name === 'evenements') applyEventsRoute(route.params);
     }
   } catch { /* session expirée : gérée par apiFetch ; autres erreurs déjà affichées */ }
 }
@@ -399,19 +430,28 @@ function wirePersonsTab() {
   searchBtn.addEventListener('click', search);
   searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
 
+  // ✕ vide la recherche et les filtres.
   clearBtn.addEventListener('click', () => {
     searchInput.value = '';
-    navigate(personsListHash(1, ''));
+    navigate(personsListHash(1, '', {}));
   });
 
   prevBtn.addEventListener('click', () => navigate(personsListHash(state.persons.page - 1)));
   nextBtn.addEventListener('click', () => navigate(personsListHash(state.persons.page + 1)));
 }
 
-async function loadPersons(page, query) {
+async function loadPersons(page, query, filters = {}) {
   const seq = ++_personsSeq;
-  let url = `/api/v1/persons/?page=${page}&size=50`;
-  if (query) url += `&query=${encodeURIComponent(query)}`;
+  const params = new URLSearchParams({ page, size: 50 });
+  if (query) params.set('query', query);
+  if (filters.nom) params.set('surname', filters.nom);
+  if (filters.lieu) params.set('place', filters.lieu);
+  const years = yearRange(filters.ne);
+  if (years) {
+    params.set('birth_year_from', years[0]);
+    params.set('birth_year_to', years[1]);
+  }
+  const url = '/api/v1/persons/?' + params;
   let data;
   try {
     data = await apiJson(url);
@@ -426,11 +466,28 @@ async function loadPersons(page, query) {
   rememberNames(data.items);
   state.persons.loaded = true;
   state.persons.query = query || '';
+  state.persons.filters = filters;
   state.persons.items = data.items;
   state.persons.page = data.pagination.page;
   state.persons.pages = data.pagination.pages;
   renderPersons();
+  renderPersonFilters();
   updatePersonPagination(data.pagination);
+}
+
+// Pastilles des filtres actifs ; ✕ retire un filtre (l'adresse suit).
+function renderPersonFilters() {
+  const bar = document.getElementById('persons-filters');
+  const filters = state.persons.filters;
+  const keys = Object.keys(filters);
+  bar.hidden = !keys.length;
+  bar.innerHTML = keys.map(k => {
+    const rest = { ...filters };
+    delete rest[k];
+    const value = k === 'ne' ? filters[k].replace('-', '–') : formatGwName(filters[k]);
+    return `<span class="filter-chip">${escHtml(PERSON_FILTERS[k])} : <strong>${escHtml(value)}</strong>`
+      + ` <a href="${escHtml(personsListHash(1, state.persons.query, rest))}" aria-label="Retirer le filtre ${escHtml(PERSON_FILTERS[k])}">✕</a></span>`;
+  }).join('');
 }
 
 function renderPersons() {
@@ -1015,6 +1072,25 @@ function checkEvtGate() {
   document.getElementById('evt-search-btn').disabled = !(hasType || hasLieu || hasPerson || hasNom);
 }
 
+// #/evenements?type=birt,deat&lieu=Paris : coche les filtres et lance la recherche.
+// Sans paramètre, l'onglet garde ses filtres et son tableau.
+function applyEventsRoute(params) {
+  const types = (params.get('type') || '').split(',').filter(Boolean);
+  const lieu = (params.get('lieu') || '').trim();
+  const key = types.join(',') + '|' + lieu;
+  if ((!types.length && !lieu) || key === state.evtRouteKey) return;
+  state.evtRouteKey = key;
+  document.querySelectorAll('.evt-type-cb').forEach(cb => { cb.checked = types.includes(cb.value); });
+  const more = document.querySelector('.evt-more-types');
+  if (more && more.querySelector('.evt-type-cb:checked')) more.open = true;
+  document.getElementById('evt-lieu').value = lieu;
+  document.getElementById('evt-person-id').value = '';
+  document.getElementById('evt-person-name').value = '';
+  document.getElementById('evt-nom-famille').value = '';
+  checkEvtGate();
+  runEvtSearch();
+}
+
 async function runEvtSearch() {
   const selectedTypes = [...document.querySelectorAll('.evt-type-cb:checked')].map(cb => cb.value);
   const lieu = (document.getElementById('evt-lieu').value || '').trim();
@@ -1317,24 +1393,105 @@ function renderStats() {
     ).join('')
   }</div>`;
 
-  let tableHtml = '';
-  const eventsByType = s.events_by_type;
-  if (eventsByType && Object.keys(eventsByType).length > 0) {
-    const rows = Object.entries(eventsByType).map(([key, count]) => {
-      const typeEntry = EVENT_TYPES.find(t => t.value === key);
-      const label = typeEntry ? typeEntry.label : escHtml(key);
-      return `<tr><td>${label}</td><td>${escHtml(String(count))}</td></tr>`;
-    }).join('');
-    tableHtml = `
-      <h3 style="color:var(--accent);margin-top:1.5rem">Événements par type</h3>
-      <div style="max-width:400px">
-        <table class="table table-sm">
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-  }
+  const adv = s.advanced || {};
+  const charts = [
+    decadeChart(adv.births_by_decade || {}),
+    barCard('Patronymes les plus portés', 'personnes',
+      (adv.top_surnames || []).map(r => ({
+        label: formatGwName(r.surname), count: r.count,
+        href: personsListHash(1, '', { nom: r.surname }),
+      }))),
+    barCard('Lieux de naissance les plus fréquents', 'naissances',
+      ((adv.geography || {}).top_birth_places || []).map(r => ({
+        label: formatGwName(r.place), count: r.count,
+        href: personsListHash(1, '', { lieu: r.place }),
+      }))),
+    barCard('Événements par type', 'événements',
+      Object.entries(s.events_by_type || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([code, count]) => ({
+          label: eventTypeLabel(code), count,
+          href: EVENT_TYPE_MAP[code] ? '#/evenements?type=' + encodeURIComponent(code) : null,
+        })), 'Un clic ouvre les événements de ce type.'),
+    coverageCard(adv.coverage),
+  ].filter(Boolean).join('');
 
-  container.innerHTML = gridHtml + tableHtml;
+  container.innerHTML = gridHtml + `<div class="charts-grid">${charts}</div>`;
+}
+
+const fmtInt = n => Number(n || 0).toLocaleString('fr-FR');
+
+// Histogramme des naissances : une colonne par décennie, décennies vides comprises
+// (l'axe du temps reste régulier). Un clic liste les personnes nées dans la décennie.
+function decadeChart(byDecade) {
+  const decades = Object.keys(byDecade).map(Number).sort((a, b) => a - b);
+  if (!decades.length) return '';
+  const first = decades[0];
+  const last = decades[decades.length - 1];
+  const cols = [];
+  for (let d = first; d <= last; d += 10) cols.push({ decade: d, count: byDecade[String(d)] || 0 });
+  const max = Math.max(...cols.map(c => c.count));
+  const total = cols.reduce((sum, c) => sum + c.count, 0);
+  // Étiquettes de l'axe : chaque décennie si peu nombreuses, sinon les demi-siècles.
+  const step = cols.length <= 12 ? 10 : cols.length <= 30 ? 50 : 100;
+  const bars = cols.map(c => {
+    const tip = `${c.decade}–${c.decade + 9} : ${fmtInt(c.count)} naissance${c.count > 1 ? 's' : ''}`;
+    const h = c.count ? Math.max(2, Math.round((c.count / max) * 100)) : 0;
+    const label = c.decade % step === 0 || cols.length === 1 ? `<span class="col-tick">${c.decade}</span>` : '';
+    const bar = `<span class="col-bar" style="height:${h}%"></span>${label}`;
+    return c.count
+      ? `<a class="col" href="${escHtml(personsListHash(1, '', { ne: `${c.decade}-${c.decade + 9}` }))}" data-tip="${escHtml(tip)}" aria-label="${escHtml(tip)}">${bar}</a>`
+      : `<span class="col is-empty" data-tip="${escHtml(tip)}">${bar}</span>`;
+  }).join('');
+  return `<section class="chart-card chart-wide">
+    <h3>Naissances par décennie</h3>
+    <p class="chart-sub">${fmtInt(total)} naissances datées, de ${first} à ${last + 9}. Un clic liste les personnes nées dans la décennie.</p>
+    <div class="col-chart" style="--cols:${cols.length}">${bars}</div>
+  </section>`;
+}
+
+// Barres horizontales triées : libellé et effectif toujours lisibles (pas de couleur seule).
+function barCard(title, unit, rows, sub = 'Un clic ouvre la liste des personnes correspondantes.') {
+  if (!rows.length) return '';
+  const max = Math.max(...rows.map(r => r.count));
+  const items = rows.map(r => {
+    const inner = `<span class="hbar-label">${escHtml(r.label || '—')}</span>`
+      + `<span class="hbar-track"><span class="hbar-fill" style="width:${Math.max(1, (r.count / max) * 100)}%"></span></span>`
+      + `<span class="hbar-value">${fmtInt(r.count)}</span>`;
+    const tip = `${r.label} : ${fmtInt(r.count)} ${unit}`;
+    return r.href
+      ? `<li><a class="hbar" href="${escHtml(r.href)}" title="${escHtml(tip)}">${inner}</a></li>`
+      : `<li><span class="hbar" title="${escHtml(tip)}">${inner}</span></li>`;
+  }).join('');
+  return `<section class="chart-card">
+    <h3>${escHtml(title)}</h3>
+    <p class="chart-sub">${escHtml(sub)}</p>
+    <ol class="hbar-list">${items}</ol>
+  </section>`;
+}
+
+// Part des personnes renseignées : ce qui reste à documenter dans la base.
+function coverageCard(cov) {
+  if (!cov || !cov.persons) return '';
+  const rows = [
+    ['Date de naissance', cov.with_birth_date],
+    ['Lieu de naissance', cov.with_birth_place],
+    ['Date de décès', cov.with_death_date],
+    ['Profession', cov.with_occupation],
+    ['Au moins une source', cov.with_source],
+  ];
+  const items = rows.map(([label, n]) => {
+    const pct = Math.round((n / cov.persons) * 100);
+    return `<li class="hbar" title="${escHtml(`${label} : ${fmtInt(n)} / ${fmtInt(cov.persons)}`)}">`
+      + `<span class="hbar-label">${escHtml(label)}</span>`
+      + `<span class="hbar-track"><span class="hbar-fill" style="width:${pct}%"></span></span>`
+      + `<span class="hbar-value">${pct} %</span></li>`;
+  }).join('');
+  return `<section class="chart-card">
+    <h3>Complétude de la base</h3>
+    <p class="chart-sub">Part des ${fmtInt(cov.persons)} personnes pour qui l'information est renseignée.</p>
+    <ul class="hbar-list">${items}</ul>
+  </section>`;
 }
 
 // ==================== EXPORT ====================
