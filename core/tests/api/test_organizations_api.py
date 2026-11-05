@@ -8,12 +8,16 @@ from fastapi.testclient import TestClient
 
 from geneweb_py.api.dependencies import get_session_service
 from geneweb_py.api.main import app
+from geneweb_py.api.models.event import EventUpdateSchema
+from geneweb_py.api.models.person import PersonUpdateSchema
+from geneweb_py.api.serialization import stable_event_id
 from geneweb_py.api.services import genealogy_service as service_module
 from geneweb_py.api.services.genealogy_service import GenealogyService
 from geneweb_py.api.services.organization_candidates import build_candidate_index
 from geneweb_py.api.services.organization_exports import (
     CANDIDATES_CSV_HEADER,
 )
+from geneweb_py.core.event import EventType
 from geneweb_py.core.parser.gw_parser import GeneWebParser
 
 GW = """pevt DUPONT Jean
@@ -47,13 +51,29 @@ end pevt
 
 
 @pytest.fixture
-def client():
-    service = GenealogyService(GeneWebParser().parse_string(GW))
+def service():
+    return GenealogyService(GeneWebParser().parse_string(GW))
+
+
+@pytest.fixture
+def client(service):
     app.dependency_overrides[get_session_service] = lambda: service
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+
+
+def _event_id(service, person_id, index):
+    person = service.get_person(person_id)
+    return stable_event_id(
+        person.events[index], scope="person", scope_key=person.unique_id, index=index
+    )
+
+
+def _members(client, org_id):
+    body = client.get(f"/api/v1/organizations/candidates/{org_id}").json()
+    return {m["person_id"]: m for m in body["members"]}
 
 
 def test_candidates_default_sort_by_persons(client):
@@ -132,9 +152,13 @@ def test_unmatched_lists_other_events_without_candidate(client):
     assert u["groups"][-1]["word"] == "autres"
     assert all(len(g["events"]) <= 50 for g in u["groups"])
     assert u["total"] == 6
+    autres = next(g for g in u["groups"] if g["word"] == "autres")
+    # Review Focus 1 : un tag à nombre unique ne forme pas de groupe.
+    assert any(e["event_type_raw"] == "Membre_1900" for e in autres["events"])
+    assert "1900" not in words
 
 
-def test_index_is_computed_once_per_service(monkeypatch):
+def test_index_is_computed_once_per_service(monkeypatch, service):
     calls = []
     real = service_module.build_candidate_index
     monkeypatch.setattr(
@@ -142,13 +166,84 @@ def test_index_is_computed_once_per_service(monkeypatch):
         "build_candidate_index",
         lambda g: calls.append(1) or real(g),
     )
-    service = GenealogyService(GeneWebParser().parse_string(GW))
     first = service.get_candidate_index()
     assert service.get_candidate_index() is first
     assert len(calls) == 1
-    service._candidate_index = None  # invalidation par une écriture
-    service.get_candidate_index()
-    assert len(calls) == 2
+    # Une écriture réelle invalide l'index, qui est alors recalculé.
+    service.delete_event(_event_id(service, "DUPONT_Jean_0", 0))
+    second = service.get_candidate_index()
+    assert second is not first and len(calls) == 2
+    assert "usine_martin_roubaix" not in second.candidates
+
+
+def test_delete_event_keeps_members_on_the_right_events(client, service):
+    assert "DUPONT_Jean_0" in _members(client, "usine_martin_roubaix")
+    service.delete_event(_event_id(service, "DUPONT_Jean_0", 0))  # l'occu de Jean
+    cercle = _members(client, "cercle_philatelique")
+    assert cercle["DUPONT_Jean_0"]["date"] == "1900"
+    assert cercle["DUPONT_Jean_0"]["place"] is None
+    assert cercle["DUPONT_Jean_0"]["witness_count"] == 0
+    assert cercle["MARTIN_Marie_0"]["date"] == "1905"
+    # Le candidat Usine n'a plus qu'une personne : il disparaît.
+    assert (
+        client.get("/api/v1/organizations/candidates/usine_martin_roubaix").status_code
+        == 404
+    )
+    u = client.get("/api/v1/organizations/unmatched").json()
+    all_tags = {e["event_type_raw"] for g in u["groups"] for e in g["events"]}
+    assert "Cercle_Philatelique" not in all_tags  # toujours rattaché au candidat
+    assert "Membre_1900" in all_tags and "Reunion" in all_tags
+    assert u["total"] == 7
+
+
+def test_update_event_changing_type_changes_candidates(client, service):
+    assert "cercle_philatelique" in {
+        c["id"] for c in client.get("/api/v1/organizations/candidates").json()["items"]
+    }
+    service.update_event(
+        _event_id(service, "MARTIN_Marie_0", 1),
+        EventUpdateSchema(event_type=EventType.RESIDENCE),
+    )
+    ids = {
+        c["id"] for c in client.get("/api/v1/organizations/candidates").json()["items"]
+    }
+    assert "cercle_philatelique" not in ids
+
+
+def test_person_writes_refresh_candidates(client, service):
+    service.update_person("DUPONT_Jean_0", PersonUpdateSchema(first_name="Jules"))
+    names = {m["person_name"] for m in _members(client, "cercle_philatelique").values()}
+    assert "DUPONT Jules" in names
+    service.delete_person("DUPONT_Jean_0")
+    # Usine n'a plus qu'une personne : plus de candidat.
+    assert (
+        client.get("/api/v1/organizations/candidates/usine_martin_roubaix").status_code
+        == 404
+    )
+    ids = {
+        c["id"] for c in client.get("/api/v1/organizations/candidates").json()["items"]
+    }
+    assert ids == {"conference_histoire"}  # seul candidat encore à deux personnes
+    assert all(
+        link.person_id != "DUPONT_Jean_0"
+        for link in service.genealogy.organization_links
+    )
+
+
+def test_unmatched_ignores_numeric_tokens():
+    gw = """pevt DUPONT Jean
+#Membre_1900 1900
+#Annee_1900 1901
+end pevt
+
+pevt MARTIN Marie
+#Membre_1900 1902
+end pevt
+"""
+    idx = build_candidate_index(GeneWebParser().parse_string(gw))
+    words = {g.word for g in idx.unmatched_groups}
+    assert "1900" not in words and "membre" in words
+    assert idx.unmatched_total == 3
 
 
 def test_index_tolerates_links_without_event_reference():
@@ -249,3 +344,4 @@ def test_csv_exports_without_candidates_have_header_only():
 
 def test_unknown_export_format_still_rejected(client):
     assert client.get("/api/v1/genealogy/export/org-xml").status_code in (400, 404, 422)
+

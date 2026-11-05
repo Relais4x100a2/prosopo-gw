@@ -92,6 +92,7 @@ class GenealogyService:
         self._parser = GeneWebParser(use_multipass=False)
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
         self._candidate_index: Optional[CandidateIndex] = None
+        self._orgs_inferred = False  # organisations produites par l'inférence
         if genealogy is not None:
             self._genealogy = genealogy
         else:
@@ -273,6 +274,7 @@ class GenealogyService:
             person.titles = titles_from_create_schemas(person_data.titles)
 
         genealogy.metadata.modified_date = datetime.now()
+        self._invalidate_caches()
         return person
 
     def delete_person(self, person_id: str) -> bool:
@@ -307,6 +309,7 @@ class GenealogyService:
         if person_id in genealogy.persons:
             del genealogy.persons[person_id]
         genealogy.metadata.modified_date = datetime.now()
+        self._invalidate_caches()
 
         return True
 
@@ -647,8 +650,7 @@ class GenealogyService:
         # Ajout à la personne
         person.events.append(event)
         genealogy.metadata.modified_date = datetime.now()
-        self._witness_index = None
-        self._candidate_index = None
+        self._invalidate_caches()
 
         return event
 
@@ -694,8 +696,7 @@ class GenealogyService:
         # Ajout à la famille
         family.events.append(event)
         genealogy.metadata.modified_date = datetime.now()
-        self._witness_index = None
-        self._candidate_index = None
+        self._invalidate_caches()
 
         return event
 
@@ -802,8 +803,6 @@ class GenealogyService:
             event.notes = [event_data.note] if event_data.note else []
         if event_data.witnesses is not None:
             event.witnesses = [{"person_id": str(w)} for w in event_data.witnesses]
-            self._witness_index = None
-            self._candidate_index = None
         if event_data.sources is not None:
             first_src: Optional[str] = None
             for s in event_data.sources:
@@ -813,6 +812,7 @@ class GenealogyService:
             event.source = first_src
 
         genealogy.metadata.modified_date = datetime.now()
+        self._invalidate_caches()
         return event
 
     def delete_event(self, event_id: str) -> bool:
@@ -833,8 +833,7 @@ class GenealogyService:
                 uid = getattr(pev, "unique_id", None)
                 if uid is not None and uid == event_id:
                     del person.events[i]
-                    self._witness_index = None
-                    self._candidate_index = None
+                    self._invalidate_caches()
                     genealogy.metadata.modified_date = datetime.now()
                     return True
                 if (
@@ -844,8 +843,7 @@ class GenealogyService:
                     == event_id
                 ):
                     del person.events[i]
-                    self._witness_index = None
-                    self._candidate_index = None
+                    self._invalidate_caches()
                     genealogy.metadata.modified_date = datetime.now()
                     return True
 
@@ -855,8 +853,7 @@ class GenealogyService:
                 uid = getattr(fev, "unique_id", None)
                 if uid is not None and uid == event_id:
                     del family.events[i]
-                    self._witness_index = None
-                    self._candidate_index = None
+                    self._invalidate_caches()
                     genealogy.metadata.modified_date = datetime.now()
                     return True
                 if (
@@ -866,8 +863,7 @@ class GenealogyService:
                     == event_id
                 ):
                     del family.events[i]
-                    self._witness_index = None
-                    self._candidate_index = None
+                    self._invalidate_caches()
                     genealogy.metadata.modified_date = datetime.now()
                     return True
 
@@ -1080,9 +1076,25 @@ class GenealogyService:
         self._witness_index = index
         return self._witness_index
 
+    def _invalidate_caches(self) -> None:
+        """Invalide les caches dérivés après une écriture.
+
+        Les organisations inférées sont retirées : leurs liens désignent les
+        événements par position et seraient faux après une modification.
+        Elles sont recalculées au prochain accès à l'index des candidats.
+        """
+        self._witness_index = None
+        self._candidate_index = None
+        if self._orgs_inferred:
+            self.genealogy.organizations.clear()
+            self.genealogy.organization_links.clear()
+            self._orgs_inferred = False
+
     def get_candidate_index(self) -> CandidateIndex:
         """Index des organisations candidates (calculé une fois, invalidé à l'écriture)."""
         if self._candidate_index is None:
+            if not self.genealogy.organizations:
+                self._orgs_inferred = True  # build_candidate_index va inférer
             self._candidate_index = build_candidate_index(self.genealogy)
         return self._candidate_index
 

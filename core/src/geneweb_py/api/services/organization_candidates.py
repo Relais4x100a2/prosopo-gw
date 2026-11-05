@@ -221,7 +221,11 @@ def _build_unmatched(
                         date=event.date.display_text if event.date else None,
                         place=event.place,
                     ),
-                    {w for w in _words(tag) if len(w) >= UNMATCHED_MIN_WORD_LEN},
+                    {
+                        w
+                        for w in _words(tag)
+                        if len(w) >= UNMATCHED_MIN_WORD_LEN and w.isalpha()
+                    },
                 )
             )
 
