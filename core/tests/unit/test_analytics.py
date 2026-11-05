@@ -64,7 +64,7 @@ class TestBuildNetwork:
         org = network.node("org:atelier_rose_lyon")
         assert org.label == "Atelier Rose"
         assert org.attrs["place"] == "Lyon"
-        assert org.attrs["type"] == "school"
+        assert org.attrs["type"] == "company"  # mot d'établissement « atelier »
 
     def test_events_option_adds_event_nodes_with_participants(self, genealogy):
         network = build_network(genealogy, include_events=True)
