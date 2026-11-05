@@ -20,7 +20,7 @@ from ...core.event_to_organization import (
     parse_event_ref,
 )
 from ...core.genealogy import Genealogy
-from ...core.organization import Organization, OrganizationLink
+from ...core.organization import Organization, OrganizationLink, OrganizationType
 from ...core.person import Person
 from ...core.shared_experiences import SharedExperience
 
@@ -266,7 +266,10 @@ def _build_candidates(
         persons = {m.person_id for m in org_members}
         org = genealogy.organizations[org_id]
         # Une société nommée comme telle vaut organisation dès une personne
-        names_company = org.metadata.get("trigger") in COMPANY_NAME_TRIGGERS
+        names_company = (
+            org.type is OrganizationType.COMPANY
+            and org.metadata.get("trigger") in COMPANY_NAME_TRIGGERS
+        )
         if len(persons) < CANDIDATE_MIN_PERSONS and not names_company:
             continue
         years = [m.year for m in org_members if m.year is not None]

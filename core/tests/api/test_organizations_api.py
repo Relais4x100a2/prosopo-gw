@@ -180,7 +180,8 @@ def test_index_is_computed_once_per_service(monkeypatch, service):
     service.delete_event(_event_id(service, "DUPONT_Jean_0", 0))
     second = service.get_candidate_index()
     assert second is not first and len(calls) == 2
-    assert "usine_martin_roubaix" not in second.candidates
+    # Une usine reste proposée avec une seule personne.
+    assert second.candidates["usine_martin_roubaix"].person_count == 1
 
 
 def test_delete_event_keeps_members_on_the_right_events(client, service):
@@ -191,16 +192,13 @@ def test_delete_event_keeps_members_on_the_right_events(client, service):
     assert cercle["DUPONT_Jean_0"]["place"] is None
     assert cercle["DUPONT_Jean_0"]["witness_count"] == 0
     assert cercle["MARTIN_Marie_0"]["date"] == "1905"
-    # Le candidat Usine n'a plus qu'une personne : il disparaît.
-    assert (
-        client.get("/api/v1/organizations/candidates/usine_martin_roubaix").status_code
-        == 404
-    )
+    # L'usine n'a plus qu'une personne : nommée comme entreprise, elle reste.
+    assert set(_members(client, "usine_martin_roubaix")) == {"MARTIN_Marie_0"}
     u = client.get("/api/v1/organizations/unmatched").json()
     all_tags = {e["event_type_raw"] for g in u["groups"] for e in g["events"]}
     assert "Cercle_Philatelique" not in all_tags  # toujours rattaché au candidat
-    assert "Membre_1900" in all_tags and "Reunion" in all_tags
-    assert u["total"] == 7
+    assert "Membre_1900" in all_tags and "Reunion" not in all_tags
+    assert u["total"] == 6  # « Reunion » rattachée à l'usine
 
 
 def test_update_event_changing_type_changes_candidates(client, service):
@@ -222,15 +220,12 @@ def test_person_writes_refresh_candidates(client, service):
     names = {m["person_name"] for m in _members(client, "cercle_philatelique").values()}
     assert "DUPONT Jules" in names
     service.delete_person("DUPONT_Jean_0")
-    # Usine n'a plus qu'une personne : plus de candidat.
-    assert (
-        client.get("/api/v1/organizations/candidates/usine_martin_roubaix").status_code
-        == 404
-    )
+    # L'usine n'a plus qu'une personne : nommée comme entreprise, elle reste.
+    assert set(_members(client, "usine_martin_roubaix")) == {"MARTIN_Marie_0"}
     ids = {
         c["id"] for c in client.get("/api/v1/organizations/candidates").json()["items"]
     }
-    assert ids == {"societe_histoire"}  # seul candidat encore à deux personnes
+    assert ids == {"societe_histoire", "usine_martin_roubaix"}
     assert all(
         link.person_id != "DUPONT_Jean_0"
         for link in service.genealogy.organization_links

@@ -128,10 +128,58 @@ def test_acts_of_one_company_share_the_organization():
     assert org.type is OrganizationType.COMPANY
 
 
-def test_plain_establishment_tag_alone_stays_unclassified():
-    # « maison », « bureau » : trop ambigus sans autre personne
-    g = _parse("#Maison_de_campagne 1900 #p Lyon")
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "Maison_de_campagne",
+        "Achat_maison",
+        "Bureau_de_vote",
+        "Atelier_peinture",
+        "Magasin_Fictif",
+        "Boutique_Fictive",
+        "Etude_du_piano",
+    ],
+)
+def test_ambiguous_establishment_tag_alone_stays_unclassified(tag):
+    g = _parse(f"#{tag} 1900 #p Lyon")
     assert g.infer_organizations() == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "tag, name",
+    [
+        ("Embauche_usine_Fictive", "Usine Fictive"),
+        ("Entreprise_DUPONT_Freres", "Entreprise DUPONT Freres"),
+        ("Manufacture_des_Tabacs", "Manufacture des Tabacs"),
+        ("Fabrique_de_Rubans", "Fabrique de Rubans"),
+        ("Filature_Fictive", "Filature Fictive"),
+        ("Banque_Fictive", "Banque Fictive"),
+        ("Comptoir_des_Soies", "Comptoir des Soies"),
+        ("Agence_Fictive", "Agence Fictive"),
+        ("Etablissements_DUPONT", "Etablissements DUPONT"),
+        ("Etablissement_DUPONT", "Etablissement DUPONT"),
+        ("Compagnie_des_Eaux", "Compagnie des Eaux"),
+        ("DUPONT_SA", "DUPONT SA"),
+    ],
+)
+def test_unambiguous_company_words_suffice_alone(tag, name):
+    g = _parse(f"#{tag} 1900 #p Lyon")
+    if name is None:
+        assert g.infer_organizations() == (0, 0)
+        return
+    assert g.infer_organizations() == (1, 1)
+    org = next(iter(g.organizations.values()))
+    assert (org.name, org.type) == (name, OrganizationType.COMPANY)
+
+
+def test_bare_company_word_names_nothing():
+    g = _parse("#Visite_usine 1900 #p Lyon")
+    assert g.infer_organizations() == (0, 0)
+
+
+def test_military_compagnie_is_not_a_lone_company():
+    g = _parse("#Compagnie_3 1915 #p Verdun")
+    assert all(o.type is not OrganizationType.COMPANY for o in g.organizations.values())
 
 
 def test_witnesses_join_typed_event_organizations():

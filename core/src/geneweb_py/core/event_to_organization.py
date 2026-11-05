@@ -167,6 +167,8 @@ ESTABLISHMENT_WORDS: Dict[str, OrganizationType] = {
             "maison",
             "banque",
             "etablissement",
+            # « Établissements DUPONT » : raison sociale au pluriel
+            "etablissements",
             # Lieux d'activité, qui tenaient lieu de raison sociale avant 1900
             "agence",
             "boutique",
@@ -303,30 +305,54 @@ def parse_event_ref(ref: Optional[str]) -> Optional[Tuple[str, int]]:
 # Formes juridiques reconnues telles qu'écrites (capitales, « Et. » avec son point)
 LEGAL_FORMS: FrozenSet[str] = frozenset({"SNC", "SARL", "SA", "SAS", "Et."})
 
-# Mots qui désignent à eux seuls une société : un tag qui en contient un suffit,
-# même porté par une seule personne sans témoin (« Formation société X et Cie »)
-COMPANY_NAME_TRIGGERS: FrozenSet[str] = frozenset(
-    {"societe", "cie", "commandite", "snc", "sarl", "sa", "sas", "et."}
+# Formes de société placées après le nom (« DUPONT et Cie », « DUPONT SA »)
+_COMPANY_SUFFIXES: FrozenSet[str] = frozenset(
+    {"cie", "snc", "sarl", "sa", "sas", "et."}
+)
+
+# Mots qui désignent à eux seuls une entreprise : un tag qui en contient un suffit,
+# même porté par une seule personne sans témoin (« Formation société X et Cie »).
+# Maison, bureau, atelier, magasin, boutique et étude, trop ambigus (« Achat
+# maison », « Bureau de vote »), gardent le seuil de deux personnes.
+COMPANY_NAME_TRIGGERS: FrozenSet[str] = _COMPANY_SUFFIXES | frozenset(
+    {
+        "societe",
+        "commandite",
+        "usine",
+        "entreprise",
+        "manufacture",
+        "fabrique",
+        "filature",
+        "banque",
+        "comptoir",
+        "agence",
+        "etablissement",
+        "etablissements",
+        "compagnie",
+    }
 )
 
 _QUOTES = '"«»“”„'
 
 
-def _company_name(tag_name: str, trigger: str) -> str:
-    """Nom de la société lue dans un tag.
+def _company_name(tag_name: str, trigger: str) -> Optional[str]:
+    """Nom de l'entreprise lue dans un tag, ``None`` si le tag ne la nomme pas.
 
-    Les mots qui précèdent « société » décrivent l'acte (« Formation »,
+    Les mots qui précèdent le mot d'entreprise décrivent l'acte (« Formation »,
     « Dissolution », « Président de la ») : ils sont retirés, pour que tous les
-    actes d'une même société désignent la même organisation.
+    actes d'une même entreprise désignent la même organisation. Un tag réduit à
+    ce mot (« Visite usine ») ne nomme rien.
     """
-    words = tag_name.split()
-    if trigger == "societe":
-        folded = [_fold(w).strip(_QUOTES) for w in words]
-        if "societe" in folded:
-            words = words[folded.index("societe") :]
-    name = " ".join(w.strip(_QUOTES) for w in words).strip()
-    name = " ".join(name.split())
-    return name[:1].upper() + name[1:] if name else tag_name
+    words = [w.strip(_QUOTES) for w in tag_name.split()]
+    words = [w for w in words if w]
+    if trigger not in _COMPANY_SUFFIXES:
+        folded = [_fold(w).rstrip(".") for w in words]
+        if trigger in folded:
+            words = words[folded.index(trigger) :]
+        if len(words) < 2:
+            return None
+    name = " ".join(words)
+    return name[:1].upper() + name[1:] if name else None
 
 
 # Témoins d'un événement retenu comme organisation : membres ou acteurs de celle-ci
@@ -552,9 +578,17 @@ class EventToOrganizationMapper:
         # 0. tag qui nomme une société : prime sur le complément (« Dissolution
         # société X » enregistrée au tribunal reste rattachée à la société)
         company = _establishment_in(tag_name) if rule is None and tag_name else None
-        if tag_name and company is not None and company[0] in COMPANY_NAME_TRIGGERS:
+        company_name = (
+            _company_name(tag_name, company[0])
+            if tag_name
+            and company is not None
+            and company[1] is OrganizationType.COMPANY
+            and company[0] in COMPANY_NAME_TRIGGERS
+            else None
+        )
+        if company is not None and company_name is not None:
             return OrganizationProposal(
-                name=_company_name(tag_name, company[0]),
+                name=company_name,
                 type=OrganizationType.COMPANY,
                 place=city,
                 confidence=_CONF_STRONG,
