@@ -80,7 +80,7 @@ prosopo-gw/
 ├── core/                      Paquet `geneweb-py` : le moteur (bibliothèque + API + CLI)
 │   ├── src/geneweb_py/
 │   │   ├── parser/            lexical → syntax → gw_parser (+ multipass, streaming)
-│   │   ├── core/              Date, Person, Family, Event, Place, Organization, Genealogy, validation
+│   │   ├── core/              Date, Person, Family, Event, Place, Organization, expériences proches, Genealogy, validation
 │   │   ├── formats/           GEDCOM, JSON, XML, fichier compagnon d'organisations
 │   │   ├── api/               FastAPI : sessions, persons, families, events, genealogy
 │   │   ├── cli/               binaire `geneweb-py` (Click + Rich)
@@ -229,9 +229,11 @@ docker compose -f app/docker-compose.yml up -d --build
 
 ### Valider et enrichir
 
-La webapp de l'API (onglet « Organisations », routes `#/organisations` et `#/organisation/<id>`) liste les organisations candidates déduites par les règles, avec les personnes reliées, et une section « Reste à classer » pour les événements sans organisation. L'onglet Export propose trois fichiers : `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) et `liens_organisations.csv` (`/export/organization-links-csv`). Les CSV sont en UTF-8 avec BOM, séparateur `;`, pour s'ouvrir directement dans un tableur ; les libellés y sont en français, la confiance a une virgule décimale et les lignes sont triées par organisation.
+La webapp de l'API (onglet « Organisations », routes `#/organisations` et `#/organisation/<id>`) comporte deux sections : « Organisations (N) » et « Expériences proches (N) ». La première liste les organisations probables déduites par les règles, avec les personnes reliées. Les actes d'état civil (mariage, naissance, décès, recensement, domicile…) sont écartés d'office et jamais proposés comme organisations. Une organisation probable repose sur un signal fort : un événement typé, un mot d'établissement (confiance 0,8), un complément de lieu ou une adresse (source « Adresse ») ; un tag libre seul, comme `#Philatelie_Locale`, n'en fait plus une. La seconde réunit les personnes qui ont vécu un événement de même nature à la même période, dans la même ville ou avec un mot rare en commun dans leurs notes : c'est une proximité, pas une appartenance. Ces rapprochements ne sont pas enregistrés dans le `.org.json`. L'onglet Export propose trois fichiers pour les organisations : `genealogie.org.json` (`/api/v1/genealogy/export/org-json`), `organisations.csv` (`/export/organizations-csv`) et `liens_organisations.csv` (`/export/organization-links-csv`). Les CSV sont en UTF-8 avec BOM, séparateur `;`, pour s'ouvrir directement dans un tableur ; les libellés y sont en français, la confiance a une virgule décimale et les lignes sont triées par organisation.
 
-Des mots peuvent être ignorés : un événement personnalisé dont le nom contient l'un d'eux (par défaut « recensement » et « domicile ») n'est ni proposé ni à classer. La liste se règle dans l'onglet (ligne « Mots ignorés », bouton « Ignorer ce mot » du reste à classer), vaut pour les exports et reste mémorisée dans le navigateur.
+Un panneau replié, « Réglages et événements non classés », contient les mots ignorés, le nombre d'actes d'état civil écartés automatiquement et d'événements sans date, et le « Reste à classer » (événements sans organisation). Des mots peuvent être ignorés : un événement personnalisé dont le nom contient l'un d'eux n'est ni proposé ni à classer. La liste est vide par défaut ; elle se règle dans ce panneau (bouton « Ignorer ce mot » du reste à classer), vaut pour les exports et reste mémorisée dans le navigateur.
+
+Les expériences proches s'exportent en `experiences_proches.csv` (onglet Export, ou `GET /api/v1/genealogy/export/shared-experiences-csv`) et sont aussi disponibles en JSON (`GET /api/v1/organizations/shared-experiences`) ; la réponse donne `total` (toutes les expériences, avant le plafond de 500) et `truncated` quand le plafond s'applique. L'onglet Stats a une carte « Expériences proches ». En Python : `find_shared_experiences(genealogy, exclude=frozenset(), ignored_words=frozenset())` dans `geneweb_py.core.shared_experiences`. Conception : [`core/doc/shared_experiences_design.md`](core/doc/shared_experiences_design.md).
 
 Le `.gw` n'est jamais modifié : les candidates sont des propositions, à valider avant toute exploitation. Le résultat validé a vocation à revenir dans un `.org.json` propre, que la bibliothèque relit (`formats.org_sidecar.import_organizations`).
 

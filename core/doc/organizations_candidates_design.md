@@ -132,6 +132,8 @@ Dans tous les cas, le rôle du préfixe va dans `role` du lien, la ville dans `p
 
 ### 3.3 Confiance et type
 
+> **Mise à jour (novembre 2026)** : voir [`shared_experiences_design.md`](shared_experiences_design.md) — les actes d'état civil sont écartés d'office, un tag libre seul ne suffit plus, un mot d'établissement vaut 0,8 et les adresses sont une source.
+
 | Cas | Confiance | Type |
 |---|---|---|
 | 1. Complément de lieu contenant un **mot d'établissement** (§ 3.4), avec ou sans tag | 0,8 | celui du mot |
@@ -228,6 +230,8 @@ une même personne reliée par deux événements différents a deux liens. Le se
 personnes » (§ 3.1) s'applique à l'ensemble fusionné.
 
 ### 3.9 Découpage par ville et mots ignorés (suites du chantier A)
+
+> **Mise à jour (novembre 2026)** : voir [`shared_experiences_design.md`](shared_experiences_design.md) — la liste des mots ignorés est vide par défaut ; l'état civil est écarté automatiquement.
 
 - **Un tag, une ville, une organisation.** Un même tag employé dans deux villes donne deux
   organisations distinctes (décision de l'utilisateur, novembre 2026) : un « Cercle » à Lille et un

@@ -77,6 +77,8 @@ core/
                             # custom_rules injectables) + hook LLM optionnel ; Genealogy.infer_organizations()
                             # règles Autre, TYPED_EVENT_RULES, texte de profession
   genealogy.py      # Conteneur : Genealogy(persons, families, metadata)
+  shared_experiences.py  # find_shared_experiences(genealogy, exclude, ignored_words) : expériences proches
+                         # (même nature, même période, même ville ou mot rare des notes) ; proximité, non appartenance
   exceptions.py     # GeneWebParseError, GeneWebValidationError, GeneWebEncodingError
   validation.py     # Validation en modes strict / gracieux
   models.py         # Ré-exporte les classes publiques du modèle
