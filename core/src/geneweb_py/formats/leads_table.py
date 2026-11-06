@@ -7,10 +7,14 @@ pas recopié : il se joint par les identifiants des autres tables.
 """
 
 import hashlib
-from typing import AbstractSet, Iterable, List, Optional, Tuple
+from typing import AbstractSet, Iterable, List, Mapping, Optional
 
 from ..core.event import Event, EventType
-from ..core.event_to_organization import EventToOrganizationMapper, event_ref
+from ..core.event_to_organization import (
+    EventToOrganizationMapper,
+    _fold,
+    event_ref,
+)
 from ..core.family import Family
 from ..core.genealogy import Genealogy
 from ..core.note_leads import find_note_leads
@@ -70,22 +74,33 @@ def _family_owner(genealogy: Genealogy, family: Family) -> Optional[str]:
 
 
 def _occupation_note_named_org(
-    mapper: EventToOrganizationMapper, event: Event, matched: bool
+    mapper: EventToOrganizationMapper, event: Event, linked: AbstractSet[str]
 ) -> bool:
-    """La première note d'une Profession rattachée a nommé l'organisation."""
-    if not matched or event.event_type is not EventType.OCCUPATION or not event.notes:
+    """La première note d'une Profession nomme une organisation rattachée à l'événement.
+
+    Le mapper ne lit cette note que si le tag et le complément ne nomment aucun
+    établissement : on compare donc le nom proposé par la note aux organisations
+    effectivement rattachées, plutôt que de supposer que la note a servi.
+    """
+    if not linked or event.event_type is not EventType.OCCUPATION or not event.notes:
         return False
     city = event.place_parts.city if event.place_parts else None
     proposal = mapper.propose_from_occupation(event.notes[0], city)
-    return proposal is not None and proposal.trigger is not None
+    if proposal is None or proposal.trigger is None:
+        return False
+    return _fold(proposal.name).strip() in {_fold(n).strip() for n in linked}
 
 
 def build_leads_table(
     genealogy: Genealogy,
-    matched: AbstractSet[Tuple[str, int]],
+    linked: Mapping[str, AbstractSet[str]],
     ignored_words: Iterable[str],
 ) -> Table:
-    """Une ligne par piste, personnes puis familles, dans l'ordre de la base."""
+    """Une ligne par piste, personnes puis familles, dans l'ordre de la base.
+
+    ``linked`` associe un identifiant d'événement (``pevt:…``) aux noms des
+    organisations qui lui sont rattachées.
+    """
     ignored = list(ignored_words)
     mapper = EventToOrganizationMapper()
     rows: List[Row] = []
@@ -122,7 +137,9 @@ def build_leads_table(
         add("personne", pid, person.notes, pid)
         for index, event in enumerate(person.events):
             ref = event_ref(pid, index)
-            skip = _occupation_note_named_org(mapper, event, (pid, index) in matched)
+            skip = _occupation_note_named_org(
+                mapper, event, linked.get(ref, frozenset())
+            )
             add("evenement", ref, event.notes, pid, event_id=ref, skip_first=skip)
     for fid, family in genealogy.families.items():
         owner = _family_owner(genealogy, family)

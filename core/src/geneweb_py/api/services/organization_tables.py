@@ -4,7 +4,7 @@ Voir ``core/doc/exports_design.md``. Les lignes suivent l'ordre des CSV actuels 
 événements sont désignés par l'identifiant stable de la table ``evenements``.
 """
 
-from typing import List, Sequence, Set, Tuple
+from typing import Dict, List, Sequence, Set, Tuple
 
 from ...core.event_to_organization import event_ref
 from ...core.genealogy import Genealogy
@@ -210,6 +210,16 @@ def _experiences_proches(
     return rows
 
 
+def _linked_names(index: CandidateIndex) -> Dict[str, Set[str]]:
+    """Noms des organisations candidates rattachées à chaque événement."""
+    linked: Dict[str, Set[str]] = {}
+    for candidate in index.candidates.values():
+        for member in candidate.members:
+            if member.source_event_id:
+                linked.setdefault(member.source_event_id, set()).add(candidate.name)
+    return linked
+
+
 def build_organization_tables(
     genealogy: Genealogy,
     index: CandidateIndex,
@@ -230,6 +240,6 @@ def build_organization_tables(
             RESTE_A_CLASSER,
             _reste_a_classer(genealogy, index, shared, ignored_words),
         ),
-        build_leads_table(genealogy, index.matched, ignored_words),
+        build_leads_table(genealogy, _linked_names(index), ignored_words),
         Table(EXPERIENCES_PROCHES, _experiences_proches(genealogy, shared)),
     ]

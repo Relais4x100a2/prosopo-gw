@@ -1,6 +1,6 @@
 """Table ``pistes`` tirée des notes (fixtures 100 % synthétiques)."""
 
-from typing import AbstractSet, Iterable, List, Tuple
+from typing import AbstractSet, Iterable, List, Mapping, Optional
 
 from geneweb_py.core.family import Family
 from geneweb_py.core.genealogy import Genealogy
@@ -57,10 +57,10 @@ def _genealogy() -> Genealogy:
 
 def _rows(
     genealogy: Genealogy,
-    matched: AbstractSet[Tuple[str, int]] = frozenset(),
+    linked: Optional[Mapping[str, AbstractSet[str]]] = None,
     ignored_words: Iterable[str] = (),
 ) -> List[Row]:
-    return build_leads_table(genealogy, matched, ignored_words).rows
+    return build_leads_table(genealogy, linked or {}, ignored_words).rows
 
 
 def _marie(genealogy: Genealogy) -> str:
@@ -115,8 +115,19 @@ def test_occupation_note_used_by_org_skipped() -> None:
     kept = [r for r in _rows(g) if r["personne_id"] == marie]
     assert [r["evenement_id"] for r in kept] == [f"pevt:{marie}:0"]
     assert kept[0]["forte"] is True
-    skipped = [r for r in _rows(g, matched={(marie, 0)}) if r["personne_id"] == marie]
+    linked = {f"pevt:{marie}:0": {"Banque Fictive"}}
+    skipped = [r for r in _rows(g, linked) if r["personne_id"] == marie]
     assert skipped == []
+
+
+def test_occupation_note_kept_when_org_named_elsewhere() -> None:
+    g = _genealogy()
+    marie = _marie(g)
+    # Événement rattaché à une autre organisation (nommée par le complément) :
+    # la note n'a pas servi, la banque reste une piste.
+    linked = {f"pevt:{marie}:0": {"Usine Fictive"}}
+    kept = [r for r in _rows(g, linked) if r["personne_id"] == marie]
+    assert [r["mots"] for r in kept] == ["banque"]
 
 
 def test_ignored_words_passed() -> None:
@@ -134,6 +145,6 @@ def test_ids_stable_and_unique() -> None:
 
 
 def test_empty_genealogy() -> None:
-    table = build_leads_table(Genealogy(), set(), [])
+    table = build_leads_table(Genealogy(), {}, [])
     assert table.spec is PISTES
     assert table.rows == []

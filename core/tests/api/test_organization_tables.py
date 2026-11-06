@@ -169,3 +169,31 @@ def test_building_tables_leaves_csv_exports_untouched() -> None:
         "﻿organisation_id;organisation;personne_id;personne;role;date;lieu;"
         "type_evenement;evenement;nb_temoins;statut;nom_retenu"
     )
+
+
+def test_occupation_note_lead_depends_on_named_org() -> None:
+    gw = """encoding: utf-8
+
+pevt DUPONT Jean
+#occu 1900 #p [Usine Fictive] - Lyon
+note Directeur, Banque Imaginaire
+end pevt
+
+pevt MARTIN Marie
+#occu 1901 #p [Usine Fictive] - Lyon
+end pevt
+
+pevt DURAND Paul
+#occu 1902 #p Lyon
+note Employé à la Banque Fictive
+end pevt
+
+pevt DURAND Louis
+#occu 1903 #p Lyon
+note Employé à la Banque Fictive
+end pevt
+"""
+    g = GeneWebParser(validate=False).parse_string(gw)
+    rows = _build(g)["pistes"].rows
+    assert [r["evenement_id"] for r in rows] == ["pevt:DUPONT_Jean_0:0"]
+    assert rows[0]["mots"] == "banque"
