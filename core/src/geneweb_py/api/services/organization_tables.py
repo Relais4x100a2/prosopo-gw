@@ -9,6 +9,7 @@ from typing import List, Sequence, Set, Tuple
 from ...core.event_to_organization import event_ref
 from ...core.genealogy import Genealogy
 from ...core.shared_experiences import SharedExperienceIndex
+from ...formats.leads_table import build_leads_table
 from ...formats.tables import Column, Row, Table, TableSpec
 from .organization_candidates import (
     DEFAULT_IGNORED_WORDS,
@@ -215,7 +216,8 @@ def build_organization_tables(
     shared: SharedExperienceIndex,
     ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS,
 ) -> List[Table]:
-    """Tables ``organisations``, ``liens``, ``reste_a_classer``, ``experiences_proches``.
+    """Tables ``organisations``, ``liens``, ``reste_a_classer``, ``pistes``,
+    ``experiences_proches``.
 
     Le reste à classer est celui de la webapp (sans organisations ni expériences
     proches), mais sans plafond par groupe ; ``ignored_words`` doit être celui de
@@ -228,5 +230,6 @@ def build_organization_tables(
             RESTE_A_CLASSER,
             _reste_a_classer(genealogy, index, shared, ignored_words),
         ),
+        build_leads_table(genealogy, index.matched, ignored_words),
         Table(EXPERIENCES_PROCHES, _experiences_proches(genealogy, shared)),
     ]

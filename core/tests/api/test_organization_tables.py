@@ -37,6 +37,11 @@ end pevt
 pevt DURAND Paul
 #Voyage_Italie 1950 #p Montfictif
 end pevt
+
+notes DURAND Paul
+beg
+Apprenti dans un atelier du quartier.
+end notes
 """
 
 
@@ -65,6 +70,7 @@ def test_table_order_and_columns() -> None:
         "organisations",
         "liens",
         "reste_a_classer",
+        "pistes",
         "experiences_proches",
     ]
     for table in built:

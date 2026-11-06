@@ -28,6 +28,7 @@ TABLE_NAMES = [
     "organisations",
     "liens",
     "reste_a_classer",
+    "pistes",
     "experiences_proches",
 ]
 
@@ -44,7 +45,14 @@ end pevt
 
 pevt MARTIN Marie
 #occu 1902 #p [Banque Fictive] - Lyon
+#resi 1903 #p Lyon
+note Logée près de la fabrique du quartier
 end pevt
+
+notes DUPONT Jean
+beg
+Associé de la Société des Forges Fictives.
+end notes
 """
 
 IGNORED = ("vacances",)
@@ -132,3 +140,33 @@ def test_empty_genealogy_bundle(tmp_path: Path) -> None:
     assert names == set(TABLE_NAMES)
     for t in TABLE_NAMES:
         assert conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone() == (0,)
+
+
+def _sqlite(data: bytes, tmp_path: Path) -> sqlite3.Connection:
+    path = tmp_path / "base.sqlite"
+    path.write_bytes(_zip(data).read("base.sqlite"))
+    return sqlite3.connect(str(path))
+
+
+def test_lead_ids_resolve(tmp_path: Path) -> None:
+    conn = _sqlite(_bundle(_genealogy())[1], tmp_path)
+    assert conn.execute("SELECT COUNT(*) FROM pistes").fetchone()[0] >= 2
+    for column, table in (
+        ("personne_id", "personnes"),
+        ("evenement_id", "evenements"),
+        ("famille_id", "familles"),
+    ):
+        dangling = conn.execute(
+            f"SELECT COUNT(*) FROM pistes p LEFT JOIN {table} t "
+            f"ON t.{column} = p.{column} "
+            f"WHERE p.{column} IS NOT NULL AND t.{column} IS NULL"
+        ).fetchone()[0]
+        assert dangling == 0, column
+
+
+def test_dictionary_lists_pistes() -> None:
+    text = _zip(_bundle(_genealogy())[1]).read("dictionnaire.csv").decode("utf-8")
+    rows = [line.split(";") for line in text.lstrip("\ufeff").splitlines()]
+    columns = [r[1] for r in rows if r[0] == "pistes"]
+    assert len(columns) == 10
+    assert columns[0] == "piste_id" and columns[-1] == "extrait"
