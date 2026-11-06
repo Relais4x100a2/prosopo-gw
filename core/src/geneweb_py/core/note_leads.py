@@ -8,7 +8,7 @@ sont sensibles à la casse, sans quoi « sa » ou « et » déclencheraient part
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, List, Optional, Tuple
 
 from .event_to_organization import (
@@ -158,12 +158,22 @@ def _lead(text: str, start: int, end: int, hits: List[_Hit]) -> NoteLead:
     )
 
 
+def _all_caps(tokens: List[_Token]) -> bool:
+    """Vrai si la note compte plusieurs mots et qu'aucun n'a de minuscule."""
+    words = [t.text for t in tokens if any(ch.isalpha() for ch in t.text)]
+    return len(words) > 1 and all(not any(ch.islower() for ch in w) for w in words)
+
+
 def find_note_leads(text: str, ignored_words: Iterable[str] = ()) -> List[NoteLead]:
     """Pistes d'une note, dans l'ordre du texte ; ``[]`` si aucune."""
     clean = _URL_RE.sub(lambda m: " " * len(m.group()), text)
     ignored = frozenset(_fold(w).strip() for w in ignored_words)
     tokens = _tokens(clean)
     hits = [h for h in (_hit(tokens, i, ignored) for i in range(len(tokens))) if h]
+    if _all_caps(tokens):
+        # Note en capitales : la majuscule ne signale plus un nom propre
+        # (« IL ÉPOUSE SA COUSINE »), aucune piste n'est forte.
+        hits = [replace(h, strong=False) for h in hits]
     leads: List[NoteLead] = []
     group: List[_Hit] = []
     start = end = 0

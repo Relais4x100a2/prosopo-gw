@@ -78,3 +78,11 @@ def test_extract_bounds() -> None:
                 assert word in lead.excerpt
         covered = sum(lead.excerpt.split().count(leads[0].words[0]) for lead in leads)
         assert covered >= count
+
+
+def test_all_caps_note_gives_no_strong_lead() -> None:
+    # Tout en capitales : « SA » est le possessif, pas une forme juridique.
+    leads = find_note_leads("IL ÉPOUSE SA COUSINE DANS LA SOCIÉTÉ DES MINES")
+    assert leads
+    assert not any(lead.strong for lead in leads)
+    assert find_note_leads("Employé chez Durand SA")[0].strong
