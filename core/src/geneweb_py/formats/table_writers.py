@@ -172,6 +172,10 @@ dictionnaire.csv   Description de chaque colonne de chaque table.
 
 Les identifiants (personne_id, famille_id, evenement_id…) relient les tables entre elles.
 Ils sont stables pour un même fichier .gw, pas d'une version de la base à l'autre.
+
+Dans les CSV, un texte qui commence par = + - @ reçoit une apostrophe en tête,
+pour qu'un tableur ne l'exécute pas comme une formule. base.json et base.sqlite
+gardent le texte exact.
 """
 
 

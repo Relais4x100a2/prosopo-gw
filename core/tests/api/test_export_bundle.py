@@ -170,3 +170,8 @@ def test_dictionary_lists_pistes() -> None:
     columns = [r[1] for r in rows if r[0] == "pistes"]
     assert len(columns) == 10
     assert columns[0] == "piste_id" and columns[-1] == "extrait"
+
+
+def test_readme_explains_formula_apostrophe() -> None:
+    text = _zip(_bundle(_genealogy())[1]).read("LISEZMOI.txt").decode("utf-8")
+    assert "apostrophe" in text
