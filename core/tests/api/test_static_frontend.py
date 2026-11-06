@@ -407,3 +407,10 @@ def test_review_fixes_wiring_in_app_js():
     ):
         assert f"'{i}'" in reset, i
         assert f'id="{i}"' in html, i
+
+
+def test_export_summary_failure_is_shown():
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    body = js[js.index("async function loadExportSummary") :]
+    body = body[: body.index("\n}\n")]
+    assert "Résumé indisponible" in body

@@ -2345,7 +2345,7 @@ async function loadExportSummary() {
     const summary = await apiJson('/api/v1/genealogy/export/summary');
     if (seq === _summarySeq) el.textContent = exportSummaryText(summary);
   } catch {
-    if (seq === _summarySeq) el.textContent = '';
+    if (seq === _summarySeq) el.textContent = 'Résumé indisponible (le téléchargement reste possible).';
   }
 }
 
