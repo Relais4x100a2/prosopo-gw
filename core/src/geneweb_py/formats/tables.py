@@ -6,6 +6,7 @@ personne et famille = clés de ``Genealogy`` ; événement personnel = ``event_r
 événement familial = ``family_event_ref``. Conception : ``doc/exports_design.md``.
 """
 
+import hashlib
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
@@ -155,6 +156,19 @@ TEMOINS = TableSpec(
 )
 
 
+SOURCES = TableSpec(
+    "sources",
+    (
+        _text("source_id", "Identifiant de la source."),
+        _text("cible", "personne, famille ou evenement."),
+        _text("cible_id", "Identifiant de la cible."),
+        _text("objet", "Ce que la source documente (naissance, mariage…)."),
+        _text("texte", "Texte de la source, tel qu'écrit."),
+    ),
+    primary_key="source_id",
+)
+
+
 def family_event_ref(family_id: str, index: int) -> str:
     """Identifiant d'un événement familial : ``fevt:<famille>:<index>``."""
     return f"fevt:{family_id}:{index}"
@@ -290,6 +304,80 @@ def _witnesses(
     return rows
 
 
+_PERSON_SOURCES = (
+    ("person_source", "generale"),
+    ("birth_source", "naissance"),
+    ("baptism_source", "bapteme"),
+    ("death_source", "deces"),
+    ("burial_source", "sepulture"),
+)
+_FAMILY_SOURCES = (
+    ("family_source", "generale"),
+    ("marriage_source", "mariage"),
+    ("common_children_source", "enfants"),
+)
+# Événements dont la source double un champ de la personne ou de la famille.
+_PERSON_EVENT_FIELDS = {
+    "birt": "birth_source",
+    "bapt": "baptism_source",
+    "deat": "death_source",
+    "buri": "burial_source",
+}
+_FAMILY_EVENT_FIELDS = {"marr": "marriage_source"}
+
+
+def _source_row(
+    cible: str, cible_id: str, objet: str, texte: Optional[str]
+) -> Optional[Row]:
+    if texte is None or not texte.strip():
+        return None
+    key = f"{cible}|{cible_id}|{objet}".encode()
+    return {
+        "source_id": "s-" + hashlib.sha1(key).hexdigest()[:12],
+        "cible": cible,
+        "cible_id": cible_id,
+        "objet": objet,
+        "texte": texte,
+    }
+
+
+def _duplicate_source(
+    genealogy: Genealogy,
+    person_id: Optional[str],
+    family_id: Optional[str],
+    event: Event,
+) -> bool:
+    code = str(event.event_type.value)
+    owner: object = None
+    field: Optional[str] = None
+    if person_id is not None:
+        owner, field = genealogy.persons[person_id], _PERSON_EVENT_FIELDS.get(code)
+    elif family_id is not None:
+        owner, field = genealogy.families[family_id], _FAMILY_EVENT_FIELDS.get(code)
+    return field is not None and getattr(owner, field) == event.source
+
+
+def _sources(
+    genealogy: Genealogy,
+    events: List[Tuple[str, Optional[str], Optional[str], Event]],
+) -> List[Row]:
+    candidates: List[Optional[Row]] = []
+    for pid, p in genealogy.persons.items():
+        candidates.extend(
+            _source_row("personne", pid, objet, getattr(p, attr))
+            for attr, objet in _PERSON_SOURCES
+        )
+    for fid, f in genealogy.families.items():
+        candidates.extend(
+            _source_row("famille", fid, objet, getattr(f, attr))
+            for attr, objet in _FAMILY_SOURCES
+        )
+    for eid, event_pid, event_fid, e in events:
+        if not _duplicate_source(genealogy, event_pid, event_fid, e):
+            candidates.append(_source_row("evenement", eid, "evenement", e.source))
+    return [row for row in candidates if row is not None]
+
+
 def build_base_tables(genealogy: Genealogy) -> List[Table]:
     """Tables tirées de la base seule, dans l'ordre de l'export."""
     events = _all_events(genealogy)
@@ -299,4 +387,5 @@ def build_base_tables(genealogy: Genealogy) -> List[Table]:
         Table(ENFANTS, _children(genealogy)),
         Table(EVENEMENTS, [_event_row(*item) for item in events]),
         Table(TEMOINS, _witnesses(genealogy, events)),
+        Table(SOURCES, _sources(genealogy, events)),
     ]

@@ -40,12 +40,13 @@ def _rows(tables: Dict[str, Table], name: str, **where: object) -> List[dict]:
 
 def test_table_order_and_columns() -> None:
     built = build_base_tables(_parse())
-    assert [t.spec.name for t in built][:5] == [
+    assert [t.spec.name for t in built] == [
         "personnes",
         "familles",
         "enfants",
         "evenements",
         "temoins",
+        "sources",
     ]
     for table in built:
         for row in table.rows:
