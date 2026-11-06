@@ -433,6 +433,7 @@ function showTab(name) {
   });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${name}`));
   if (name === 'stats') renderStats();
+  if (name === 'export') loadExportSummary();
 }
 
 // ==================== ROUTAGE (hash) ====================
@@ -2318,22 +2319,53 @@ function coverageCard(cov) {
 }
 
 // ==================== EXPORT ====================
-const EXPORT_FILENAMES = {
-  gedcom: 'genealogie.ged', json: 'genealogie.json', xml: 'genealogie.xml',
-  'org-json': 'genealogie.org.json',
-  'organizations-csv': 'organisations.csv',
-  'organization-links-csv': 'liens_organisations.csv',
-  'shared-experiences-csv': 'experiences_proches.csv',
-};
+const ZIP_LABEL = 'Télécharger les données (.zip)';
+let _summarySeq = 0;
 
-async function downloadExport(format) {
+function plural(n, one, many) {
+  return `${fmtInt(n)} ${Number(n) === 1 ? one : many}`;
+}
+
+function exportSummaryText(s) {
+  return [
+    plural(s.personnes, 'personne', 'personnes'),
+    plural(s.organisations, 'organisation', 'organisations'),
+    plural(s.a_classer, 'événement à classer', 'événements à classer'),
+    plural(s.pistes, 'piste', 'pistes'),
+  ].join(' · ');
+}
+
+// Recalculée à chaque affichage de l'onglet : mots ignorés et données ont pu changer.
+async function loadExportSummary() {
+  const el = document.getElementById('export-summary');
+  const seq = ++_summarySeq;
+  el.textContent = 'Calcul du contenu…';
+  try {
+    await syncIgnoredWords();
+    const summary = await apiJson('/api/v1/genealogy/export/summary');
+    if (seq === _summarySeq) el.textContent = exportSummaryText(summary);
+  } catch {
+    if (seq === _summarySeq) el.textContent = '';
+  }
+}
+
+function zipFilename(res) {
+  const header = res.headers.get('Content-Disposition') || '';
+  const match = /filename="([^"]+)"/.exec(header);
+  return match ? match[1] : 'prosopo-export.zip';
+}
+
+async function downloadZip() {
+  const btn = document.getElementById('btn-export-zip');
   const errorEl = document.getElementById('export-error');
   errorEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = "Préparation de l'archive…";
   try {
-    if (format.startsWith('org') || format.startsWith('shared')) await syncIgnoredWords();
-    const res = await apiFetch('/api/v1/genealogy/export/' + format);
+    await syncIgnoredWords();
+    const res = await apiFetch('/api/v1/genealogy/export/zip');
     if (!res.ok) {
-      errorEl.textContent = "Erreur lors de la génération de l'export.";
+      errorEl.textContent = "Erreur lors de la génération de l'archive.";
       errorEl.style.display = '';
       return;
     }
@@ -2341,7 +2373,7 @@ async function downloadExport(format) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = EXPORT_FILENAMES[format];
+    a.download = zipFilename(res);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -2350,15 +2382,12 @@ async function downloadExport(format) {
     if (err.message === 'session-expired') return;
     errorEl.textContent = 'Erreur lors du téléchargement.';
     errorEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = ZIP_LABEL;
   }
 }
 
 function wireExportTab() {
-  document.getElementById('btn-export-gedcom').addEventListener('click', () => downloadExport('gedcom'));
-  document.getElementById('btn-export-json').addEventListener('click', () => downloadExport('json'));
-  document.getElementById('btn-export-xml').addEventListener('click', () => downloadExport('xml'));
-  document.getElementById('btn-export-org-json').addEventListener('click', () => downloadExport('org-json'));
-  document.getElementById('btn-export-org-csv').addEventListener('click', () => downloadExport('organizations-csv'));
-  document.getElementById('btn-export-org-links-csv').addEventListener('click', () => downloadExport('organization-links-csv'));
-  document.getElementById('btn-export-exp-csv').addEventListener('click', () => downloadExport('shared-experiences-csv'));
+  document.getElementById('btn-export-zip').addEventListener('click', downloadZip);
 }

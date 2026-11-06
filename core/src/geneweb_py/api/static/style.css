@@ -486,7 +486,6 @@ body {
 .stat-card-link { display: block; text-decoration: none; color: inherit; }
 .stat-card-link:hover { border-color: var(--accent); }
 .stat-card-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.export-orgs { margin-top: 2rem; max-width: 40rem; }
 
 @media (max-width: 767.98px) {
   .orgs-bar { flex-direction: column; align-items: stretch; }
@@ -514,6 +513,9 @@ body {
   gap: 0.5rem;
 }
 .btn-export:hover { background: var(--accent); color: var(--bg); }
+.btn-export:disabled { opacity: 0.6; cursor: progress; }
+.export-summary { margin-top: 0.75rem; min-height: 1.5em; }
+.export-note { margin-top: 1.5rem; max-width: 40rem; }
 
 /* Alert / message */
 .alert-pgw {

@@ -277,18 +277,28 @@ def test_organizations_visible_values_are_labelled():
     assert "formatGwName(org.name)" in js or "formatGwName(o.name)" in js
 
 
-def test_export_tab_offers_organization_files():
+def test_export_tab_offers_single_zip_download():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     js = (STATIC / "app.js").read_text(encoding="utf-8")
-    for i in (
+    assert 'id="btn-export-zip"' in html
+    assert "Télécharger les données (.zip)" in html
+    assert 'id="export-summary"' in html
+    for old in (
+        "btn-export-gedcom",
+        "btn-export-json",
+        "btn-export-xml",
         "btn-export-org-json",
         "btn-export-org-csv",
         "btn-export-org-links-csv",
+        "btn-export-exp-csv",
     ):
-        assert f'id="{i}"' in html, i
+        assert old not in html and old not in js, old
+    assert "EXPORT_FILENAMES" not in js
+    assert "'/api/v1/genealogy/export/zip'" in js
+    assert "'/api/v1/genealogy/export/summary'" in js
+    assert "content-disposition" in js.lower()
     assert "#valider-et-enrichir" in html
-    assert "'organization-links-csv': 'liens_organisations.csv'" in js
-    assert "EXPORT_EXT" not in js
+    assert "Pistes étendues" not in html and "Pistes étendues" not in js
 
 
 def test_stats_show_candidate_count_linking_to_tab():
@@ -331,8 +341,9 @@ def test_ignored_words_controls_are_wired():
     assert "'/api/v1/organizations/ignored-words'" in js
     assert "localStorage" in js and "IGNORED_WORDS_KEY" in js
     assert "Ignorer ce mot" in js and "g.word === 'autres'" in js
-    # Le réglage retenu est appliqué avant la liste, la carte Stats et les exports.
-    assert js.count("await syncIgnoredWords()") == 3
+    # Le réglage retenu est appliqué avant la liste, la carte Stats, le résumé
+    # de l'export et l'archive.
+    assert js.count("await syncIgnoredWords()") == 4
     assert "_ignoredSync = null;" in js  # oublié avec la session
 
 
@@ -353,14 +364,12 @@ def test_shared_experiences_section_is_wired():
         "orgs-settings",
         "orgs-excluded-info",
         "orgs-unmatched",
-        "btn-export-exp-csv",
     ):
         assert f'id="{i}"' in html, i
     assert 'value="address"' in html
     assert "Réglages et événements non classés" in html
     assert "Ce n'est pas une appartenance à une organisation." in html
     assert "'/api/v1/organizations/shared-experiences'" in js
-    assert "shared-experiences-csv" in js
     assert "address: 'Adresse'" in js
     assert (
         "Liste limitée aux 500 premières expériences sur ${fmtInt(data.total)}." in js

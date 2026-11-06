@@ -246,21 +246,10 @@
         Les fichiers sont générés à la volée depuis vos données de session — aucune copie conservée.
       </p>
       <div class="export-btns">
-        <button class="btn-export" id="btn-export-gedcom">📄 Télécharger en GEDCOM</button>
-        <button class="btn-export" id="btn-export-json">{ } Télécharger en JSON</button>
-        <button class="btn-export" id="btn-export-xml">🗂 Télécharger en XML</button>
+        <button class="btn-export" id="btn-export-zip">Télécharger les données (.zip)</button>
       </div>
-      <section class="export-orgs">
-        <h3>Organisations candidates</h3>
-        <p>Le fichier compagnon <code>.org.json</code> contient les organisations proposées et leurs liens avec les personnes ; votre <code>.gw</code> n'est pas modifié. Les CSV s'ouvrent dans un tableur pour valider ligne à ligne : voir « Valider et enrichir » dans le <a href="https://github.com/Relais4x100a2/prosopo-gw#valider-et-enrichir" target="_blank" rel="noopener">README</a>.</p>
-        <div class="export-btns">
-          <button class="btn-export" id="btn-export-org-json">{ } Fichier compagnon .org.json</button>
-          <button class="btn-export" id="btn-export-org-csv">Organisations (CSV)</button>
-          <button class="btn-export" id="btn-export-org-links-csv">Liens personnes-organisations (CSV)</button>
-          <button class="btn-export" id="btn-export-exp-csv">Expériences proches (CSV)</button>
-        </div>
-        <p class="text-muted">Personnes ayant vécu une expérience proche (non enregistré dans le fichier compagnon).</p>
-      </section>
+      <p id="export-summary" class="text-muted export-summary" aria-live="polite"></p>
+      <p class="export-note">L'archive regroupe les tableaux de la base et des organisations (CSV, JSON, SQLite), le fichier compagnon <code>.org.json</code> et un <code>LISEZMOI</code> qui les décrit ; votre <code>.gw</code> n'est pas modifié. Pour valider et compléter les organisations, voir « Valider et enrichir » dans le <a href="https://github.com/Relais4x100a2/prosopo-gw#valider-et-enrichir" target="_blank" rel="noopener">README</a>.</p>
       <div id="export-error" class="alert-pgw error mt-2" style="display:none"></div>
     </div>
 
