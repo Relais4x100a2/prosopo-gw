@@ -89,7 +89,10 @@ RESTE_A_CLASSER = TableSpec(
     "reste_a_classer",
     (
         _text("evenement_id", "Événement « Autre » non classé (table evenements)."),
-        _text("mot", "Mot partagé qui regroupe l'événement (« autres » sinon)."),
+        _text(
+            "mot",
+            "Mots partagés qui regroupent l'événement, séparés par une espace (« autres » sinon).",
+        ),
     ),
 )
 
@@ -176,10 +179,15 @@ def _reste_a_classer(
     for exp in shared.items:
         exclude.update((ev.person_id, ev.event_index) for ev in exp.events)
     _, groups = build_unmatched(genealogy, exclude, ignored_words, capped=False)
+    # Un événement peut partager plusieurs mots : une seule ligne, ses mots réunis,
+    # dans l'ordre des groupes (le premier groupe qui le cite fixe son rang).
+    words: Dict[Tuple[str, int], List[str]] = {}
+    for group in groups:
+        for e in group.events:
+            words.setdefault((e.person_id, e.event_index), []).append(group.word)
     return [
-        {"evenement_id": event_ref(e.person_id, e.event_index), "mot": group.word}
-        for group in groups
-        for e in group.events
+        {"evenement_id": event_ref(pid, index), "mot": " ".join(ws)}
+        for (pid, index), ws in words.items()
     ]
 
 

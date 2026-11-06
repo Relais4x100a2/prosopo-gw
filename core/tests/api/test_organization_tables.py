@@ -197,3 +197,23 @@ end pevt
     rows = _build(g)["pistes"].rows
     assert [r["evenement_id"] for r in rows] == ["pevt:DUPONT_Jean_0:0"]
     assert rows[0]["mots"] == "banque"
+
+
+def test_unmatched_one_row_per_event() -> None:
+    gw = """encoding: utf-8
+
+pevt DUPONT Jean
+#Pelerinage_Chartres 1900 #p Lyon
+end pevt
+
+pevt MARTIN Marie
+#Pelerinage_Chartres 1950 #p Brest
+end pevt
+"""
+    g = GeneWebParser(validate=False).parse_string(gw)
+    rows = _build(g)["reste_a_classer"].rows
+    assert [r["evenement_id"] for r in rows] == [
+        "pevt:DUPONT_Jean_0:0",
+        "pevt:MARTIN_Marie_0:0",
+    ]
+    assert all(set(str(r["mot"]).split()) == {"pelerinage", "chartres"} for r in rows)
