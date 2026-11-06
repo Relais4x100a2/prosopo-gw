@@ -147,7 +147,7 @@ def test_shared_experience_rows_have_ids() -> None:
     assert deportation[0]["annee"] == "1943"
 
 
-def test_existing_csv_unchanged() -> None:
+def test_building_tables_leaves_csv_exports_untouched() -> None:
     g = _genealogy()
     index = build_candidate_index(g)
     shared = find_shared_experiences(g, index.matched)

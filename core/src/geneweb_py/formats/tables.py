@@ -337,7 +337,8 @@ def _source_row(
         "cible": cible,
         "cible_id": cible_id,
         "objet": objet,
-        "texte": texte,
+        # Le parser ne décode ``_`` (espace GeneWeb) que dans certains champs.
+        "texte": texte.replace("_", " "),
     }
 
 

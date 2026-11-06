@@ -93,3 +93,20 @@ def test_blank_source_ignored() -> None:
 def test_sources_table_is_last() -> None:
     names = [t.spec.name for t in build_base_tables(_genealogy())]
     assert names[-1] == "sources" and len(names) == 6
+
+
+def test_underscores_decoded_in_every_source() -> None:
+    text = (
+        "encoding: utf-8\ngwplus\n\n"
+        "fam DUPONT Jean #bs Registre_paroissial #src Notaire_Fictif"
+        " +1900 #ms Acte_de_mariage MARTIN Marie\n\n"
+        "pevt DUPONT Jean\n#Cours_peinture 1890 #s Liste_eleves\nend pevt\n"
+    )
+    texts = {r["texte"] for r in _sources(GeneWebParser().parse_string(text)).rows}
+    assert {
+        "Registre paroissial",
+        "Notaire Fictif",
+        "Acte de mariage",
+        "Liste eleves",
+    } <= texts
+    assert not any("_" in str(t) for t in texts)
