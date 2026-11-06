@@ -11,13 +11,13 @@ from typing import Any, Dict, List, Optional
 from ...core.genealogy import Genealogy
 from ...core.shared_experiences import SharedExperienceIndex
 from ...formats.org_sidecar import sidecar_payload
+from ...formats.table_writers import BOM, neutralize_formula
 from .organization_candidates import (
     Candidate,
     CandidateIndex,
     shared_experience_persons,
 )
 
-BOM = "﻿"
 LIST_SEPARATOR = "|"
 
 # Libellés français des codes (mêmes textes que l'onglet Organisations de la webapp).
@@ -98,22 +98,15 @@ SHARED_EXPERIENCES_CSV_HEADER: List[str] = [
     "lieu",
 ]
 
-FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _safe(text: str) -> str:
-    """Neutralise l'interprétation en formule d'un tableur (préfixe ``'``)."""
-    return "'" + text if text.startswith(FORMULA_PREFIXES) else text
-
 
 def _text(value: Optional[Any]) -> str:
     """Cellule de texte : jamais interprétée comme une formule."""
-    return "" if value is None else _safe(str(value))
+    return "" if value is None else neutralize_formula(str(value))
 
 
 def _label(labels: Dict[str, str], code: Optional[str]) -> str:
     """Libellé français d'un code ; le code lui-même s'il est inconnu."""
-    return "" if code is None else _safe(labels.get(code, code))
+    return "" if code is None else neutralize_formula(labels.get(code, code))
 
 
 def _decimal(value: Optional[float]) -> str:
