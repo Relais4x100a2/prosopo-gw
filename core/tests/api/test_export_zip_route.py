@@ -206,3 +206,25 @@ def test_zip_route_accepts_non_ascii_upload_name(
     assert resp.headers["content-disposition"] == (
         f'attachment; filename="prosopo-{stem}-{today}.zip"'
     )
+
+
+def test_summary_cached_until_ignored_words_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from geneweb_py.api.services import genealogy_service as gs
+
+    calls = []
+    real = gs.build_organization_tables
+
+    def counting(*args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gs, "build_organization_tables", counting)
+    service = GenealogyService(GeneWebParser(validate=False).parse_string(GW))
+    first = service.export_summary()
+    assert service.export_summary() == first
+    assert len(calls) == 1
+    service.set_ignored_words(["usine"])
+    assert service.export_summary()["pistes"] == 0
+    assert len(calls) == 2

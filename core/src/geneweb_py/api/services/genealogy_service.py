@@ -110,6 +110,7 @@ class GenealogyService:
         self._candidate_index: Optional[CandidateIndex] = None
         self._shared_experiences: Optional[SharedExperienceIndex] = None
         self._unmatched: Optional[Tuple[int, List[UnmatchedGroup]]] = None
+        self._export_summary: Optional[Dict[str, int]] = None
         self._orgs_inferred = False  # organisations produites par l'inférence
         self._ignored_words: Tuple[str, ...] = DEFAULT_IGNORED_WORDS
         if genealogy is not None:
@@ -1106,6 +1107,7 @@ class GenealogyService:
         self._candidate_index = None
         self._shared_experiences = None
         self._unmatched = None
+        self._export_summary = None
         if self._orgs_inferred:
             self.genealogy.organizations.clear()
             self.genealogy.organization_links.clear()
@@ -1155,7 +1157,13 @@ class GenealogyService:
         )
 
     def export_summary(self) -> Dict[str, int]:
-        """Comptes de la ligne de résumé, tirés des mêmes tables que l'archive."""
+        """Comptes de la ligne de résumé, tirés des mêmes tables que l'archive.
+
+        Mis en cache comme l'index des candidats : invalidé à l'écriture et au
+        changement des mots ignorés.
+        """
+        if self._export_summary is not None:
+            return dict(self._export_summary)
         tables = {
             t.spec.name: len(t.rows)
             for t in build_organization_tables(
@@ -1165,12 +1173,13 @@ class GenealogyService:
                 self._ignored_words,
             )
         }
-        return {
+        self._export_summary = {
             "personnes": len(self.genealogy.persons),
             "organisations": tables["organisations"],
             "a_classer": tables["reste_a_classer"],
             "pistes": tables["pistes"],
         }
+        return dict(self._export_summary)
 
     @property
     def ignored_words(self) -> Tuple[str, ...]:
@@ -1185,6 +1194,7 @@ class GenealogyService:
             self._candidate_index = None
             self._shared_experiences = None
             self._unmatched = None
+            self._export_summary = None
         return self._ignored_words
 
     def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:
