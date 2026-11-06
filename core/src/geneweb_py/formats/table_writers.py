@@ -10,9 +10,10 @@ import io
 import json
 import sqlite3
 import tempfile
-from datetime import datetime
+import zipfile
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from .tables import Column, ColumnType, Table, TableSpec, Value
 
@@ -155,3 +156,57 @@ def dictionary_table(specs: Sequence[TableSpec]) -> Table:
             for c in spec.columns
         ],
     )
+
+
+README_TEMPLATE = """Export prosopo-gw — base « {base} », {date}
+
+Ce dossier contient des données personnelles issues de votre base généalogique.
+Ne le publiez pas et ne le versionnez pas.
+
+base.org.json      Mon travail : organisations retenues, liens et mots ignorés.
+base.sqlite        Toutes les tables, pour SQL, pandas ou DB Browser for SQLite.
+base.json          Toutes les tables, pour un script, Streamlit ou un LLM.
+csv/               Une table par fichier, pour un tableur (UTF-8, séparateur « ; »).
+dictionnaire.csv   Description de chaque colonne de chaque table.
+
+Les identifiants (personne_id, famille_id, evenement_id…) relient les tables entre elles.
+Ils sont stables pour un même fichier .gw, pas d'une version de la base à l'autre.
+"""
+
+
+def base_stem(source_name: Optional[str]) -> str:
+    """Nom court de la base : radical du fichier, caractères sûrs, ``base`` à défaut."""
+    stem = Path(source_name).stem if source_name else ""
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stem)
+    return safe or "base"
+
+
+def archive_name(source_name: Optional[str], day: date) -> str:
+    """``prosopo-<base>-<AAAA-MM-JJ>.zip``."""
+    return f"prosopo-{base_stem(source_name)}-{day.isoformat()}.zip"
+
+
+def build_zip(
+    tables: Sequence[Table],
+    companion: Dict[str, Any],
+    base: str,
+    generated_at: datetime,
+) -> bytes:
+    """Archive de l'export : LISEZMOI, dictionnaire, compagnon, SQLite, JSON, CSV."""
+    buffer = io.BytesIO()
+    readme = README_TEMPLATE.format(base=base, date=generated_at.date().isoformat())
+    dictionary = dictionary_table([t.spec for t in tables])
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("LISEZMOI.txt", readme.encode("utf-8"))
+        archive.writestr("dictionnaire.csv", table_to_csv(dictionary).encode("utf-8"))
+        archive.writestr(
+            "base.org.json",
+            json.dumps(companion, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
+        archive.writestr("base.sqlite", tables_to_sqlite(tables))
+        archive.writestr(
+            "base.json", tables_to_json(tables, base, generated_at).encode("utf-8")
+        )
+        for t in tables:
+            archive.writestr(f"csv/{t.spec.name}.csv", table_to_csv(t).encode("utf-8"))
+    return buffer.getvalue()
