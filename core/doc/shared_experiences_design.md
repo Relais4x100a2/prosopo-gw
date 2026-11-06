@@ -5,6 +5,11 @@ la mise en service de l'onglet « Organisations » (chantier A, voir
 [`organizations_candidates_design.md`](organizations_candidates_design.md)). Il modifie certaines
 règles de ce document ; les sections concernées sont citées. Ce qui n'est pas cité reste valable.
 
+> **Mise à jour (novembre 2026)** : les boutons d'export décrits ici (`experiences_proches.csv`) ont été remplacés
+> par un téléchargement unique, `prosopo-<base>-<AAAA-MM-JJ>.zip`, qui contient les mêmes données
+> (`base.org.json`, `csv/organisations.csv`, `csv/liens.csv`, `csv/experiences_proches.csv`).
+> Voir [`exports_design.md`](exports_design.md). Les routes d'API historiques restent servies.
+
 ## 1. Intention
 
 ### Le constat

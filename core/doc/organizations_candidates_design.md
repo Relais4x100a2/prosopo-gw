@@ -11,6 +11,11 @@ indépendants, à mener dans cet ordre :
 
 Chaque chantier a son propre plan de mise en œuvre.
 
+> **Mise à jour (novembre 2026)** : les boutons d'export décrits ici (`.org.json`, `organisations.csv`, `liens_organisations.csv`) ont été remplacés
+> par un téléchargement unique, `prosopo-<base>-<AAAA-MM-JJ>.zip`, qui contient les mêmes données
+> (`base.org.json`, `csv/organisations.csv`, `csv/liens.csv`, `csv/experiences_proches.csv`).
+> Voir [`exports_design.md`](exports_design.md). Les routes d'API historiques restent servies.
+
 ## 1. Intention
 
 Les événements d'une base GeneWeb contiennent des organisations implicites : un événement
