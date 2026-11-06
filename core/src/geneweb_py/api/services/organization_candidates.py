@@ -92,6 +92,8 @@ class UnmatchedEvent:
     label: str
     date: Optional[str]
     place: Optional[str]
+    # Rang de l'événement dans ``person.events`` (identifiant stable de l'export)
+    event_index: int
 
 
 @dataclass
@@ -141,6 +143,7 @@ def shared_experience_persons(
                 "year_start": event.year_start,
                 "year_end": event.year_end,
                 "place": event.place,
+                "event_index": event.event_index,
             }
         )
     rows.sort(key=lambda r: (_fold(r["person_name"]), r["year_start"], r["person_id"]))
@@ -307,7 +310,10 @@ def _build_candidates(
 
 
 def _build_unmatched(
-    genealogy: Genealogy, matched: Set[Tuple[str, int]], ignored: Set[str]
+    genealogy: Genealogy,
+    matched: Set[Tuple[str, int]],
+    ignored: Set[str],
+    capped: bool = True,
 ) -> Tuple[int, List[UnmatchedGroup], int, int]:
     entries: List[Tuple[UnmatchedEvent, Set[str]]] = []
     ignored_total = 0
@@ -334,6 +340,7 @@ def _build_unmatched(
                         label=tag.replace("_", " "),
                         date=event.date.display_text if event.date else None,
                         place=event.place,
+                        event_index=index,
                     ),
                     {
                         w
@@ -358,14 +365,13 @@ def _build_unmatched(
         for word in retained:
             grouped[word].append(entry)
 
+    cap = UNMATCHED_GROUP_CAP if capped else None
     groups = [
-        UnmatchedGroup(word, len(evts), evts[:UNMATCHED_GROUP_CAP])
+        UnmatchedGroup(word, len(evts), evts[:cap])
         for word, evts in sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0]))
     ]
     if others:
-        groups.append(
-            UnmatchedGroup(OTHERS_WORD, len(others), others[:UNMATCHED_GROUP_CAP])
-        )
+        groups.append(UnmatchedGroup(OTHERS_WORD, len(others), others[:cap]))
     return len(entries), groups, ignored_total, civil_total
 
 
@@ -373,14 +379,16 @@ def build_unmatched(
     genealogy: Genealogy,
     exclude: Iterable[Tuple[str, int]],
     ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS,
+    capped: bool = True,
 ) -> Tuple[int, List[UnmatchedGroup]]:
     """Reste à classer sans les événements de ``exclude`` ; renvoie ``(total, groupes)``.
 
     ``exclude`` réunit les événements d'organisations et ceux d'expériences proches :
     un événement déjà classé n'est pas à classer. Groupes et total sont recalculés.
+    ``capped=False`` garde tous les événements de chaque groupe (export).
     """
     ignored = set(normalize_ignored_words(ignored_words))
-    total, groups, _, _ = _build_unmatched(genealogy, set(exclude), ignored)
+    total, groups, _, _ = _build_unmatched(genealogy, set(exclude), ignored, capped)
     return total, groups
 
 
