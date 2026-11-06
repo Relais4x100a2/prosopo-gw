@@ -96,7 +96,7 @@ def test_zip_file_list() -> None:
 
 def test_archive_name_sanitized() -> None:
     day = date(2026, 11, 6)
-    assert archive_name("ma base été.gw", day) == "prosopo-ma_base_été-2026-11-06.zip"
+    assert archive_name("ma base été.gw", day) == "prosopo-ma_base_ete-2026-11-06.zip"
     assert archive_name(None, day) == "prosopo-base-2026-11-06.zip"
     assert archive_name("", day) == "prosopo-base-2026-11-06.zip"
     assert archive_name("../x/a;b.gw", day) == "prosopo-a_b-2026-11-06.zip"

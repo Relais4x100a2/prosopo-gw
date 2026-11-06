@@ -10,6 +10,7 @@ import io
 import json
 import sqlite3
 import tempfile
+import unicodedata
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
@@ -174,11 +175,22 @@ Ils sont stables pour un même fichier .gw, pas d'une version de la base à l'au
 """
 
 
+_LIGATURES = str.maketrans({"Œ": "OE", "œ": "oe", "Æ": "AE", "æ": "ae", "ß": "ss"})
+
+
 def base_stem(source_name: Optional[str]) -> str:
-    """Nom court de la base : radical du fichier, caractères sûrs, ``base`` à défaut."""
+    """Nom court de la base : radical du fichier en ASCII sûr, ``base`` à défaut.
+
+    Les accents sont retirés (« généalogie » → « genealogie ») : le nom finit dans
+    un en-tête HTTP, qui n'admet pas les caractères hors latin-1.
+    """
     stem = Path(source_name).stem if source_name else ""
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stem)
-    return safe or "base"
+    folded = unicodedata.normalize("NFKD", stem.translate(_LIGATURES))
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    safe = "".join(
+        ch if ch.isascii() and (ch.isalnum() or ch in "-_") else "_" for ch in folded
+    )
+    return safe if safe.strip("-_") else "base"
 
 
 def archive_name(source_name: Optional[str], day: date) -> str:

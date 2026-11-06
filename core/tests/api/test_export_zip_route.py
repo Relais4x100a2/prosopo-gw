@@ -190,3 +190,19 @@ def test_existing_export_routes_still_served(client: TestClient) -> None:
     ):
         resp = client.get(f"/api/v1/genealogy/export/{fmt}", headers=_h(token))
         assert resp.status_code == 200, fmt
+
+
+@pytest.mark.parametrize(
+    "filename, stem",
+    [("généalogie.gw", "genealogie"), ("Œuvre.gw", "OEuvre"), ("家族.gw", "base")],
+)
+def test_zip_route_accepts_non_ascii_upload_name(
+    client: TestClient, filename: str, stem: str
+) -> None:
+    token = _session(client, filename=filename)
+    resp = client.get(ZIP, headers=_h(token))
+    assert resp.status_code == 200
+    today = date.today().isoformat()
+    assert resp.headers["content-disposition"] == (
+        f'attachment; filename="prosopo-{stem}-{today}.zip"'
+    )
