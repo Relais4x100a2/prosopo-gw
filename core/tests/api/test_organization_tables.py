@@ -100,7 +100,7 @@ def test_link_row_has_event_id() -> None:
         )
         assert r["evenement_id"] in events
         assert r["temoin"] is False
-        assert r["statut"] == "" and r["nom_retenu"] == ""
+        assert r["statut"] is None and r["nom_retenu"] is None
     assert rows[0]["annee"] == 1900
 
 

@@ -159,8 +159,8 @@ def _liens(index: CandidateIndex) -> List[Row]:
             "evenement": m.event_label.replace("_", " "),
             "temoin": m.witness,
             "nb_temoins": m.witness_count,
-            "statut": "",
-            "nom_retenu": "",
+            "statut": None,
+            "nom_retenu": None,
         }
         for c in _sorted(index)
         for m in sorted(
