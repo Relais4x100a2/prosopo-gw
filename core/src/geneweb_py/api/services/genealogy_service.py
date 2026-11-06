@@ -41,6 +41,7 @@ from ..serialization import (
     stable_event_id,
     titles_from_create_schemas,
 )
+from .export_bundle import build_export_bundle
 from .organization_candidates import (
     DEFAULT_IGNORED_WORDS,
     CandidateIndex,
@@ -49,6 +50,7 @@ from .organization_candidates import (
     build_unmatched,
     normalize_ignored_words,
 )
+from .organization_tables import build_organization_tables
 
 
 def _normalize_search_text(text: str) -> str:
@@ -95,8 +97,13 @@ class EventSearchHit:
 class GenealogyService:
     """Service principal pour la gestion de la généalogie."""
 
-    def __init__(self, genealogy: Optional[Genealogy] = None) -> None:
-        """Initialise le service de généalogie."""
+    def __init__(
+        self,
+        genealogy: Optional[Genealogy] = None,
+        source_name: Optional[str] = None,
+    ) -> None:
+        """Initialise le service ; ``source_name`` nomme l'archive d'export."""
+        self._source_name = source_name
         self._genealogy: Optional[Genealogy] = None
         self._parser = GeneWebParser(use_multipass=False)
         self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
@@ -1135,6 +1142,35 @@ class GenealogyService:
                 self.genealogy, exclude, self._ignored_words
             )
         return self._unmatched
+
+    def export_bundle(self, now: datetime) -> Tuple[str, bytes]:
+        """Archive d'export de la session : ``(nom, octets)``."""
+        return build_export_bundle(
+            self.genealogy,
+            self.get_candidate_index(),
+            self.get_shared_experiences(),
+            self._ignored_words,
+            self._source_name,
+            now,
+        )
+
+    def export_summary(self) -> Dict[str, int]:
+        """Comptes de la ligne de résumé, tirés des mêmes tables que l'archive."""
+        tables = {
+            t.spec.name: len(t.rows)
+            for t in build_organization_tables(
+                self.genealogy,
+                self.get_candidate_index(),
+                self.get_shared_experiences(),
+                self._ignored_words,
+            )
+        }
+        return {
+            "personnes": len(self.genealogy.persons),
+            "organisations": tables["organisations"],
+            "a_classer": tables["reste_a_classer"],
+            "pistes": tables["pistes"],
+        }
 
     @property
     def ignored_words(self) -> Tuple[str, ...]:

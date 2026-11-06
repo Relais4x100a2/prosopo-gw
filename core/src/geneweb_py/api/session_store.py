@@ -25,6 +25,9 @@ class SessionEntry:
     # Service de la session, créé à la première requête et conservé ensuite :
     # ses caches et réglages (candidates, mots ignorés…) valent pour toute la session.
     service: Optional["GenealogyService"] = None
+    # Nom du fichier chargé (assaini), pour nommer l'archive d'export ; il n'est
+    # pas recopié dans ``genealogy.metadata.source_file``, qui reste vide.
+    source_name: Optional[str] = None
 
 
 class SessionStore:
@@ -46,7 +49,9 @@ class SessionStore:
     def _new_expiry(self) -> datetime:
         return self._now() + timedelta(seconds=self._ttl)
 
-    def create(self, genealogy: Genealogy) -> Tuple[str, datetime]:
+    def create(
+        self, genealogy: Genealogy, source_name: Optional[str] = None
+    ) -> Tuple[str, datetime]:
         """Crée une session, lève SessionFullError si le cap est atteint."""
         with self._lock:
             active = sum(1 for e in self._store.values() if e.expires_at > self._now())
@@ -54,7 +59,9 @@ class SessionStore:
                 raise SessionFullError("Session cap reached")
             token = secrets.token_urlsafe(32)
             expires_at = self._new_expiry()
-            entry = SessionEntry(genealogy=genealogy, expires_at=expires_at)
+            entry = SessionEntry(
+                genealogy=genealogy, expires_at=expires_at, source_name=source_name
+            )
             self._store[token] = entry
             return token, expires_at
 
@@ -83,7 +90,9 @@ class SessionStore:
                 return None
             entry.expires_at = self._new_expiry()
             if entry.service is None:
-                entry.service = GenealogyService(genealogy=entry.genealogy)
+                entry.service = GenealogyService(
+                    genealogy=entry.genealogy, source_name=entry.source_name
+                )
             return entry.service, entry.expires_at
 
     def get(self, token: str) -> Optional[Genealogy]:

@@ -4,6 +4,7 @@ Router FastAPI pour la gestion de la généalogie dans l'API geneweb-py.
 
 import os
 import tempfile
+from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import (
@@ -128,6 +129,27 @@ async def export_organization_links_csv(
         media_type="text/csv; charset=utf-8",
         headers=_download_headers("liens_organisations.csv"),
     )
+
+
+@router.get("/export/zip")
+@limiter.limit("10/minute")
+async def export_zip(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> Response:
+    """Archive complète de la base (tables, compagnon, LISEZMOI)."""
+    name, data = service.export_bundle(datetime.now())
+    return Response(data, media_type="application/zip", headers=_download_headers(name))
+
+
+@router.get("/export/summary")
+@limiter.limit("40/minute")
+async def export_summary(
+    request: Request,
+    service: GenealogyService = Depends(get_session_service),
+) -> JSONResponse:
+    """Comptes affichés sous le bouton de l'archive."""
+    return JSONResponse(service.export_summary(), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/export/{format}", response_class=FileResponse)

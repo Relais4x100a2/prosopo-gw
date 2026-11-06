@@ -86,7 +86,7 @@ async def create_session(
             pass
 
     try:
-        token, expires_at = store.create(genealogy)
+        token, expires_at = store.create(genealogy, source_name=safe_name)
     except SessionFullError as exc:
         raise HTTPException(503, "Serveur saturé, réessayez plus tard") from exc
 
