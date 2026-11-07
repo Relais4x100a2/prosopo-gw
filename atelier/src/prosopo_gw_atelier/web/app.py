@@ -743,7 +743,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             raise _error(413, "Fichier trop volumineux (50 Mo au plus).")
         try:
             document = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            # RecursionError: nesting deeper than the JSON decoder can follow.
             raise _error(
                 400, "Fichier illisible : ce n'est pas un JSON valide (UTF-8)."
             ) from None

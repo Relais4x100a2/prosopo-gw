@@ -622,6 +622,14 @@ def test_import_rejects_invalid_documents(client: TestClient, content: bytes) ->
     assert isinstance(response.json()["detail"], str)
 
 
+def test_import_rejects_deeply_nested_json(client: TestClient) -> None:
+    depth = 100_000
+    content = b'{"places": ' + b"[" * depth + b"]" * depth + b"}"
+    response = upload(client, content)
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith("Fichier illisible")
+
+
 def test_import_counts_added_decisions(tmp_path: Path, client: TestClient) -> None:
     content = json.dumps(other_registry_document(tmp_path)).encode("utf-8")
     first = upload(client, content)
