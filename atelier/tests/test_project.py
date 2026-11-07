@@ -1,0 +1,424 @@
+import shutil
+import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from prosopo_gw_atelier.places.model import ElementKind
+from prosopo_gw_atelier.project import ClusterView, Project
+from prosopo_gw_atelier.refdata import RefData, load_refdata
+from prosopo_gw_atelier.store.registry import Origin, PlaceRegistry
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+MINI = FIXTURES / "refdata_mini"
+
+ROUBAIX_WRITINGS = [
+    "59100 Roubaix",
+    "59512",
+    "ROUBAIX, Nord, France",
+    "Roubaix",
+    "roubaix, Nord-Pas-de-Calais",
+]
+
+
+@pytest.fixture(scope="module")
+def ref() -> RefData:
+    return load_refdata(MINI)
+
+
+@pytest.fixture
+def registry(tmp_path: Path) -> Iterator[PlaceRegistry]:
+    with PlaceRegistry(tmp_path / "data" / "referentiel.sqlite") as reg:
+        yield reg
+
+
+@pytest.fixture
+def projects_dir(tmp_path: Path) -> Path:
+    return tmp_path / "data" / "projects"
+
+
+@pytest.fixture
+def gw(tmp_path: Path) -> Path:
+    return copy_fixture(tmp_path, "lieux_varies.gw")
+
+
+def copy_fixture(tmp_path: Path, name: str) -> Path:
+    target = tmp_path / "bases" / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / name, target)
+    return target
+
+
+def append(path: Path, text: str) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def replace(path: Path, old: str, new: str) -> None:
+    content = path.read_text(encoding="utf-8")
+    assert old in content
+    path.write_text(content.replace(old, new), encoding="utf-8")
+
+
+ADD_ROUBAIX_59 = "\nfam GARNIER Luc 1888 #bp Roubaix_(59) + ROUSSEL Claire 1890\n"
+
+
+def validate_all(project: Project, registry: PlaceRegistry) -> None:
+    """What the validation screen does, cluster by cluster, with the proposals."""
+    for view in project.clusters():
+        cluster = view.cluster
+        if cluster.proposal:
+            origins: dict[ElementKind, Origin] = {k: "rule" for k in cluster.proposal}
+            registry.validate(
+                cluster.writings, cluster.proposal, origins, project.project_id
+            )
+        else:
+            registry.reject(cluster.writings, project.project_id)
+
+
+def states(project: Project) -> dict[str, str]:
+    return {view.cluster.id: view.state for view in project.clusters()}
+
+
+def view_of(project: Project, writing: str) -> ClusterView:
+    (found,) = [v for v in project.clusters() if writing in v.cluster.writings]
+    return found
+
+
+def open_project(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> Project:
+    return Project.open(gw, registry, ref, projects_dir)
+
+
+# --- opening -------------------------------------------------------------------
+
+
+def test_open_exposes_tables_writings_and_clusters(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    assert {table.spec.name for table in project.tables} >= {"personnes", "evenements"}
+    assert len(project.writings["Lyon"].occurrences) == 2
+    roubaix = project.cluster("insee:59512")
+    assert roubaix.cluster.writings == ROUBAIX_WRITINGS
+    assert roubaix.state == "todo"
+    assert roubaix.occurrences == 9
+    assert roubaix.parent_id is None
+    assert roubaix.provisional_name is None
+    every = [w for v in project.clusters() for w in v.cluster.writings]
+    assert sorted(every) == sorted(project.writings)
+
+
+def test_project_id_is_a_fingerprint_of_the_absolute_path(
+    gw: Path,
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    assert len(project.project_id) == 16
+    int(project.project_id, 16)
+    assert (projects_dir / f"{project.project_id}.sqlite").is_file()
+    monkeypatch.chdir(gw.parent)
+    again = open_project(Path(gw.name), registry, ref, projects_dir)
+    assert again.project_id == project.project_id
+    other = open_project(
+        copy_fixture(tmp_path / "other", "lieux_varies.gw"),
+        registry,
+        ref,
+        projects_dir,
+    )
+    assert other.project_id != project.project_id
+
+
+def test_unknown_cluster_raises_key_error(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    with pytest.raises(KeyError):
+        project.cluster("insee:00000")
+
+
+# --- Step 1: no decision to redo ----------------------------------------------
+
+
+def test_no_decision_to_redo(
+    gw: Path,
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    validate_all(project, registry)
+    # Decisions are read at call time.
+    assert set(states(project).values()) == {"validated"}
+
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert set(states(reopened).values()) == {"validated"}
+
+    append(gw, ADD_ROUBAIX_59)
+    modified = open_project(gw, registry, ref, projects_dir)
+    todo = [v for v in modified.clusters() if v.state == "todo"]
+    assert len(todo) == 1
+    (roubaix,) = todo
+    assert "Roubaix (59)" in roubaix.cluster.writings
+    decision = registry.decision("Roubaix")
+    assert decision is not None
+    assert roubaix.cluster.anchor_place_id == decision.place_id
+    assert {
+        v.state for v in modified.clusters() if v.cluster.id != roubaix.cluster.id
+    } == {"validated"}
+
+    other = open_project(
+        copy_fixture(tmp_path, "autre_base.gw"), registry, ref, projects_dir
+    )
+    assert other.project_id != project.project_id
+    assert view_of(other, "Lyon").state == "already_decided"
+    assert view_of(other, "Fictiville").state == "todo"
+
+
+def test_reload_reapplies_decisions(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    validate_all(project, registry)
+    append(gw, ADD_ROUBAIX_59)
+    assert "Roubaix (59)" not in project.writings
+    project.reload()
+    assert "Roubaix (59)" in project.writings
+    assert [v.cluster.id for v in project.clusters() if v.state == "todo"] == [
+        "insee:59512"
+    ]
+
+
+def test_writing_of_the_registry_absent_from_the_gw_is_ignored(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    registry.validate(
+        ["Nowhere-sur-Mer"], {"commune": "Nowhere"}, {"commune": "manual"}, "other"
+    )
+    project = open_project(gw, registry, ref, projects_dir)
+    every = [w for v in project.clusters() for w in v.cluster.writings]
+    assert "Nowhere-sur-Mer" not in every
+
+
+def test_cluster_states(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    pid = project.project_id
+    registry.reject(["En mer"], pid)
+    assert project.cluster("name:en mer").state == "rejected"
+
+    # Part of a cluster decided: still to do.
+    registry.validate(["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, pid)
+    assert project.cluster("insee:59512").state == "todo"
+
+    # Mixed origins: already decided.
+    registry.validate(["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "other")
+    lille = project.cluster("insee:59350").cluster.writings
+    registry.validate(
+        [w for w in lille if w != "Lille"],
+        {"commune": "Lille"},
+        {"commune": "rule"},
+        pid,
+    )
+    assert project.cluster("insee:59350").state == "already_decided"
+
+    # Rejected by another project.
+    registry.reject(["Merville"], "other")
+    assert project.cluster("name:merville").state == "rejected"
+
+
+def test_clusters_are_sorted_by_state_confidence_and_occurrences(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    ids = [v.cluster.id for v in project.clusters()]
+    assert ids == [
+        "insee:59512",  # high, 9 occurrences
+        "insee:59350",  # high, 6
+        "insee:62765",  # high, 2
+        "insee:69266",  # high, 2
+        "insee:69123",  # medium, 2
+        "insee:62041",  # medium, 1
+        "name:en mer",  # low, 2
+        "name:merville",  # low, 2
+    ]
+    pid = project.project_id
+    registry.reject(["En mer"], pid)
+    registry.validate(["Arras"], {"commune": "Arras"}, {"commune": "rule"}, pid)
+    registry.validate(["Lyon"], {"commune": "Lyon"}, {"commune": "rule"}, "other")
+    ids = [v.cluster.id for v in project.clusters()]
+    assert ids[-3:] == ["insee:69123", "insee:62041", "name:en mer"]
+
+
+# --- Step 2: split -------------------------------------------------------------
+
+
+def test_split_follows_its_parent(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["roubaix, Nord-Pas-de-Calais", "59512"])
+    assert new.cluster.id.startswith("split:")
+    assert new.parent_id == "insee:59512"
+    assert new.provisional_name == "roubaix, Nord-Pas-de-Calais"
+    assert new.cluster.writings == ["59512", "roubaix, Nord-Pas-de-Calais"]
+    assert new.state == "todo"
+    assert new.occurrences == 3
+    assert new.cluster.proposal["insee_code"] == "59512"
+
+    ids = [v.cluster.id for v in project.clusters()]
+    assert ids[ids.index("insee:59512") + 1] == new.cluster.id
+    parent = project.cluster("insee:59512")
+    assert parent.cluster.writings == [
+        "59100 Roubaix",
+        "ROUBAIX, Nord, France",
+        "Roubaix",
+    ]
+    assert parent.occurrences == 6
+    assert project.cluster(new.cluster.id) == new
+
+
+def test_split_survives_reload_and_reopen(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["Roubaix", "59100 Roubaix"])
+    project.reload()
+    assert project.cluster(new.cluster.id) == new
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert reopened.cluster(new.cluster.id) == new
+    assert "Roubaix" not in reopened.cluster("insee:59512").cluster.writings
+
+
+def test_split_drops_writings_gone_from_the_gw(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["59100 Roubaix", "Roubaix"])
+    replace(gw, "#p 59100_Roubaix", "#p Arras")
+    project.reload()
+    kept = project.cluster(new.cluster.id)
+    assert kept.cluster.writings == ["Roubaix"]
+    assert kept.provisional_name == "Roubaix"
+
+    replace(gw, "#mp Roubaix", "#mp Arras")
+    replace(gw, "#p Roubaix", "#p Arras")
+    project.reload()
+    assert "Roubaix" not in project.writings
+    with pytest.raises(KeyError):
+        project.cluster(new.cluster.id)
+    assert all(not v.cluster.id.startswith("split:") for v in project.clusters())
+
+
+def test_split_of_a_split(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    first = project.split("insee:59512", ["Roubaix", "59512", "59100 Roubaix"])
+    second = project.split(first.cluster.id, ["59512"])
+    assert second.parent_id == first.cluster.id
+    ids = [v.cluster.id for v in project.clusters()]
+    at = ids.index("insee:59512")
+    assert ids[at : at + 3] == ["insee:59512", first.cluster.id, second.cluster.id]
+    assert project.cluster(first.cluster.id).cluster.writings == [
+        "59100 Roubaix",
+        "Roubaix",
+    ]
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert reopened.cluster(second.cluster.id) == second
+    assert reopened.cluster(first.cluster.id) == project.cluster(first.cluster.id)
+
+
+def test_split_state_follows_the_registry(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["59512"])
+    registry.validate(
+        ["59512"], {"insee_code": "59512"}, {"insee_code": "rule"}, project.project_id
+    )
+    assert project.cluster(new.cluster.id).state == "validated"
+    assert project.cluster("insee:59512").state == "todo"
+
+
+@pytest.mark.parametrize(
+    "writings",
+    [[], ROUBAIX_WRITINGS, ["Lyon"], ["Roubaix", "Nowhere"]],
+    ids=["empty", "all", "foreign", "unknown"],
+)
+def test_split_rejects_invalid_writings(
+    gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    writings: list[str],
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    with pytest.raises(ValueError):
+        project.split("insee:59512", writings)
+    assert all(not v.cluster.id.startswith("split:") for v in project.clusters())
+
+
+def test_split_of_an_unknown_cluster_raises_key_error(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    with pytest.raises(KeyError):
+        project.split("insee:00000", ["Roubaix"])
+
+
+# --- Step 3: gw_changed ----------------------------------------------------------
+
+
+def test_gw_changed(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    assert open_project(gw, registry, ref, projects_dir).gw_changed is False
+    project = open_project(gw, registry, ref, projects_dir)
+    assert project.gw_changed is False
+
+    append(gw, ADD_ROUBAIX_59)
+    assert open_project(gw, registry, ref, projects_dir).gw_changed is True
+    assert open_project(gw, registry, ref, projects_dir).gw_changed is False
+
+    project.reload()
+    assert project.gw_changed is False
+    append(gw, "\nfam GARNIER Paul 1890 + ROUSSEL Anne 1891\n")
+    project.reload()
+    assert project.gw_changed is True
+    project.reload()
+    assert project.gw_changed is False
+
+
+def test_project_state_file_records_path_and_fingerprint(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    db = projects_dir / f"{project.project_id}.sqlite"
+    with sqlite3.connect(db) as conn:
+        path, sha = conn.execute("SELECT path, sha256 FROM project").fetchone()
+    conn.close()
+    assert path == str(gw.resolve())
+    assert len(sha) == 64
+
+
+def test_anchor_follows_the_registry_without_reload(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    assert project.cluster("insee:59512").cluster.anchor_place_id is None
+    place_id = registry.validate(
+        ["Roubaix"],
+        {"commune": "Roubaix", "insee_code": "59512"},
+        {"commune": "rule", "insee_code": "rule"},
+        project.project_id,
+    )
+    assert project.cluster("insee:59512").cluster.anchor_place_id == place_id
