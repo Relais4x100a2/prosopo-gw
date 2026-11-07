@@ -17,6 +17,7 @@ docker/data/
 !core/tests/sample_data/*.gw
 !app/**/tests/fixtures/*.gw
 !app/**/tests/sample_data/*.gw
+!atelier/tests/fixtures/*.gw
 
 # === Environnements et secrets ===
 .venv/
@@ -35,6 +36,7 @@ ENV/
 .claude/
 .agents/
 .ai-team-orchestrator/
+.superpowers/
 
 # === Python ===
 __pycache__/

@@ -1,11 +1,11 @@
 [project]
 name = "prosopo-gw-workspace"
 version = "0.1.0"
-description = "Monorepo prosopo-gw : moteur geneweb-py (core/) et application LLM (app/)"
+description = "Monorepo prosopo-gw : moteur geneweb-py (core/) et atelier de nettoyage (atelier/)"
 requires-python = ">=3.11"
 
 [tool.uv.workspace]
-members = ["core", "app/docker/geneweb-app"]
+members = ["core", "atelier"]
 
 # Les membres du workspace se résolvent entre eux, sans chemin relatif
 [tool.uv.sources]
