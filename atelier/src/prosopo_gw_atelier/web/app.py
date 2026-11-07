@@ -376,15 +376,33 @@ def _project_info(state: AppState) -> schemas.ProjectInfo:
     )
 
 
+class _UndoFailed(Exception):
+    """An undo stopped on a ref; ``remaining`` are the refs not undone yet."""
+
+    def __init__(self, remaining: tuple[_Ref, ...], cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.remaining = remaining
+        self.cause = cause
+
+
 def _undo_refs(state: AppState, refs: Sequence[_Ref]) -> None:
-    """Undo ``refs`` in reverse order; ``ValueError`` from the registry."""
-    for ref in reversed(refs):
-        if ref.kind == "registry":
-            assert isinstance(ref.value, int)
-            state.registry.undo(ref.value)
-        else:
-            assert isinstance(ref.value, str)
-            state.project.unsplit(ref.value)
+    """Undo ``refs`` in reverse order.
+
+    Stops at the first ref that cannot be undone (registry ``ValueError``,
+    unknown split ``KeyError``) and raises ``_UndoFailed`` with the refs not
+    undone yet, that one included, in their original order.
+    """
+    for index in range(len(refs) - 1, -1, -1):
+        ref = refs[index]
+        try:
+            if ref.kind == "registry":
+                assert isinstance(ref.value, int)
+                state.registry.undo(ref.value)
+            else:
+                assert isinstance(ref.value, str)
+                state.project.unsplit(ref.value)
+        except (ValueError, KeyError) as exc:
+            raise _UndoFailed(tuple(refs[: index + 1]), exc) from exc
 
 
 def _cluster_or_404(project: Project, cluster_id: str) -> ClusterView:
@@ -540,8 +558,10 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 raise _error(
                     400, f"Écritures absentes de ce lieu : {', '.join(unknown)}."
                 )
-            fields = {k: v.strip() for k, v in body.fields.items() if v.strip()}
-            if not fields:
+            fields: dict[ElementKind, str | None] = {
+                k: v.strip() or None for k, v in body.fields.items()
+            }
+            if not any(fields.values()):
                 raise _error(
                     400, "La forme retenue est vide : renseignez au moins un champ."
                 )
@@ -555,6 +575,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 if proposal.get(kind) == value
                 else "manual"
                 for kind, value in fields.items()
+                if value is not None
             }
             refs: list[_Ref] = []
             split_id: str | None = None
@@ -608,9 +629,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
 
     @app.patch("/api/places/{place_id}")
     def correct_place(place_id: str, body: schemas.CorrectIn) -> schemas.PlaceOut:
-        value = body.value.strip()
-        if not value:
-            raise _error(400, "La valeur est vide.")
+        value = body.value.strip() or None
         with state.lock:
             try:
                 _, entry = _journaled(
@@ -649,12 +668,20 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             action = state.undo.pop()
             try:
                 _undo_refs(state, action.refs)
-            except ValueError as exc:
+            except _UndoFailed as failed:
+                if len(failed.remaining) < len(action.refs):
+                    state.undo.append(_Action(action.kind, failed.remaining))
+                    raise _error(
+                        409,
+                        "Action annulée seulement partiellement : une étape n'a pas "
+                        f"pu être défaite ({failed.cause}). Le reste de l'action "
+                        "reste dans la pile d'annulation ; réessayez.",
+                    ) from None
                 raise _error(
                     409,
                     "Annulation impossible : une action plus récente a modifié les "
-                    f"mêmes décisions ({exc}). Cette action est retirée de la pile "
-                    "d'annulation.",
+                    f"mêmes décisions ({failed.cause}). Cette action est retirée de "
+                    "la pile d'annulation.",
                 ) from None
             return schemas.UndoOut(action=action.kind)
 

@@ -106,3 +106,17 @@ def test_unreadable_base(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     recorder = Recorder()
     assert run([str(folder), "--no-browser"], recorder) == 2
     assert "Fichier introuvable" in capsys.readouterr().err
+
+
+def test_port_already_in_use(
+    tmp_path: Path, gw: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorder = Recorder()
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        port = sock.getsockname()[1]
+        argv = [str(gw), "--port", str(port), "--data-dir", str(tmp_path / "d")]
+        assert run(argv, recorder) == 2
+    assert f"Port {port} déjà utilisé" in capsys.readouterr().err
+    assert recorder.served == []

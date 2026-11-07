@@ -283,7 +283,7 @@ class PlaceRegistry:
     def validate(
         self,
         writings: Sequence[str],
-        fields: Mapping[ElementKind, str],
+        fields: Mapping[ElementKind, str | None],
         origins: Mapping[ElementKind, Origin],
         project: str,
         place_id: str | None = None,
@@ -292,13 +292,17 @@ class PlaceRegistry:
 
         Without ``place_id`` a new place (UUID4) is created; with it, the
         given fields are merged into that place (``KeyError`` if unknown).
-        ``origins`` must give the origin of each field. A writing decided
-        otherwise before is re-attached; its previous row is journaled.
+        ``origins`` must give the origin of each field set. A field given as
+        ``None`` is removed from the place (journaled, so undo restores its
+        value and origin); it takes no origin. A writing decided otherwise
+        before is re-attached; its previous row is journaled.
         """
         unique = list(dict.fromkeys(writings))
         if not unique:
             raise ValueError("validate needs at least one writing")
-        if set(fields) != set(origins):
+        for kind in fields:
+            self._check_kind(kind)
+        if {k for k, v in fields.items() if v is not None} != set(origins):
             raise ValueError(
                 "origins must give the origin of each field, and only those"
             )
@@ -321,7 +325,9 @@ class PlaceRegistry:
                     RowChange(
                         "place_fields",
                         {"place_id": place_id, "kind": kind},
-                        {"value": value, "origin": origins[kind]},
+                        None
+                        if value is None
+                        else {"value": value, "origin": origins[kind]},
                     )
                 )
             for writing in unique:
@@ -360,9 +366,12 @@ class PlaceRegistry:
             self._record("reject", project, changes, {})
 
     def correct(
-        self, place_id: str, field: ElementKind, value: str, project: str
+        self, place_id: str, field: ElementKind, value: str | None, project: str
     ) -> None:
-        """Set ``field`` of a place by hand: its origin becomes ``manual``."""
+        """Set ``field`` of a place by hand: its origin becomes ``manual``.
+
+        ``value=None`` removes the field (journaled; undo restores it).
+        """
         self._check_kind(field)
         with self._transaction():
             if not self._place_exists(place_id):
@@ -370,7 +379,7 @@ class PlaceRegistry:
             change = RowChange(
                 "place_fields",
                 {"place_id": place_id, "kind": field},
-                {"value": value, "origin": "manual"},
+                None if value is None else {"value": value, "origin": "manual"},
             )
             self._record("correct", project, [change], {"place_id": place_id})
 

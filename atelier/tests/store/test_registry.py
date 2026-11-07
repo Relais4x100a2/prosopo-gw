@@ -399,3 +399,59 @@ def test_known_place_without_insee_anchors_by_name(registry: PlaceRegistry) -> N
         {"SAINT INCONNU": decompose("SAINT INCONNU", ref)}, ref, known
     )
     assert cluster.anchor_place_id == place_id
+
+
+# --- removing fields ------------------------------------------------------------
+
+
+def test_validate_with_none_removes_the_field(registry: PlaceRegistry) -> None:
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    registry.validate(
+        ["Roubaix"],
+        {"commune": "Roubaix", "department": None},
+        {"commune": "rule"},
+        "p",
+        place_id,
+    )
+    place = registry.place(place_id)
+    assert "department" not in place.fields
+    assert "department" not in place.origins
+    entry = registry.journal()[0]
+    (row,) = [r for r in entry.payload["rows"] if r["key"].get("kind") == "department"]
+    assert row["before"] == {"value": "59", "origin": "rule"}
+    assert row["after"] is None
+    registry.undo(entry.entry_id)
+    place = registry.place(place_id)
+    assert place.fields == ROUBAIX
+    assert place.origins == RULE
+
+
+def test_validate_none_on_a_new_place_is_ignored(registry: PlaceRegistry) -> None:
+    place_id = registry.validate(
+        ["Roubaix"], {"commune": "Roubaix", "region": None}, {"commune": "rule"}, "p"
+    )
+    assert registry.place(place_id).fields == {"commune": "Roubaix"}
+
+
+def test_validate_rejects_an_origin_for_a_removed_field(
+    registry: PlaceRegistry,
+) -> None:
+    with pytest.raises(ValueError):
+        registry.validate(["X"], {"commune": None}, {"commune": "rule"}, "p")
+
+
+def test_correct_with_none_removes_the_field_and_undo_restores_it(
+    registry: PlaceRegistry,
+) -> None:
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    registry.correct(place_id, "department", None, "p")
+    assert registry.place(place_id).fields == {
+        "commune": "Roubaix",
+        "insee_code": "59512",
+    }
+    entry = registry.journal()[0]
+    assert entry.action == "correct"
+    registry.undo(entry.entry_id)
+    place = registry.place(place_id)
+    assert place.fields == ROUBAIX
+    assert place.origins == RULE

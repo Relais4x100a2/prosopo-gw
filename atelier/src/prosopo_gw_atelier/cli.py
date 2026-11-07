@@ -40,6 +40,16 @@ def free_port() -> int:
         return port
 
 
+def port_is_free(port: int) -> bool:
+    """Whether ``port`` can be bound on ``127.0.0.1`` right now."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((HOST, port))
+        except OSError:
+            return False
+    return True
+
+
 def serve(app: FastAPI, port: int, on_started: Callable[[], None]) -> None:
     """Run uvicorn on ``127.0.0.1:port`` until Ctrl+C."""
     import uvicorn
@@ -87,7 +97,7 @@ def main(
     open_browser: Callable[[str], object] = webbrowser.open,
     load_ref: Callable[[], RefData] = load_refdata,
 ) -> int:
-    """Entry point; returns the exit code (2: base not found)."""
+    """Entry point; returns the exit code (2: base not found, bad or busy port)."""
     args = _parser().parse_args(argv)
     base: Path = args.base
     if not base.is_file():
@@ -95,6 +105,9 @@ def main(
         return 2
     if args.port is not None and not 0 < args.port < 65536:
         print(f"Port invalide : {args.port}", file=sys.stderr)
+        return 2
+    if args.port is not None and not port_is_free(args.port):
+        print(f"Port {args.port} déjà utilisé", file=sys.stderr)
         return 2
     directory: Path = args.data_dir if args.data_dir is not None else data_dir()
     ref = load_ref()

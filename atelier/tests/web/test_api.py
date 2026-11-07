@@ -603,3 +603,80 @@ def test_index_and_static(client: TestClient) -> None:
     assert response.headers["content-type"].startswith("text/html")
     assert "Atelier" in response.text
     assert client.get("/static/absent.js").status_code == 404
+
+
+# --- fix round 1: blanked fields, partial undo ----------------------------------------
+
+
+def validated_roubaix(client: TestClient) -> tuple[str, dict[str, Any]]:
+    roubaix = detail(client, ROUBAIX)
+    assert roubaix["proposal"]["department"] == "59"
+    place_id = client.post(
+        cluster_url(ROUBAIX, "validate"),
+        json={"fields": roubaix["proposal"], "checked": writings_of(roubaix)},
+    ).json()["place_id"]
+    return place_id, roubaix
+
+
+def test_validate_with_a_blank_field_removes_it_then_undo(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    place_id, roubaix = validated_roubaix(client)
+    place_cluster = f"place:{place_id}"
+    fields = {**roubaix["proposal"], "department": "  "}
+    response = client.post(
+        cluster_url(place_cluster, "validate"),
+        json={"fields": fields, "checked": writings_of(roubaix)},
+    )
+    assert response.status_code == 200, response.text
+    place = registry.place(place_id)
+    assert "department" not in place.fields
+    assert "department" not in place.origins
+    assert "department" not in detail(client, place_cluster)["origins"]
+    assert client.post("/api/undo").json() == {"action": "validate"}
+    place = registry.place(place_id)
+    assert place.fields["department"] == "59"
+    assert place.origins["department"] == "rule"
+
+
+def test_patch_with_an_empty_value_removes_the_field_then_undo(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    place_id, _ = validated_roubaix(client)
+    response = client.patch(
+        f"/api/places/{place_id}", json={"field": "department", "value": " "}
+    )
+    assert response.status_code == 200
+    assert "department" not in response.json()["fields"]
+    assert "department" not in response.json()["origins"]
+    assert client.post("/api/undo").json() == {"action": "correct"}
+    assert registry.place(place_id).fields["department"] == "59"
+
+
+def test_partial_undo_keeps_the_rest_of_the_action(
+    client: TestClient, registry: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roubaix = detail(client, ROUBAIX)
+    checked = [w for w in writings_of(roubaix) if w != "59512"]
+    result = client.post(
+        cluster_url(ROUBAIX, "validate"),
+        json={"fields": roubaix["proposal"], "checked": checked},
+    ).json()
+    split_id = result["split"]["id"]
+    project = client.app.state.atelier.project  # type: ignore[attr-defined]
+
+    def broken(split: str) -> None:
+        raise KeyError(split)
+
+    monkeypatch.setattr(project, "unsplit", broken)
+    response = client.post("/api/undo")
+    assert response.status_code == 409
+    assert "partiellement" in response.json()["detail"]
+    # The registry part was undone; the split is still there.
+    assert registry.decision("Roubaix") is None
+    assert detail(client, split_id)["writings"]
+    # The rest of the action stays on the stack: a retry finishes it.
+    monkeypatch.undo()
+    assert client.post("/api/undo").json() == {"action": "validate"}
+    assert client.get(cluster_url(split_id)).status_code == 404
+    assert client.post("/api/undo").status_code == 409
