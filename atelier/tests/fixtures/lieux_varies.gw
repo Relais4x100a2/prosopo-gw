@@ -1,0 +1,36 @@
+encoding: utf-8
+gwplus
+
+fam DUPONT Jean 1850 #bp Lille +1875 #mp Roubaix MARTIN Marie 1852 #bp roubaix,_Nord-Pas-de-Calais
+fevt
+#marr 1875 #p Roubaix
+end fevt
+beg
+- h Pierre_Jean 1876 +1940 #dp Lille,_France
+- f Anne 1878 #bp St-Omer_(62)
+end
+
+pevt DUPONT Jean
+#birt 1850 #p Lille
+#resi 1870 #p Lyon
+#occu 1872 #p [Atelier_Rose]_-_Lyon
+#deat 1910 #p ROUBAIX,_Nord,_France
+end pevt
+
+pevt MARTIN Marie
+#deat 1920 #p 59100_Roubaix
+end pevt
+
+pevt DUPONT Pierre_Jean
+#birt 1876 #p 59512
+#resi 1900 #p Lomme
+end pevt
+
+fam BERNARD Paul 1849 #bp Merville +1880 #mp Lille,_Nord,_France PETIT Louise 1855 #bp [Rue_des_Fleurs]_-_Arras
+beg
+- h Louis 1882 #bp Villeurbanne,_Rhône
+end
+
+pevt PETIT Louise
+#deat 1899 #p En_mer
+end pevt

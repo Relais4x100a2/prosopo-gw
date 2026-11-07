@@ -1,0 +1,219 @@
+"""Decomposition of a place writing into typed elements (design § 6.1).
+
+The writing is cut on ``,``, ``;``, ``(``, ``)``, `` - `` and around a
+5-character code (5 digits, or ``2A``/``2B`` + 3 digits); the order of the
+segments is free. Each segment is then read as:
+
+- a 5-character code: INSEE code if the COG knows it, postal code if La Poste
+  knows it; when it is both, the reading that agrees with the written commune
+  wins (without a written commune, the INSEE reading wins if the postal code
+  serves that commune, otherwise no element is kept and both readings become
+  candidates); when it is neither, the writing is ``ambiguous`` and the code
+  yields no element;
+- the first text segment that names a commune (current or former name) is the
+  commune; other segments are tried as department, region (current or pre-2016)
+  and country first, then as a further commune name;
+- anything else (``en mer``, a street…) yields no element.
+
+Candidates are the INSEE codes allowed by the names, then narrowed by the codes
+and the department. A constraint that would leave no candidate is ignored
+(conflicting clues do not erase the commune). ``insee`` is set only when one
+candidate remains and a commune name or an INSEE code supports it: a postal
+code or a department alone proposes candidates without choosing. Homonyms are
+expressed by ``insee is None`` and several candidates; ``ambiguous`` stays
+``False`` for them. Regions do not narrow the candidates (the reference data
+only gives their name).
+
+The function is pure, deterministic and never raises.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+from ..refdata import RefData
+from .model import Decomposition, Element
+
+_CODE = r"(?:\d{5}|2[ABab]\d{3})"
+_SPLIT = re.compile(rf"[,;()]|\s-\s|(?<!\w)({_CODE})(?!\w)")
+_CODE_ONLY = re.compile(rf"^{_CODE}$")
+_STRIP = " \t\r\n-–—.:'\"’"
+
+HINT_NAME = "nom"
+HINT_POSTAL = "code postal"
+HINT_INSEE = "code INSEE"
+HINT_DEPARTMENT = "département"
+HINT_OLD_REGION = "ancienne région"
+HINT_REGION = "région"
+HINT_COUNTRY = "pays"
+HINT_FORMER_NAME = "ancien nom"
+
+
+def _segments(writing: str) -> list[str]:
+    parts = _SPLIT.split(writing)
+    cleaned = (part.strip(_STRIP) for part in parts if part is not None)
+    return [part for part in cleaned if part]
+
+
+@dataclass
+class _State:
+    elements: list[tuple[int, Element]] = field(default_factory=list)
+    names: set[str] | None = None
+    insee_codes: list[set[str]] = field(default_factory=list)
+    postal_codes: list[set[str]] = field(default_factory=list)
+    department: str | None = None
+    ambiguous: bool = False
+
+
+def _name_element(segment: str, ref: RefData) -> tuple[Element, set[str]] | None:
+    matches = ref.communes_by_name(segment)
+    if not matches:
+        return None
+    codes = {m.commune.insee for m in matches}
+    current = sorted({m.commune.name for m in matches if m.former_name is None})
+    if current:
+        value = current[0] if len(current) == 1 else segment
+        return Element("commune", value, HINT_NAME), codes
+    former = sorted({m.former_name or segment for m in matches})
+    value = former[0] if len(former) == 1 else segment
+    return Element("former_name", value, HINT_FORMER_NAME), codes
+
+
+def _admin_element(segment: str, ref: RefData) -> Element | None:
+    department = ref.department(segment)
+    if department is not None:
+        return Element("department", department, HINT_DEPARTMENT)
+    region = ref.region(segment)
+    if region is not None:
+        name, before_2016 = region
+        return Element("region", name, HINT_OLD_REGION if before_2016 else HINT_REGION)
+    country = ref.country(segment)
+    if country is not None:
+        return Element("country", country, HINT_COUNTRY)
+    return None
+
+
+def _add_names(state: _State, codes: set[str]) -> None:
+    if state.names is None:
+        state.names = set(codes)
+    elif state.names & codes:
+        state.names &= codes
+
+
+def _read_text(index: int, segment: str, ref: RefData, state: _State) -> None:
+    named = _name_element(segment, ref)
+    if named is not None and state.names is None:
+        state.elements.append((index, named[0]))
+        _add_names(state, named[1])
+        return
+    admin = _admin_element(segment, ref)
+    if admin is not None:
+        state.elements.append((index, admin))
+        if admin.kind == "department" and state.department is None:
+            state.department = admin.value
+        return
+    if named is not None:
+        state.elements.append((index, named[0]))
+        _add_names(state, named[1])
+
+
+def _narrow(candidates: set[str], constraint: set[str]) -> set[str]:
+    narrowed = candidates & constraint
+    return narrowed if narrowed else candidates
+
+
+def _read_codes(
+    codes: list[tuple[int, str]], ref: RefData, state: _State
+) -> list[tuple[int, str, set[str], set[str]]]:
+    """Classify each code; return the unresolved INSEE-or-postal ones."""
+    undecided: list[tuple[int, str, set[str], set[str]]] = []
+    for index, code in codes:
+        commune = ref.commune_by_insee(code)
+        insee = {commune.insee} if commune is not None else set()
+        postal = {c.insee for c in ref.communes_by_postal(code)}
+        if insee and postal:
+            undecided.append((index, code, insee, postal))
+        elif insee:
+            state.elements.append((index, Element("insee_code", code, HINT_INSEE)))
+            state.insee_codes.append(insee)
+        elif postal:
+            state.elements.append((index, Element("postal_code", code, HINT_POSTAL)))
+            state.postal_codes.append(postal)
+        else:
+            state.ambiguous = True
+    return undecided
+
+
+def _settle_code(
+    index: int, code: str, insee: set[str], postal: set[str], state: _State
+) -> set[str] | None:
+    """Pick the reading of a code that is both INSEE and postal.
+
+    Return the candidates to add when no reading can be chosen.
+    """
+    names = state.names
+    if names is not None and insee & names:
+        reading = "insee"
+    elif names is not None and postal & names:
+        reading = "postal"
+    elif names is None and insee <= postal:
+        reading = "insee"
+    else:
+        return insee | postal
+    if reading == "insee":
+        state.elements.append((index, Element("insee_code", code, HINT_INSEE)))
+        state.insee_codes.append(insee)
+    else:
+        state.elements.append((index, Element("postal_code", code, HINT_POSTAL)))
+        state.postal_codes.append(postal)
+    return None
+
+
+def decompose(writing: str, ref: RefData) -> Decomposition:
+    """Split ``writing`` into typed elements and resolve its commune if possible."""
+    state = _State()
+    codes: list[tuple[int, str]] = []
+    for index, segment in enumerate(_segments(writing)):
+        if _CODE_ONLY.match(segment):
+            codes.append((index, segment.upper()))
+        else:
+            _read_text(index, segment, ref, state)
+
+    unsettled: set[str] = set()
+    for index, code, insee, postal in _read_codes(codes, ref, state):
+        extra = _settle_code(index, code, insee, postal, state)
+        if extra is not None:
+            unsettled |= extra
+
+    supported = state.names is not None or bool(state.insee_codes)
+    candidates: set[str] | None = set(state.names) if state.names is not None else None
+    for constraint in (*state.insee_codes, *state.postal_codes):
+        candidates = (
+            constraint if candidates is None else _narrow(candidates, constraint)
+        )
+    if unsettled:
+        candidates = unsettled if candidates is None else _narrow(candidates, unsettled)
+    if candidates is not None and state.department is not None:
+        in_department = {
+            code
+            for code in candidates
+            if (commune := ref.commune_by_insee(code)) is not None
+            and commune.department == state.department
+        }
+        candidates = _narrow(candidates, in_department)
+
+    ordered = tuple(sorted(candidates)) if candidates else ()
+    insee_code = ordered[0] if supported and len(ordered) == 1 else None
+    elements = tuple(element for _, element in sorted(state.elements, key=_index))
+    return Decomposition(
+        writing=writing,
+        elements=elements,
+        insee=insee_code,
+        candidates=ordered,
+        ambiguous=state.ambiguous,
+    )
+
+
+def _index(item: tuple[int, Element]) -> int:
+    return item[0]
