@@ -89,8 +89,8 @@ prosopo-gw/
 │   └── doc/                   architecture, performances, feuille de route
 ├── app/                       Application Streamlit (en refonte)
 │   ├── docker/geneweb-app/    paquet `geneweb-app` : pages Streamlit + `src/`
-│   ├── docker/geneweb-server/ serveur GeneWeb OCaml (implémentation de référence, en conteneur)
 │   └── docker-compose.yml
+├── docker/                    serveur GeneWeb OCaml (implémentation de référence, en conteneur) : docker-compose.yml + geneweb-server/
 ├── run_app.sh                 lance l'application en une commande
 ├── pyproject.toml · uv.lock   workspace uv (membres : core, app/docker/geneweb-app)
 └── .github/workflows/ci.yml   lint, types, tests 3.11 → 3.13, build Docker

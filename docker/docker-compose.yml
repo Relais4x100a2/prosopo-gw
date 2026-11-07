@@ -1,0 +1,25 @@
+services:
+  geneweb-server:
+    build:
+      context: ./geneweb-server
+      dockerfile: Dockerfile
+    container_name: geneweb-server
+    ports:
+      - "2316:2316"  # gwsetup
+      - "2317:2317"  # gwd
+    volumes:
+      - ${GENEWEB_BASES_HOST_DIR:-./data/geneweb_bases}:/opt/geneweb/bases
+      - ./data/geneweb_config:/opt/geneweb/config
+    networks:
+      - geneweb-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2317"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  geneweb-network:
+    driver: bridge

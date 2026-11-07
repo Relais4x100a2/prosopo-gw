@@ -16,8 +16,9 @@ prosopo-gw/
   uv.lock               # lock unifié, commité
   core/                 # paquet `geneweb-py` : parser .gw, modèles, organisations, analytics, API REST, CLI
   app/                  # application Streamlit (en refonte ; pages LLM non maintenues)
-    docker-compose.yml  # geneweb-server (OCaml) + geneweb-app (Streamlit)
+    docker-compose.yml  # geneweb-app (Streamlit) ; le serveur OCaml vit dans docker/
     docker/geneweb-app/ # paquet `geneweb-app` (pyproject.toml, Dockerfile, code Streamlit, src/)
+  docker/               # serveur GeneWeb OCaml conteneurisé (docker-compose.yml + geneweb-server/)
 ```
 
 Hors monorepo : `geneweb-org` (fork OCaml, spécification du format natif) et `Geneweb` (V2, archivé).

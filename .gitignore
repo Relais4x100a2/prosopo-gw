@@ -8,6 +8,7 @@
 real_base_*
 _local_testdata/
 data/geneweb_bases/
+docker/data/
 # Compagnons JSON d'organisations issus de vraies bases
 *.org.json
 # Exceptions : fixtures synthétiques uniquement
