@@ -342,6 +342,43 @@ def test_split_drops_writings_gone_from_the_gw(
     assert all(not v.cluster.id.startswith("split:") for v in project.clusters())
 
 
+def test_unsplit_removes_the_split_and_persists(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    before = project.cluster("insee:59512")
+    new = project.split("insee:59512", ["Roubaix", "59100 Roubaix"])
+    project.unsplit(new.cluster.id)
+    with pytest.raises(KeyError):
+        project.cluster(new.cluster.id)
+    assert project.cluster("insee:59512") == before
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert reopened.cluster("insee:59512") == before
+    assert all(not v.cluster.id.startswith("split:") for v in reopened.clusters())
+    with sqlite3.connect(project.state_path) as conn:
+        for table in ("splits", "split_writings", "split_parent_writings"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+
+def test_unsplit_of_an_unknown_split_raises_key_error(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    with pytest.raises(KeyError):
+        project.unsplit("split:absent")
+
+
+def test_decomposition_of_a_writing(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    decomposition = project.decomposition("59100 Roubaix")
+    assert decomposition.writing == "59100 Roubaix"
+    assert decomposition.insee == "59512"
+    with pytest.raises(KeyError):
+        project.decomposition("Nulle Part")
+
+
 def test_split_of_a_split(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:

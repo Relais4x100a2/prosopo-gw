@@ -340,6 +340,27 @@ class Project:
             self._cache = None
             return self.cluster(split.split_id)
 
+    def unsplit(self, split_id: str) -> None:
+        """Remove the split ``split_id``: its writings go back to the grouping.
+
+        Removed from the state file too (``KeyError`` if there is no such
+        split). Splits made of it later keep their writings and find their
+        parent as described in the module docstring.
+        """
+        with self._lock:
+            if not any(split.split_id == split_id for split in self._splits):
+                raise KeyError(split_id)
+            with self._connect() as conn:
+                for table in ("split_writings", "split_parent_writings", "splits"):
+                    conn.execute(f"DELETE FROM {table} WHERE split_id = ?", (split_id,))
+            self._splits = [s for s in self._splits if s.split_id != split_id]
+            self._cache = None
+
+    def decomposition(self, writing: str) -> Decomposition:
+        """Decomposition of ``writing``; ``KeyError`` if it is not in the ``.gw``."""
+        with self._lock:
+            return self._decompositions[writing]
+
     # -- internals ------------------------------------------------------------
 
     def _views(self) -> list[ClusterView]:
