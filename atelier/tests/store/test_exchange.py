@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from prosopo_gw_atelier.store import exchange
 from prosopo_gw_atelier.store.exchange import (
     FORMAT,
     Conflict,
@@ -148,6 +149,54 @@ def test_import_and_resolve_return_their_journal_entry(
     assert entry == target.journal(limit=1)[0].entry_id
     assert resolve_conflict(target, conflict, "current", "mine") is None
     assert import_registry(target, data).entry_id is None
+
+
+def test_writing_decided_between_plan_and_apply_is_a_conflict(
+    tmp_path: Path,
+    source: PlaceRegistry,
+    target: PlaceRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another process decides a writing the import found absent."""
+    _, lille = _fill(source)
+    real_apply = target.apply_import
+    calls = 0
+
+    def other_process_decides_first(*args: Any, **kwargs: Any) -> int | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with PlaceRegistry(tmp_path / "target.sqlite") as other:
+                other.reject(["Lille"], "other-process")
+        return real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(target, "apply_import", other_process_decides_first)
+    result = import_registry(target, export_registry(source))
+    [conflict] = result.conflicts
+    assert conflict.writing == "Lille"
+    assert conflict.current == Decision("Lille", None, "rejected", "other-process")
+    assert conflict.incoming == source.decision("Lille")
+    # Never overwritten in silence; the conflicting-only place is carried.
+    assert target.decision("Lille") == conflict.current
+    assert conflict.incoming_place == source.place(lille)
+    with pytest.raises(KeyError):
+        target.place(lille)
+    assert target.decision("ROUBAIX") == source.decision("ROUBAIX")
+    assert result.entry_id == target.journal(limit=1)[0].entry_id
+
+
+def test_import_gives_up_if_the_registry_keeps_changing(
+    source: PlaceRegistry, target: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fill(source)
+
+    def always_outdated(*args: Any, **kwargs: Any) -> int | None:
+        raise exchange._PlanOutdated
+
+    monkeypatch.setattr(target, "apply_import", always_outdated)
+    with pytest.raises(RuntimeError):
+        import_registry(target, export_registry(source))
+    assert target.all_decisions() == []
 
 
 def test_reimport_same_data_writes_nothing(

@@ -35,6 +35,8 @@ Import
     keeps its local fields; differing fields are neither overwritten nor
     reported (only writings conflict). Everything applied goes into one
     undoable ``import`` journal entry; nothing is journaled if nothing changes.
+    "Absent locally" is checked again inside the write transaction: a writing
+    another process decided in the meantime becomes a conflict too.
 """
 
 from __future__ import annotations
@@ -275,7 +277,33 @@ def import_registry(registry: PlaceRegistry, data: object) -> ImportResult:
     ``object``: any mapping is accepted, anything else is a format error.
     See the module docstring. ``RegistryFormatError`` (nothing written) if
     ``data`` is not a valid export.
+
+    The import is planned from a read of the registry, then applied in one
+    transaction that first checks the plan still holds: every writing found
+    absent is still absent, every place to create still missing, every
+    place relied on still there. If another process changed them in
+    between, nothing is written and the import is planned again (so a
+    writing decided meanwhile becomes a conflict), up to
+    ``_IMPORT_ATTEMPTS`` times (``RuntimeError`` beyond).
     """
+    for _ in range(_IMPORT_ATTEMPTS):
+        try:
+            return _import_once(registry, data)
+        except _PlanOutdated:
+            continue
+    raise RuntimeError(
+        "the registry kept changing during the import; try the import again"
+    )
+
+
+_IMPORT_ATTEMPTS = 5
+
+
+class _PlanOutdated(Exception):
+    """The registry changed between planning an import and applying it."""
+
+
+def _import_once(registry: PlaceRegistry, data: object) -> ImportResult:
     local_places = {place.place_id for place in registry.places()}
     exported_at, places, incoming = _parse(data, local_places)
     local = registry.decisions(d.writing for d in incoming)
@@ -294,14 +322,28 @@ def import_registry(registry: PlaceRegistry, data: object) -> ImportResult:
     deferred = {c.incoming.place_id for c in conflicts} - needed
     now = _now()
     changes: list[RowChange] = []
+    created: list[str] = []
     for place_id in sorted(places):
         if place_id not in local_places and place_id not in deferred:
+            created.append(place_id)
             changes.extend(_place_changes(places[place_id], now))
     changes.extend(_writing_change(d, d.project, now) for d in applied)
+    relied_on = needed - set(created)
+
+    def plan_holds() -> None:
+        # Runs inside the import transaction: nothing can change after it.
+        if registry.decisions(d.writing for d in applied):
+            raise _PlanOutdated
+        if any(_known(registry, place_id) for place_id in created):
+            raise _PlanOutdated
+        if not all(_known(registry, place_id) for place_id in relied_on):
+            raise _PlanOutdated
+
     entry = registry.apply_import(
         changes,
         None,
         {"exported_at": exported_at, "conflicts": [c.writing for c in conflicts]},
+        check=plan_holds,
     )
     return ImportResult(conflicts, entry)
 
