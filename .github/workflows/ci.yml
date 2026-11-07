@@ -43,6 +43,15 @@ jobs:
       - name: Mypy (ensemble de core)
         run: uv run --package geneweb-py mypy core/src/geneweb_py
 
+      - name: Ruff lint (atelier)
+        run: uv run --package prosopo-gw-atelier ruff check atelier/src atelier/tests --output-format=github
+
+      - name: Ruff format (atelier)
+        run: uv run --package prosopo-gw-atelier ruff format --check atelier/src atelier/tests
+
+      - name: Mypy (atelier)
+        run: uv run --package prosopo-gw-atelier mypy atelier/src/prosopo_gw_atelier
+
   secrets:
     name: Secrets (gitleaks, historique complet)
     runs-on: ubuntu-24.04
@@ -102,17 +111,25 @@ jobs:
           path: coverage.xml
           retention-days: 30
 
-  docker-build:
-    name: Build image Docker (app)
+  tests-atelier:
+    name: Tests atelier (Python ${{ matrix.python-version }})
     runs-on: ubuntu-24.04
-    needs: [lint, tests]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build (contexte = racine du monorepo, sans push)
-        run: docker build -f app/docker/geneweb-app/Dockerfile -t prosopo-gw-app:ci .
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: ${{ matrix.python-version }}
 
-      - name: Import smoke test
-        run: |
-          docker run --rm prosopo-gw-app:ci python -c \
-            "import geneweb_py; from src.pevt_extractor import PEVTExtractor; print('import ok')"
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras --frozen
+
+      - name: Tests
+        run: uv run --package prosopo-gw-atelier python -m pytest atelier
