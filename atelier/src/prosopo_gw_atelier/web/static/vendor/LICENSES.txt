@@ -1,6 +1,7 @@
 Third-party files in this folder, copied unchanged from
-core/src/geneweb_py/api/static/vendor/. The place validation screen does not
-load them: they are reserved for the registry screen (Task 13).
+core/src/geneweb_py/api/static/vendor/. No screen of the atelier loads them
+yet (the validation and registry screens use plain DOM tables); they are kept
+for later screens.
 
 - bootstrap.bundle.min.js, bootstrap.min.css: Bootstrap v5.3.3
   https://getbootstrap.com/ - MIT License

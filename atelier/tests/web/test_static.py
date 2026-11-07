@@ -62,6 +62,22 @@ def test_static_files_are_served(client: TestClient, path: str) -> None:
     assert response.content
 
 
+def test_page_links_the_exports_and_the_registry(client: TestClient) -> None:
+    page = client.get("/").text
+    assert 'href="/api/export"' in page
+    assert 'id="registry-button"' in page
+    assert 'id="registry"' in page
+    script = client.get("/static/app.js").text
+    for route in (
+        "/api/registry/export",
+        "/api/registry/import",
+        "/api/registry/conflicts",
+        "/api/registry/conflicts/resolve",
+        "/api/registry/journal",
+    ):
+        assert route in script
+
+
 def test_script_never_assigns_inner_html(client: TestClient) -> None:
     """Place names come from user files: the page builds nodes, never HTML."""
     script = client.get("/static/app.js").text

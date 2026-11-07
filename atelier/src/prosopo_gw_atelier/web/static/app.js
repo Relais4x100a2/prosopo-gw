@@ -1,5 +1,7 @@
 /*
- * Atelier prosopo-gw: place validation screen (design § 7).
+ * Atelier prosopo-gw: place validation screen (design § 7), data export
+ * (§ 9) and the personal registry screen (§ 6.3: export, import, conflicts,
+ * journal).
  *
  * Plain JavaScript, no build step. The page talks to the local API of the
  * same server (same origin). Every value shown comes from the user's .gw
@@ -52,6 +54,16 @@
     import: "import du référentiel",
     resolve: "résolution d'un conflit",
   };
+  const JOURNAL_ACTIONS = {
+    validate: "Validation",
+    reject: "Rejet",
+    correct: "Correction d'un champ",
+    detach: "Écritures sorties d'un lieu",
+    import: "Import du référentiel",
+    resolve: "Conflit tranché : décision importée retenue",
+    undo: "Annulation",
+  };
+  const JOURNAL_LIMIT = 50;
   const FLASH_MS = 1700;
   const INFO_MS = 6000;
 
@@ -71,6 +83,10 @@
     occurrences: null, // null: hidden; else Map writing -> list or Error
     busy: false,
     history: [], // cluster open before each action, to come back on undo
+    view: "places", // "places" (validation screen) or "registry"
+    conflicts: [], // GET /api/registry/conflicts: pending import conflicts
+    journal: [], // GET /api/registry/journal, newest first
+    importSummary: null, // text shown after the last import
   };
 
   const $ = (id) => document.getElementById(id);
@@ -118,7 +134,9 @@
   /** Call the local API; throw ApiError carrying the server's French `detail`. */
   async function api(method, path, body) {
     const options = { method, headers: { Accept: "application/json" } };
-    if (body !== undefined) {
+    if (body instanceof FormData) {
+      options.body = body; // multipart: the browser sets the Content-Type
+    } else if (body !== undefined) {
       options.headers["Content-Type"] = "application/json";
       options.body = JSON.stringify(body);
     }
@@ -193,6 +211,14 @@
     $("gw-changed").hidden = !(project && project.gw_changed);
     $("gw-changed-name").textContent = project ? project.gw_name : "";
     $("undo-button").disabled = state.busy;
+    const registryButton = $("registry-button");
+    const inRegistry = state.view === "registry";
+    registryButton.setAttribute("aria-pressed", String(inRegistry));
+    const pending = state.conflicts.length;
+    registryButton.textContent = inRegistry
+      ? "← Retour aux lieux"
+      : pending ? `Référentiel (${plural(pending, "conflit", "conflits")})` : "Référentiel";
+    registryButton.classList.toggle("alert", pending > 0 && !inRegistry);
   }
 
   function renderFilters() {
@@ -247,10 +273,14 @@
   }
 
   function renderAll() {
+    const inRegistry = state.view === "registry";
+    $("layout").hidden = inRegistry;
+    $("registry").hidden = !inRegistry;
     renderHeader();
     renderFilters();
     renderQueue();
     renderDetail();
+    if (inRegistry) renderRegistry();
   }
 
   // -- detail --------------------------------------------------------------------
@@ -519,15 +549,299 @@
     updateSplitButton();
   }
 
+  // -- registry screen ---------------------------------------------------------
+
+  /** A place named by its label, else by the start of its id. */
+  function placeText(placeId, label) {
+    if (label) return `lieu « ${label} »`;
+    return placeId ? `lieu ${placeId.slice(0, 8)}…` : "";
+  }
+
+  function decisionCell(decision) {
+    const rejected = decision.status === "rejected";
+    return el(
+      "td",
+      { title: decision.place_id ? `identifiant du lieu : ${decision.place_id}` : null },
+      el("span", {
+        class: `state ${decision.status}`,
+        text: rejected ? "rejetée (pas un lieu exploitable)" : placeText(decision.place_id, decision.place_label),
+      }),
+      // Two places may share a label: the id start tells them apart.
+      !rejected && decision.place_label && decision.place_id
+        ? el("span", { class: "sub place-id", text: `${decision.place_id.slice(0, 8)}…` })
+        : null,
+    );
+  }
+
+  function renderExchange() {
+    const input = el("input", {
+      id: "import-file",
+      type: "file",
+      accept: ".json,application/json",
+      onchange: () => {
+        $("import-button").disabled = !input.files.length;
+      },
+    });
+    return el(
+      "div",
+      { class: "card" },
+      el("h2", null, el("span", { text: "Référentiel personnel" })),
+      el("p", {
+        class: "sub",
+        text: "Vos décisions sur les lieux valent pour tous vos fichiers .gw. Exportez-les pour les partager, "
+          + "les sauvegarder ou les versionner (JSON lisible). Importez le fichier d'un autre dossier : "
+          + "ce qui est nouveau est ajouté ; une écriture que vous avez déjà décidée autrement devient un "
+          + "conflit, à trancher ci-dessous, jamais écrasé en silence.",
+      }),
+      el(
+        "div",
+        { class: "actions" },
+        el("a", {
+          class: "button",
+          href: "/api/registry/export",
+          download: "referentiel_lieux.json",
+          text: "Exporter le référentiel (JSON)",
+        }),
+      ),
+      el(
+        "div",
+        { class: "actions import" },
+        el("label", { for: "import-file", text: "Importer un référentiel :" }),
+        input,
+        el("button", {
+          type: "button",
+          id: "import-button",
+          class: "primary",
+          disabled: true,
+          text: "Importer",
+          onclick: () => run(importRegistry),
+        }),
+      ),
+      state.importSummary
+        ? el("p", { class: "notice", role: "status", text: state.importSummary })
+        : null,
+    );
+  }
+
+  function renderConflicts() {
+    const conflicts = state.conflicts;
+    const body = conflicts.length
+      ? el(
+        "table",
+        null,
+        el(
+          "thead",
+          null,
+          el(
+            "tr",
+            null,
+            el("th", { text: "Écriture" }),
+            el("th", { text: "Décision actuelle" }),
+            el("th", { text: "Décision importée" }),
+            el("th", { text: "Trancher" }),
+          ),
+        ),
+        el(
+          "tbody",
+          null,
+          conflicts.map((c) =>
+            el(
+              "tr",
+              null,
+              el("td", null, el("code", { text: c.writing })),
+              decisionCell(c.current),
+              decisionCell(c.incoming),
+              el(
+                "td",
+                { class: "choices" },
+                el("button", {
+                  type: "button",
+                  text: "Garder l'actuel",
+                  "aria-label": `Garder la décision actuelle pour « ${c.writing} »`,
+                  onclick: () => run(() => resolveConflict(c.writing, "current")),
+                }),
+                el("button", {
+                  type: "button",
+                  class: "primary",
+                  text: "Prendre l'importé",
+                  "aria-label": `Prendre la décision importée pour « ${c.writing} »`,
+                  onclick: () => run(() => resolveConflict(c.writing, "incoming")),
+                }),
+              ),
+            ),
+          ),
+        ),
+      )
+      : el("p", { class: "sub", text: "Aucun conflit en attente." });
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { text: `Conflits à trancher (${conflicts.length})` }),
+      body,
+      el("p", {
+        class: "sub",
+        text: "Les conflits en attente sont gardés tant que l'atelier tourne ; après un redémarrage, "
+          + "réimportez le fichier pour les retrouver.",
+      }),
+    );
+  }
+
+  function formatDate(at) {
+    const date = new Date(at);
+    return Number.isNaN(date.getTime()) ? at : date.toLocaleString("fr-FR");
+  }
+
+  function journalAction(entry) {
+    const label = JOURNAL_ACTIONS[entry.action] || entry.action;
+    return entry.action === "undo" && entry.undone_entry !== null
+      ? `${label} de l'action n° ${entry.undone_entry}`
+      : label;
+  }
+
+  function journalWritings(entry) {
+    const rest = entry.writing_count - entry.writings.length;
+    return el(
+      "td",
+      { class: "writings" },
+      entry.writings.map((w) => el("code", { text: w })),
+      rest > 0 ? el("span", { class: "sub", text: `et ${rest} autre${rest > 1 ? "s" : ""}` }) : null,
+    );
+  }
+
+  function renderJournal() {
+    const entries = state.journal;
+    const body = entries.length
+      ? el(
+        "table",
+        null,
+        el(
+          "thead",
+          null,
+          el(
+            "tr",
+            null,
+            el("th", { class: "num", text: "N°" }),
+            el("th", { text: "Date" }),
+            el("th", { text: "Action" }),
+            el("th", { text: "Écriture(s)" }),
+            el("th", { text: "Lieu" }),
+          ),
+        ),
+        el(
+          "tbody",
+          null,
+          entries.map((e) =>
+            el(
+              "tr",
+              { class: e.undone ? "undone" : null },
+              el("td", { class: "num", text: String(e.entry_id) }),
+              el("td", { class: "date", text: formatDate(e.at) }),
+              el(
+                "td",
+                null,
+                journalAction(e),
+                e.undone ? el("span", { class: "state", text: "annulée" }) : null,
+              ),
+              journalWritings(e),
+              el("td", { title: e.place_id || null, text: e.place_label || (e.place_id ? `${e.place_id.slice(0, 8)}…` : "") }),
+            ),
+          ),
+        ),
+      )
+      : el("p", { class: "sub", text: "Aucune action enregistrée pour l'instant." });
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { text: `Journal : les ${JOURNAL_LIMIT} dernières actions (lecture seule)` }),
+      body,
+    );
+  }
+
+  function renderRegistry() {
+    $("registry").replaceChildren(renderExchange(), renderConflicts(), renderJournal());
+  }
+
+  async function loadRegistry() {
+    const [conflicts, journal] = await Promise.all([
+      api("GET", "/api/registry/conflicts"),
+      api("GET", `/api/registry/journal?limit=${JOURNAL_LIMIT}`),
+    ]);
+    state.conflicts = conflicts.conflicts;
+    state.journal = journal.entries;
+  }
+
+  async function showView(view) {
+    state.view = view;
+    if (view === "registry") {
+      try {
+        await loadRegistry();
+      } finally {
+        renderAll();
+      }
+    } else {
+      renderAll();
+    }
+  }
+
+  /** Reload the queue and the open cluster after the registry changed. */
+  async function refreshPlaces() {
+    await refresh();
+    const id = clusterById(state.currentId) ? state.currentId : firstVisible();
+    await openCluster(id);
+  }
+
+  async function importRegistry() {
+    const input = $("import-file");
+    const file = input && input.files.length ? input.files[0] : null;
+    if (!file) throw new ApiError("Choisissez d'abord un fichier de référentiel (.json).");
+    const latest = await api("GET", "/api/registry/journal?limit=1");
+    const before = latest.entries.length ? latest.entries[0].entry_id : 0;
+    const form = new FormData();
+    form.append("file", file);
+    const result = await api("POST", "/api/registry/import", form);
+    state.conflicts = result.conflicts;
+    await loadRegistry();
+    const top = state.journal[0];
+    const entry = top && top.entry_id > before && top.action === "import" ? top : null;
+    const added = entry ? entry.writing_count : 0;
+    const pending = state.conflicts.length;
+    state.importSummary = `Import de « ${file.name} » : `
+      + `${plural(added, "décision ajoutée", "décisions ajoutées")}, `
+      + `${plural(pending, "conflit", "conflits")} à trancher.`;
+    if (entry) state.history.push(state.currentId); // the import is undoable
+    await refreshPlaces();
+    showMessage(state.importSummary, "info");
+  }
+
+  async function resolveConflict(writing, keep) {
+    try {
+      const result = await api("POST", "/api/registry/conflicts/resolve", { writing, keep });
+      state.conflicts = result.conflicts;
+      if (keep === "incoming") state.history.push(state.currentId);
+      showMessage(
+        keep === "current"
+          ? `« ${writing} » : décision actuelle gardée.`
+          : `« ${writing} » : décision importée retenue.`,
+        "info",
+      );
+    } finally {
+      // A 409 drops the stale conflict on the server: reload in every case.
+      await loadRegistry();
+      await refreshPlaces();
+    }
+  }
+
   // -- loading -------------------------------------------------------------------
 
   async function refresh() {
-    const [project, clusters] = await Promise.all([
+    const [project, clusters, conflicts] = await Promise.all([
       api("GET", "/api/project"),
       api("GET", "/api/clusters"),
+      api("GET", "/api/registry/conflicts"),
     ]);
     state.project = project;
     state.clusters = clusters;
+    state.conflicts = conflicts.conflicts;
   }
 
   /** Open a cluster; `keepNotice` keeps the banner of a split just made. */
@@ -690,6 +1004,10 @@
       }
     }
     await openCluster(target || firstVisible());
+    if (state.view === "registry") {
+      await loadRegistry();
+      renderAll();
+    }
     showMessage(`Action annulée : ${UNDO_LABELS[result.action] || result.action}.`, "info");
   }
 
@@ -733,6 +1051,11 @@
       run(undo);
       return;
     }
+    if (state.view === "registry") {
+      // The place shortcuts act on the hidden cluster: off on this screen.
+      if (key === "Escape") run(() => showView("places"));
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (key === "ArrowDown" || key === "ArrowUp") {
       event.preventDefault();
@@ -754,6 +1077,9 @@
     $("undo-button").addEventListener("click", () => run(undo));
     $("reload-button").addEventListener("click", () => run(reloadGw));
     $("message-close").addEventListener("click", hideMessage);
+    $("registry-button").addEventListener("click", () => {
+      run(() => showView(state.view === "registry" ? "places" : "registry"));
+    });
     document.addEventListener("keydown", onKeyDown);
     run(async () => {
       await refresh();

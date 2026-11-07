@@ -13,6 +13,10 @@
   <span id="counter" class="counter" aria-live="polite"></span>
   <div class="progress" aria-hidden="true"><i id="progress"></i></div>
   <button type="button" id="undo-button" title="Annuler la dernière action (Ctrl+Z)">↶ Annuler</button>
+  <a id="export-link" class="button" href="/api/export" download
+     title="Archive zip : tables CSV, JSON et SQLite, dictionnaire, lieux et écritures">Exporter les données</a>
+  <button type="button" id="registry-button" aria-pressed="false"
+          title="Exporter, importer et comparer vos décisions ; journal des actions">Référentiel</button>
 </header>
 
 <div id="gw-changed" class="warning" role="alert" hidden>
@@ -26,7 +30,7 @@
   <button type="button" id="message-close" class="link" aria-label="Fermer le message">×</button>
 </div>
 
-<main class="layout">
+<main id="layout" class="layout">
   <aside class="queue" aria-label="File des lieux">
     <div id="filters" class="filters" role="toolbar" aria-label="Filtrer par état"></div>
     <ul id="queue-list" class="queue-list"></ul>
@@ -35,6 +39,8 @@
     <p class="empty">Chargement…</p>
   </section>
 </main>
+
+<section id="registry" class="registry" aria-label="Référentiel personnel" hidden></section>
 
 <script src="/static/app.js"></script>
 </body>
