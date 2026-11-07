@@ -16,9 +16,13 @@ Two tables follow ``core``'s:
 
 - ``lieux``: the places referenced by a validated writing of these tables,
   sorted by ``lieu_id``; one column per element kind, then one
-  ``<column>_origine`` per element (origin as stored: ``rule``, ``manual``…);
+  ``<column>_origine`` per element;
 - ``ecritures_lieux``: every writing of these tables that has a decision
   (validated or rejected), sorted by writing.
+
+The registry stores English codes; the pivot writes the French values of the
+design (§ 6.3) through ``STATUS_VALUES`` and ``ORIGIN_VALUES``. An unknown
+stored code raises ``ValueError`` instead of passing through.
 """
 
 from __future__ import annotations
@@ -32,6 +36,24 @@ from ..places.collect import split_place
 from ..places.model import ElementKind
 from ..store.registry import Decision, PlaceRegistry
 
+STATUS_VALUES: dict[str, str] = {"validated": "valide", "rejected": "rejete"}
+ORIGIN_VALUES: dict[str, str] = {
+    "rule": "regle",
+    "manual": "manuel",
+    "reference": "referentiel",
+    "llm": "llm",
+}
+
+
+def _french(values: dict[str, str], code: str | None, what: str) -> str | None:
+    if code is None:
+        return None
+    try:
+        return values[code]
+    except KeyError:
+        raise ValueError(f"unknown stored {what}: {code!r}") from None
+
+
 # lieux column -> (element kind, French label for the description)
 PLACE_FIELDS: tuple[tuple[str, ElementKind, str], ...] = (
     ("commune", "commune", "Commune retenue."),
@@ -44,8 +66,8 @@ PLACE_FIELDS: tuple[tuple[str, ElementKind, str], ...] = (
 )
 
 _ORIGIN = (
-    "Origine de « {column} » : rule (règle de l'atelier), manual (saisie), "
-    "reference (référentiel externe) ou llm ; vide si la valeur est vide."
+    "Origine de « {column} » : regle (règle de l'atelier), manuel (saisie), "
+    "referentiel (référentiel externe) ou llm ; vide si la valeur est vide."
 )
 
 LIEUX = TableSpec(
@@ -77,7 +99,7 @@ ECRITURES_LIEUX = TableSpec(
         Column(
             "statut",
             "text",
-            "validated (rattachée à un lieu) ou rejected (pas un lieu exploitable).",
+            "valide (rattachée à un lieu) ou rejete (pas un lieu exploitable).",
         ),
     ),
     primary_key="ecriture",
@@ -196,7 +218,9 @@ def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]
         for column, kind, _ in PLACE_FIELDS:
             values[column] = place.fields.get(kind)
         for column, kind, _ in PLACE_FIELDS:
-            values[f"{column}_origine"] = place.origins.get(kind)
+            values[f"{column}_origine"] = _french(
+                ORIGIN_VALUES, place.origins.get(kind), "origin"
+            )
         place_rows.append(values)
     result.append(Table(LIEUX, place_rows))
     result.append(
@@ -206,7 +230,7 @@ def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]
                 {
                     "ecriture": d.writing,
                     "lieu_id": d.place_id if d.status == "validated" else None,
-                    "statut": d.status,
+                    "statut": _french(STATUS_VALUES, d.status, "status"),
                 }
                 for d in sorted(decisions.values(), key=lambda d: d.writing)
             ],

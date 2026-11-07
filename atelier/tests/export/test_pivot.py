@@ -1,6 +1,7 @@
 import copy
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from geneweb_py import GeneWebParser
@@ -8,7 +9,7 @@ from geneweb_py.formats.table_writers import dictionary_table
 from geneweb_py.formats.tables import Row, Table, build_base_tables
 
 from prosopo_gw_atelier.export.pivot import ECRITURES_LIEUX, LIEUX, build_pivot
-from prosopo_gw_atelier.store.registry import PlaceRegistry
+from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -199,10 +200,10 @@ def test_places_table_lists_only_places_of_this_gw(
         "region": None,
         "pays": None,
         "ancien_nom": None,
-        "commune_origine": "rule",
-        "code_insee_origine": "rule",
+        "commune_origine": "regle",
+        "code_insee_origine": "regle",
         "code_postal_origine": None,
-        "departement_origine": "manual",
+        "departement_origine": "manuel",
         "region_origine": None,
         "pays_origine": None,
         "ancien_nom_origine": None,
@@ -210,8 +211,8 @@ def test_places_table_lists_only_places_of_this_gw(
     roubaix_row = next(r for r in places.rows if r["lieu_id"] == roubaix)
     assert roubaix_row["code_postal"] == "59100"
     assert roubaix_row["pays"] == "France"
-    assert roubaix_row["pays_origine"] == "manual"
-    assert roubaix_row["region_origine"] == "reference"
+    assert roubaix_row["pays_origine"] == "manuel"
+    assert roubaix_row["region_origine"] == "referentiel"
     assert roubaix_row["ancien_nom"] == "Roubaix-Ancien"
     assert roubaix_row["ancien_nom_origine"] == "llm"
 
@@ -240,8 +241,8 @@ def test_writings_table(
     writings = by_name(build_pivot(core_tables, registry))["ecritures_lieux"]
     assert writings.spec is ECRITURES_LIEUX
     assert writings.rows == [
-        {"ecriture": "En mer", "lieu_id": None, "statut": "rejected"},
-        {"ecriture": "Lyon", "lieu_id": lyon, "statut": "validated"},
+        {"ecriture": "En mer", "lieu_id": None, "statut": "rejete"},
+        {"ecriture": "Lyon", "lieu_id": lyon, "statut": "valide"},
     ]
 
 
@@ -269,3 +270,28 @@ def test_dictionary_describes_the_new_columns(
         assert entries[("lieux", column)]
     for column in ECRITURES_LIEUX.column_names:
         assert entries[("ecritures_lieux", column)]
+
+
+def test_unknown_stored_status_raises(
+    core_tables: list[Table], registry: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def decisions(writings: Any) -> dict[str, Decision]:
+        return {"Lyon": Decision("Lyon", None, "pending", "p")}  # type: ignore[arg-type]
+
+    monkeypatch.setattr(registry, "decisions", decisions)
+    with pytest.raises(ValueError, match="pending"):
+        build_pivot(core_tables, registry)
+
+
+def test_unknown_stored_origin_raises(
+    core_tables: list[Table],
+    registry: PlaceRegistry,
+    lyon: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def place(place_id: str) -> Place:
+        return Place(place_id, {"commune": "Lyon"}, {"commune": "guess"})  # type: ignore[dict-item]
+
+    monkeypatch.setattr(registry, "place", place)
+    with pytest.raises(ValueError, match="guess"):
+        build_pivot(core_tables, registry)

@@ -16,14 +16,14 @@ Lieux
   colonne …_lieu_id renvoie à la table lieux si l'écriture a été validée ; elle
   est vide sinon. La colonne …_complement (ou complement) garde l'établissement ou
   l'adresse écrits entre crochets. La table ecritures_lieux donne la décision prise
-  pour chaque écriture : validated (rattachée à un lieu) ou rejected (pas un lieu
+  pour chaque écriture : valide (rattachée à un lieu) ou rejete (pas un lieu
   exploitable).
 
 Origine des valeurs
   Dans la table lieux, chaque colonne <champ>_origine dit d'où vient la valeur :
-  rule (proposée par les règles de l'atelier, puis validée), manual (saisie à la
-  main), reference (référentiel externe), llm (proposée par un modèle de langue,
-  puis validée).
+  regle (proposée par les règles de l'atelier, puis validée), manuel (saisie à
+  la main), referentiel (référentiel externe), llm (proposée par un modèle de
+  langue, puis validée).
 
 Référentiels
   Code officiel géographique (COG) de l'INSEE, millésime {cog}.

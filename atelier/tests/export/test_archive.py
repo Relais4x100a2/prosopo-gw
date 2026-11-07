@@ -82,7 +82,8 @@ def test_readme(project: Project, registry: PlaceRegistry, ref: RefData) -> None
     assert "lieux_varies.gw" in readme
     assert "2026-11-07" in readme
     assert "personnes vivantes" in readme
-    assert "rule" in readme and "manual" in readme
+    assert "regle" in readme and "manuel" in readme and "referentiel" in readme
+    assert "rejete" in readme and "valide" in readme
     assert "{" not in readme
 
 
@@ -116,7 +117,7 @@ def test_contents(
             "SELECT ecriture, statut FROM ecritures_lieux"
         ).fetchall()
     assert rows == [(lyon, "Lyon")]
-    assert writings == [("Lyon", "validated")]
+    assert writings == [("Lyon", "valide")]
 
 
 def test_deterministic(
@@ -128,3 +129,13 @@ def test_deterministic(
     for info in open_zip(first).infolist():
         assert info.date_time == (2026, 11, 7, 14, 30, 12)
     assert build_archive(project, registry, ref, datetime(2026, 11, 8)) != first
+
+
+def test_deterministic_with_an_odd_second(
+    project: Project, registry: PlaceRegistry, ref: RefData, lyon: str
+) -> None:
+    odd = datetime(2026, 11, 7, 14, 30, 13)  # zip times have a 2-second step
+    first = build_archive(project, registry, ref, odd)
+    assert build_archive(project, registry, ref, odd) == first
+    json_text = open_zip(first).read("lieux_varies.json").decode("utf-8")
+    assert '"generated_at": "2026-11-07T14:30:13"' in json_text
