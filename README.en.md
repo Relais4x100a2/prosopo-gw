@@ -43,9 +43,9 @@ prosopo-gw tackles this in three steps:
                 └────────────────────────────┬──────────────────────────┘
                                              │ import
                 ┌────────────────────────────▼──────────────────────────┐
-                │  app / geneweb-app  (Streamlit, being redesigned)     │
-                │  extraction → annotation → prompt → optimization      │
-                │  → validation → bulk transformation → dashboard       │
+                │  atelier/  (local workshop, in development)           │
+                │  cleaning of .gw bases → importable pivot             │
+                │  (places first)                                       │
                 └───────────────────────────────────────────────────────┘
 ```
 
@@ -87,13 +87,10 @@ prosopo-gw/
 │   │   └── analytics/         networks (optional extra)
 │   ├── tests/                 1245 tests; strictly synthetic `.gw` fixtures
 │   └── doc/                   architecture, performance, roadmap
-├── app/                       Streamlit application (being redesigned)
-│   ├── docker/geneweb-app/    `geneweb-app` package: Streamlit pages + `src/`
-│   └── docker-compose.yml
+├── atelier/                   Local cleaning workshop (FastAPI, in development): `prosopo-gw-atelier`
 ├── docker/                    OCaml GeneWeb server (reference implementation, containerized): docker-compose.yml + geneweb-server/
-├── run_app.sh                 launches the application in one command
-├── pyproject.toml · uv.lock   uv workspace (members: core, app/docker/geneweb-app)
-└── .github/workflows/ci.yml   lint, types, tests 3.11 → 3.13, Docker build
+├── pyproject.toml · uv.lock   uv workspace (members: core, atelier)
+└── .github/workflows/ci.yml   lint, types, tests 3.11 → 3.13
 ```
 
 ### `core` module: the engine
@@ -115,25 +112,11 @@ The end-to-end data flow:
 
 More: [`core/README.md`](core/README.md), [`core/AGENTS.md`](core/AGENTS.md), [`core/doc/`](core/doc/). (Most of the existing documentation is in French.)
 
-### `app` module: the enrichment workbench
+### `atelier` module: the local cleaning workshop
 
-> **Status (November 2026)**: the app is being redesigned. LLM enrichment has been dropped (no funded online service; cleaning belongs to digital-humanities tools, see "Validate and enrich"): pages 3 and 4 are no longer maintained, and page 4 no longer works with DSPy 3.
+> **Status (November 2026)**: in development (skeleton only). The Streamlit app and LLM enrichment have been dropped. The workshop is a local tool (FastAPI on 127.0.0.1, installed with `uv`) that reads a `.gw` base through `geneweb-py` and produces an importable "pivot"; first theme: places.
 
-A Streamlit application that guides enrichment through seven pages, from extraction to dashboard:
-
-| Page | Role |
-|---|---|
-| 1. Upload & extraction | Loads a `.gw` and isolates custom events (`#strng`) |
-| 2. Annotation | Manual labelling of a small corpus of examples |
-| 3. Prompt enrichment | Builds the prompt from the annotations |
-| 4. DSPy optimization | Automatically optimizes the prompt on the annotated corpus |
-| 5. Validation | Human review of the proposed transformations |
-| 6. Bulk transformation | Applies the validated treatment to the whole database |
-| 7. Dashboard | Monitoring and indicators |
-
-The app relies on `geneweb-py` through an adapter (`src/gw_adapter.py`): there is **only one parser** in the monorepo.
-
-More: [`app/README.md`](app/README.md), [`app/doc/`](app/doc/).
+Details: [`atelier/README.md`](atelier/README.md), [`atelier/doc/design_v1.md`](atelier/doc/design_v1.md).
 
 ## Quick start
 
@@ -212,19 +195,11 @@ curl -F "file=@tests/fixtures/sample_tree.gw" http://127.0.0.1:8000/api/v1/sessi
 curl -H "X-Session-Token: <token>" http://127.0.0.1:8000/api/v1/persons/
 ```
 
-### 6. Run the Streamlit application
+### 6. Run the reference GeneWeb server (optional)
 
 ```bash
-./run_app.sh                       # Streamlit on http://localhost:8501
+docker compose -f docker/docker-compose.yml up -d --build
 ```
-
-Or in containers, together with the reference GeneWeb server:
-
-```bash
-docker compose -f app/docker-compose.yml up -d --build
-```
-
-> Any change to `core/` requires rebuilding the Docker image.
 
 ### Validate and enrich
 

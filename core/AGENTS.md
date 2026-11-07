@@ -7,7 +7,7 @@ Les règles transverses (règle d'or, workspace `uv`, Docker, CI) sont dans [`..
 l'écosystème prosopo-gw : source de vérité pour le parsing `.gw`, les entités métier (dont l'entité `Organization`),
 l'export (GEDCOM / JSON / XML) et l'API REST. Il fournit une bibliothèque Python, une API REST (FastAPI) et un CLI.
 
-Rôle dans l'écosystème : l'application Streamlit (`../app/`, en refonte, même monorepo, résolue via le workspace `uv`) et les outils
+Rôle dans l'écosystème : l'atelier (`../atelier/`, même monorepo, résolu via le workspace `uv`) et les outils
 d'analyse (prosopographie, graphes) sont **consommateurs** de cette bibliothèque. Le monorepo prosopo-gw est en place ;
 `core/` reste publiable séparément (PyPI). Pas de refonte brutale : évolutions incrémentales, tests verts à chaque étape.
 
@@ -156,7 +156,7 @@ blocs `notes-db`, `page-ext`, `wizard-note`, événements personnels `pevt`.
 ## Feuille de route
 
 Réalisé : audit du parser (pevt / `#strng`), entité `Organization` + fichier compagnon, déduction d'organisations
-depuis les événements, module `analytics`, dépendance de l'application Streamlit via `uv`.
+depuis les événements, module `analytics`, dépendance de l'atelier via `uv`.
 
 Backlog :
 

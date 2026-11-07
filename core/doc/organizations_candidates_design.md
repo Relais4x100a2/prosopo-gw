@@ -383,9 +383,8 @@ Texte de référence pour le README (à adapter, pas à recopier mot pour mot).
 > **Mise à jour (novembre 2026)** : la voie 1 est abandonnée avec le chantier B (§ 8). Seule la
 > voie 2 est retenue.
 
-**Voie 1 : l'application Streamlit du dépôt.** Depuis la racine : `uv sync --all-packages
---all-extras` une fois, puis `./run_app.sh` (http://localhost:8501), ou
-`docker compose -f app/docker-compose.yml up -d --build`. La clé du fournisseur LLM se saisit dans
+**Voie 1 : l'application Streamlit du dépôt (retirée du dépôt en novembre 2026, remplacée par
+`atelier/`, voir `atelier/doc/design_v1.md`).** Elle se lançait avec `./run_app.sh` (http://localhost:8501). La clé du fournisseur LLM se saisit dans
 le panneau latéral et n'est jamais écrite. Pages : chargement et extraction des événements
 personnalisés, annotation d'un échantillon, enrichissement par prompt, optimisation DSPy,
 validation (original / prédiction, accepter ou corriger), transformation de masse, tableau de bord.
