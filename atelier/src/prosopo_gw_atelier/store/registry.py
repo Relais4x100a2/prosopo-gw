@@ -195,6 +195,36 @@ class PlaceRegistry:
                     )
         return result
 
+    def all_decisions(self) -> list[Decision]:
+        """Every decision, sorted by writing (for the registry export)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT writing, place_id, status, project FROM writings "
+                "ORDER BY writing"
+            ).fetchall()
+        return [
+            Decision(writing, place_id, cast(Status, status), project)
+            for writing, place_id, status, project in rows
+        ]
+
+    def places(self) -> list[Place]:
+        """Every place with its fields and origins, sorted by id."""
+        with self._lock:
+            ids = [
+                r[0]
+                for r in self._conn.execute(
+                    "SELECT place_id FROM places ORDER BY place_id"
+                )
+            ]
+            rows = self._conn.execute(
+                "SELECT place_id, kind, value, origin FROM place_fields ORDER BY kind"
+            ).fetchall()
+        by_place: dict[str, Place] = {i: Place(i, {}, {}) for i in ids}
+        for place_id, kind, value, origin in rows:
+            by_place[place_id].fields[cast(ElementKind, kind)] = value
+            by_place[place_id].origins[cast(ElementKind, kind)] = cast(Origin, origin)
+        return list(by_place.values())
+
     def place(self, place_id: str) -> Place:
         """The place ``place_id``; ``KeyError`` if unknown."""
         with self._lock:
