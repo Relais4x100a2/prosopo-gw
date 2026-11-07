@@ -377,8 +377,8 @@ def test_known_places_anchor_fresh_clusters(registry: PlaceRegistry) -> None:
     ref = load_refdata(MINI)
     place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
     known = registry.known_places()
-    assert [(k.place_id, k.insee, k.name_key) for k in known] == [
-        (place_id, "59512", name_key("Roubaix"))
+    assert [(k.place_id, k.insee, k.name_key, k.department) for k in known] == [
+        (place_id, "59512", name_key("Roubaix"), ROUBAIX["department"])
     ]
     writing = "Roubaix (Nord)"
     clusters = build_clusters(

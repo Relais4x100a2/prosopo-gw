@@ -245,7 +245,7 @@ class PlaceRegistry:
             ids = [r[0] for r in self._conn.execute("SELECT place_id FROM places")]
             rows = self._conn.execute(
                 "SELECT place_id, kind, value FROM place_fields "
-                "WHERE kind IN ('commune', 'former_name', 'insee_code')"
+                "WHERE kind IN ('commune', 'former_name', 'insee_code', 'department')"
             ).fetchall()
         by_place: dict[str, dict[str, str]] = {place_id: {} for place_id in ids}
         for place_id, kind, value in rows:
@@ -257,6 +257,7 @@ class PlaceRegistry:
                 name_key=name_key(
                     fields.get("commune") or fields.get("former_name", "")
                 ),
+                department=fields.get("department"),
             )
             for place_id, fields in sorted(by_place.items())
         ]

@@ -35,8 +35,9 @@ Similarity
 Anchor
     ``anchor_place_id`` is the already validated place whose INSEE code equals
     the cluster's, else whose name key equals the cluster's (not across two
-    different INSEE codes); never by similarity alone. Several matches: the
-    smallest ``place_id``.
+    different INSEE codes, nor across two different departments when both
+    are known: the place's department may be a code or a name); never by
+    similarity alone. Several matches: the smallest ``place_id``.
 
 Proposal
     For each element kind, the value most often written in the cluster (ties
@@ -88,6 +89,8 @@ class KnownPlace:
     place_id: str
     insee: str | None
     name_key: str
+    department: str | None = None
+    """As stored in the place (a code, or a name the COG may know)."""
 
 
 @dataclass
@@ -197,7 +200,7 @@ def _proposal(group: _Group, ref: RefData) -> dict[ElementKind, str]:
     return proposal
 
 
-def _anchor(group: _Group, known: Mapping[str, KnownPlace]) -> str | None:
+def _anchor(group: _Group, known: Mapping[str, KnownPlace], ref: RefData) -> str | None:
     places = sorted(known.values(), key=lambda p: p.place_id)
     if group.insee is not None:
         for place in places:
@@ -208,6 +211,10 @@ def _anchor(group: _Group, known: Mapping[str, KnownPlace]) -> str | None:
             continue
         if place.insee is not None and group.insee is not None:
             continue  # two different INSEE codes: not the same place
+        if place.department and group.department is not None:
+            department = ref.department(place.department) or place.department.strip()
+            if department != group.department:
+                continue  # same name, another department: not the same place
         return place.place_id
     return None
 
@@ -354,7 +361,7 @@ def build_clusters(
                 writings=sorted(m.writing for m in group.members),
                 proposal=_proposal(group, ref),
                 confidence=_confidence(group, ref),
-                anchor_place_id=_anchor(group, known),
+                anchor_place_id=_anchor(group, known, ref),
             )
         )
     return clusters

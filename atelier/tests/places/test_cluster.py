@@ -155,6 +155,32 @@ def test_name_key_does_not_anchor_across_insee_codes(ref: RefData) -> None:
     assert clusters["insee:59400"].anchor_place_id is None
 
 
+def test_name_key_does_not_anchor_across_departments(ref: RefData) -> None:
+    known = {"p1": KnownPlace("p1", None, "merville", "31")}
+    clusters = by_id(build_clusters(decompose_all(["Merville, Nord"], ref), ref, known))
+    assert clusters["insee:59400"].anchor_place_id is None
+
+
+@pytest.mark.parametrize("department", ["59", "Nord", None])
+def test_name_key_anchors_in_the_same_or_an_unknown_department(
+    ref: RefData, department: str | None
+) -> None:
+    known = {"p1": KnownPlace("p1", None, "merville", department)}
+    clusters = by_id(build_clusters(decompose_all(["Merville, Nord"], ref), ref, known))
+    assert clusters["insee:59400"].anchor_place_id == "p1"
+
+
+def test_unresolved_name_does_not_anchor_across_departments(ref: RefData) -> None:
+    known = {"p1": KnownPlace("p1", None, normalize("Saint-Inconnu"), "62")}
+    clusters = build_clusters(decompose_all(["Saint-Inconnu, Nord"], ref), ref, known)
+    assert [c.anchor_place_id for c in clusters] == [None]
+    elsewhere = {"p1": KnownPlace("p1", None, normalize("Saint-Inconnu"), "59")}
+    clusters = build_clusters(
+        decompose_all(["Saint-Inconnu, Nord"], ref), ref, elsewhere
+    )
+    assert [c.anchor_place_id for c in clusters] == ["p1"]
+
+
 def test_no_anchor_by_similarity_alone(ref: RefData) -> None:
     known = {"p1": KnownPlace("p1", None, "en mer")}
     clusters = build_clusters(decompose_all(["En mere"], ref), ref, known)

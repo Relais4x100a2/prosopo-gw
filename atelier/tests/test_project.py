@@ -398,6 +398,40 @@ def test_split_of_a_split(
     assert reopened.cluster(first.cluster.id) == project.cluster(first.cluster.id)
 
 
+def test_known_place_of_another_department_does_not_take_a_writing(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    registry.validate(
+        ["Merville"],
+        {"commune": "Merville", "department": "31"},
+        {"commune": "manual", "department": "manual"},
+        project.project_id,
+    )
+    append(gw, "\nfam LEROY Marc 1880 #bp Merville,_Nord + FAURE Alice 1882\n")
+    project.reload()
+    view = view_of(project, "Merville, Nord")
+    assert view.cluster.id == "insee:59400"
+    assert view.place_id is None
+    assert view_of(project, "Merville").cluster.writings == ["Merville"]
+
+
+def test_merged_anchored_group_takes_the_lowest_confidence(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    place = registry.validate(
+        ["En mer"], {"commune": "En mer"}, {"commune": "manual"}, project.project_id
+    )
+    append(gw, "\nfam LEROY Marc 1880 #bp EN_MER + FAURE Alice 1882\n")
+    project.reload()
+    view = view_of(project, "EN MER")
+    assert view.cluster.id == f"place:{place}"
+    assert view.cluster.writings == ["EN MER", "En mer"]
+    assert view.state == "todo"
+    assert view.cluster.confidence == "low"
+
+
 def test_split_state_follows_the_registry(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:

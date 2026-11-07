@@ -33,7 +33,8 @@ Clusters
     writings go through ``build_clusters`` (anchors: the registry's known
     places); a
     resulting cluster anchored on a place that has a ``place:`` cluster in this
-    ``.gw`` is merged into it, otherwise it keeps its own id.
+    ``.gw`` is merged into it (the merged cluster takes the lowest confidence
+    of the two), otherwise it keeps its own id.
 
     Decisions are read from the registry at each ``clusters()`` / ``cluster()``
     call, so a decision taken through the registry shows at once.
@@ -464,7 +465,9 @@ class Project:
             if cluster.anchor_place_id is not None and target in clusters:
                 place = clusters[target]
                 clusters[target] = replace(
-                    place, writings=sorted(place.writings + cluster.writings)
+                    place,
+                    writings=sorted(place.writings + cluster.writings),
+                    confidence=_lowest(place.confidence, cluster.confidence),
                 )
             else:
                 clusters[cluster.id] = cluster
@@ -579,6 +582,10 @@ class Project:
             )
             for split_id, members in writings.items()
         ]
+
+
+def _lowest(*levels: Confidence) -> Confidence:
+    return max(levels, key=lambda level: _CONFIDENCE_RANK[level])
 
 
 def _decided_place(cluster: Cluster, found: Sequence[Decision | None]) -> str | None:
