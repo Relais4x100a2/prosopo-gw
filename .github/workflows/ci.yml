@@ -44,10 +44,10 @@ jobs:
         run: uv run --package geneweb-py mypy core/src/geneweb_py
 
       - name: Ruff lint (atelier)
-        run: uv run --package prosopo-gw-atelier ruff check atelier/src atelier/tests --output-format=github
+        run: uv run --package prosopo-gw-atelier ruff check atelier/src atelier/tests atelier/tools --output-format=github
 
       - name: Ruff format (atelier)
-        run: uv run --package prosopo-gw-atelier ruff format --check atelier/src atelier/tests
+        run: uv run --package prosopo-gw-atelier ruff format --check atelier/src atelier/tests atelier/tools
 
       - name: Mypy (atelier)
         run: uv run --package prosopo-gw-atelier mypy atelier/src/prosopo_gw_atelier

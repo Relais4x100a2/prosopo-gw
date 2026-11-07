@@ -51,7 +51,7 @@ where = ["src"]
 include = ["prosopo_gw_atelier*"]
 
 [tool.setuptools.package-data]
-"prosopo_gw_atelier" = ["py.typed"]
+"prosopo_gw_atelier" = ["py.typed", "refdata/data/*"]
 
 [tool.mypy]
 python_version = "3.11"
