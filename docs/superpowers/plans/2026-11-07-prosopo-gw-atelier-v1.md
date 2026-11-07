@@ -168,6 +168,17 @@ date_effet), `departements.csv.gz`, `regions.csv.gz` (nom, avant_2016), `pays.cs
   régions 2015, pays ; La Poste : base officielle des codes postaux) et les millésimes ; aucune
   requête réseau dans le script. Le `atelier/README.md` liste les pages sources sur insee.fr et
   data.gouv.fr (jeu `545b55e1c751df52de9b6045`, licence `lov2`, vérifiée le 7 novembre 2026).
+  **Fichiers sources, déposés hors Git par l'utilisateur** (`_local_testdata/` est ignoré) :
+  - `_local_testdata/refdata/cog-2026/` : `v_commune_2026.csv`, `v_commune_depuis_1943.csv`,
+    `v_mvt_commune_2026.csv`, `v_departement_2026.csv`, `v_region_2026.csv`,
+    `v_pays_territoire_2026.csv` (COG millésime 2026, insee.fr/fr/statistiques/fichier/8740222/) ;
+  - `_local_testdata/refdata/cog-2015/` : le fichier des régions du millésime 2015 (régions
+    d'avant 2016 ; page insee.fr/fr/information/2560452) ;
+  - `_local_testdata/refdata/laposte/` : le CSV de la base officielle des codes postaux
+    (`https://data.laposte.fr/data-fair/api/v1/datasets/laposte-hexasmal/raw`), millésime =
+    date de téléchargement.
+  Le script lit les en-têtes réels de ces fichiers (séparateur et encodage à détecter, ne pas
+  supposer) et échoue avec un message clair si une colonne attendue manque.
 - [ ] **Step 2 :** tests de `normalize` :
   `normalize("ST-OMER") == "saint omer"`, `normalize("Ste  Foy-lès-Lyon") == "sainte foy les lyon"`,
   `normalize("L'Haÿ-les-Roses") == "l hay les roses"`.
