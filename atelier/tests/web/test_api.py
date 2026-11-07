@@ -106,7 +106,7 @@ def test_cluster_list_and_filter(client: TestClient) -> None:
         "label": "Roubaix",
         "state": "todo",
         "confidence": "high",
-        "occurrences": 9,
+        "occurrences": 5,
         "parent_id": None,
         "provisional_name": None,
         "place_id": None,
@@ -136,7 +136,7 @@ def test_cluster_detail(client: TestClient) -> None:
     by_text = {w["text"]: w for w in data["writings"]}
     assert by_text["59100 Roubaix"]["hint"] == "code postal + nom"
     assert by_text["59512"]["hint"] == "code INSEE"
-    assert by_text["59512"]["occurrences"] == 2
+    assert by_text["59512"]["occurrences"] == 1
     assert by_text["Roubaix"]["decided"] is None
     assert {"kind": "postal_code", "value": "59100", "hint": "code postal"} in by_text[
         "59100 Roubaix"
@@ -410,7 +410,7 @@ def test_special_writing_round_trips(
     client = make_client(tmp_path, registry, ref, "ecriture_speciale.gw")
     response = client.post("/api/occurrences", json={"writing": SPECIAL})
     assert response.status_code == 200
-    assert {o["kind"] for o in response.json()} == {"marriage", "marr"}
+    assert [o["kind"] for o in response.json()] == ["marriage"]
     (cluster,) = [
         c for c in client.get("/api/clusters").json() if c["label"].startswith("Paris")
     ]

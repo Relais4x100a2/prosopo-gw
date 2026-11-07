@@ -8,9 +8,16 @@ Collected columns and the occurrence they produce:
 - ``evenements.lieu``: the row's own ``type`` (GeneWeb code) and ``date``.
 
 ``row_id`` is the value of the table's primary key. Every non-blank cell is one
-occurrence: a birth present in ``personnes`` and in ``evenements`` counts twice,
-consistently with the pivot columns. The writing key is ``parse_place(raw).name``
-(complement removed); the complement stays on the occurrence.
+occurrence, except an event row that repeats a column: GeneWeb keeps a birth,
+death or marriage both in the person/family (``naissance_lieu``, ``deces_lieu``,
+``mariage_lieu``) and as a ``#birt``/``#deat``/``#marr`` event. When the event
+has the same owner, the matching code and the same place (writing and
+complement), the pair is one occurrence: the column, unless only the event is
+dated (then the event, which says more). A column absorbs at most one event.
+Only the counts and the occurrence list are deduplicated: the pivot still fills
+``lieu_id`` on both rows, since both cells exist in ``core``'s tables.
+The writing key is ``parse_place(raw).name`` (complement removed); the
+complement stays on the occurrence.
 """
 
 from __future__ import annotations
@@ -36,6 +43,18 @@ _PLACE_COLUMNS: dict[str, tuple[tuple[str, str | None, str | None, str], ...]] =
 }
 
 
+# event code -> (owner column of the event row, table, place column)
+_REPEATED_COLUMNS: dict[str, tuple[str, str, str]] = {
+    "birt": ("personne_id", "personnes", "naissance_lieu"),
+    "deat": ("personne_id", "personnes", "deces_lieu"),
+    "marr": ("famille_id", "familles", "mariage_lieu"),
+}
+
+# (table, row id, place column, writing, complement): a column occurrence an
+# event row may repeat
+_ColumnKey = tuple[str, str, str, str, str | None]
+
+
 def _text(row: Row, column: str | None) -> str | None:
     if column is None:
         return None
@@ -59,14 +78,35 @@ def split_place(raw: Value) -> tuple[str, str | None] | None:
     return parsed.name, parsed.complement
 
 
+def _repeated_key(
+    row: Row, event_type: str | None, text: str, complement: str | None
+) -> _ColumnKey | None:
+    """Key of the column an ``evenements`` row repeats, if its code has one."""
+    repeated = _REPEATED_COLUMNS.get(event_type or "")
+    if repeated is None:
+        return None
+    owner_column, table, column = repeated
+    owner = _text(row, owner_column)
+    if not owner:
+        return None
+    return table, owner, column, text, complement
+
+
 def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
-    """Return the place writings of the tables, in order of first appearance."""
+    """Return the place writings of the tables, in order of first appearance.
+
+    ``evenements`` is read after the other tables, so that an event repeating
+    a person or family column (module docstring) finds it.
+    """
     writings: dict[str, Writing] = {}
-    for table in tables:
+    columns_seen: dict[_ColumnKey, tuple[Writing, int]] = {}
+    ordered = sorted(tables, key=lambda t: t.spec.name == "evenements")
+    for table in ordered:
         columns = _PLACE_COLUMNS.get(table.spec.name)
         if columns is None:
             continue
         key = table.spec.primary_key
+        is_event = table.spec.name == "evenements"
         for row in table.rows:
             row_id = _text(row, key) or ""
             for column, fixed_type, type_column, date_column in columns:
@@ -82,6 +122,21 @@ def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
                     event_type=fixed_type or _text(row, type_column),
                     date=_text(row, date_column),
                 )
+                if is_event:
+                    repeated = _repeated_key(
+                        row, occurrence.event_type, text, complement
+                    )
+                    seen = columns_seen.pop(repeated, None) if repeated else None
+                    if seen is not None:
+                        writing, index = seen
+                        kept = writing.occurrences[index]
+                        if kept.date is None and occurrence.date is not None:
+                            writing.occurrences[index] = occurrence
+                        continue
                 writing = writings.setdefault(text, Writing(text))
+                if not is_event:
+                    columns_seen[
+                        (table.spec.name, row_id, column, text, complement)
+                    ] = (writing, len(writing.occurrences))
                 writing.occurrences.append(occurrence)
     return writings

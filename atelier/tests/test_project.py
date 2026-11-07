@@ -105,7 +105,7 @@ def test_open_exposes_tables_writings_and_clusters(
     roubaix = project.cluster("insee:59512")
     assert roubaix.cluster.writings == ROUBAIX_WRITINGS
     assert roubaix.state == "todo"
-    assert roubaix.occurrences == 9
+    assert roubaix.occurrences == 5
     assert roubaix.parent_id is None
     assert roubaix.provisional_name is None
     every = [w for v in project.clusters() for w in v.cluster.writings]
@@ -253,14 +253,14 @@ def test_clusters_are_sorted_by_state_confidence_and_occurrences(
     project = open_project(gw, registry, ref, projects_dir)
     ids = [v.cluster.id for v in project.clusters()]
     assert ids == [
-        "insee:59512",  # high, 9 occurrences
-        "insee:59350",  # high, 6
-        "insee:62765",  # high, 2
-        "insee:69266",  # high, 2
+        "insee:59512",  # high, 5 occurrences
+        "insee:59350",  # high, 4
+        "insee:62765",  # high, 1
+        "insee:69266",  # high, 1
         "insee:69123",  # medium, 2
         "insee:62041",  # medium, 1
-        "name:en mer",  # low, 2
-        "name:merville",  # low, 2
+        "name:en mer",  # low, 1
+        "name:merville",  # low, 1
     ]
     pid = project.project_id
     registry.reject(["En mer"], pid)
@@ -295,7 +295,7 @@ def test_split_follows_its_parent(
     assert new.provisional_name == "roubaix, Nord-Pas-de-Calais"
     assert new.cluster.writings == ["59512", "roubaix, Nord-Pas-de-Calais"]
     assert new.state == "todo"
-    assert new.occurrences == 3
+    assert new.occurrences == 2
     assert new.cluster.proposal["insee_code"] == "59512"
 
     ids = [v.cluster.id for v in project.clusters()]
@@ -306,7 +306,7 @@ def test_split_follows_its_parent(
         "ROUBAIX, Nord, France",
         "Roubaix",
     ]
-    assert parent.occurrences == 6
+    assert parent.occurrences == 3
     assert project.cluster(new.cluster.id) == new
 
 
