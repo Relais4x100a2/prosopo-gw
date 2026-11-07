@@ -104,3 +104,13 @@ def test_default_directory_is_package_data(monkeypatch: pytest.MonkeyPatch) -> N
     assert loader.DEFAULT_DATA_DIR.parts[-2:] == ("refdata", "data")
     monkeypatch.setattr(loader, "DEFAULT_DATA_DIR", MINI)
     assert load_refdata().cog_vintage == "2026"
+
+
+def test_embedded_reference_data() -> None:
+    ref = load_refdata()
+    assert ref.cog_vintage
+    assert ref.postal_vintage
+    assert ref.commune_count > 34_000
+    roubaix = ref.commune_by_insee("59512")
+    assert roubaix is not None and roubaix.name == "Roubaix"
+    assert [c.insee for c in ref.communes_by_postal("59100")] == ["59512"]
