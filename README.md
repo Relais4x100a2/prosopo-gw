@@ -4,7 +4,7 @@
 
 # prosopo-gw
 
-**De la généalogie GeneWeb à la prosopographie : parser fiable, modèle objet, organisations, graphes et enrichissement par LLM.**
+**De la généalogie GeneWeb à la prosopographie : parser fiable, modèle objet, organisations, graphes et exports ouverts.**
 
 [English version → README.en.md](README.en.md)
 
@@ -26,10 +26,10 @@ prosopo-gw s'attaque à ce problème en trois temps :
 
 1. **Lire** un fichier `.gw` sans rien perdre, avec un parser testé sur des cas limites (apostrophes, calendriers multiples, dates approximatives, extensions GW Plus, encodages).
 2. **Modéliser** : en plus de `Person`, `Family` et `Event`, une entité **`Organization`** reliée aux personnes par des liens datés. Le fichier `.gw` n'est jamais modifié ; les organisations vivent dans un fichier compagnon JSON.
-3. **Découvrir** les organisations cachées dans les événements libres, d'abord par des **règles déterministes** auditables, puis avec l'aide d'un **LLM** que l'on peut optimiser (DSPy) et valider humainement.
+3. **Découvrir** les organisations cachées dans les événements libres par des **règles déterministes** auditables, puis les **valider et nettoyer** dans les outils des humanités numériques (tableur, OpenRefine, Gephi, Dataiku…).
 
 
-<p align="center"><img src="docs/img/pipeline.svg" alt="Chaîne de traitement : .gw, parser, modèle, règles et LLM, organisations, réseaux" width="100%"><br><em>Illustrations originales du dépôt, dédiées au domaine public (CC0).</em></p>
+<p align="center"><img src="docs/img/pipeline.svg" alt="Chaîne de traitement : .gw, parser, modèle, règles et pistes, organisations, réseaux" width="100%"><br><em>Illustrations originales du dépôt, dédiées au domaine public (CC0).</em></p>
 
 ```
                 ┌───────────────────────────────────────────────────────┐
@@ -43,7 +43,7 @@ prosopo-gw s'attaque à ce problème en trois temps :
                 └────────────────────────────┬──────────────────────────┘
                                              │ import
                 ┌────────────────────────────▼──────────────────────────┐
-                │  app / geneweb-app  (Streamlit + DSPy + OpenRouter)   │
+                │  app / geneweb-app  (Streamlit, en refonte)           │
                 │  extraction → annotation → prompt → optimisation      │
                 │  → validation → transformation de masse → dashboard   │
                 └───────────────────────────────────────────────────────┘
@@ -68,8 +68,8 @@ Les événements standards (`#birt`, `#deat`…) sont déjà bien structurés. L
 | Étage | Mécanisme | Pourquoi |
 |---|---|---|
 | 1. Règles | `EventToOrganizationMapper` : préfixes de rôle (`Membre`, `Élève`, `Employé`, `Soldat`…) et lieux « `[Complément]_-_Ville` » → proposition d'organisation avec un **score de confiance**. Ordre de priorité : complément de lieu contenant un mot d'établissement > tag (s'il dit plus qu'un rôle) > « à déterminer » (le complément sert de nom) | Déterministe, rapide, gratuit, explicable, reproductible |
-| 2. LLM (optionnel) | Un hook branchable arbitre les cas sans signal. Les prompts sont **annotés puis optimisés avec DSPy** à partir d'exemples étiquetés à la main | N'intervient que là où les règles échouent ; ne remplace pas la décision humaine |
-| 3. Humain | Pages de validation de l'application avant toute transformation de masse | Une base prosopographique ne tolère pas les inventions silencieuses |
+| 2. Outils de nettoyage | L'archive d'export (CSV, JSON, SQLite) part dans les outils des humanités numériques : tableur, OpenRefine, Dataiku, Gephi, base légère. Le reste à classer et les pistes tirées des notes y sont inclus | Des outils éprouvés, sans coût d'API ni envoi des données à un tiers |
+| 3. Humain | L'historien valide, rejette ou corrige chaque proposition (statut et nom retenu dans les CSV) | Une base prosopographique ne tolère pas les inventions silencieuses |
 
 Le résultat est stocké dans un **fichier compagnon `base.org.json`** (organisations + liens personne↔organisation, avec périodes), ce qui garde la source `.gw` intacte et le travail **réversible**.
 
@@ -87,7 +87,7 @@ prosopo-gw/
 │   │   └── analytics/         réseaux (extra facultatif)
 │   ├── tests/                 1245 tests ; fixtures `.gw` strictement synthétiques
 │   └── doc/                   architecture, performances, feuille de route
-├── app/                       Application d'enrichissement (Streamlit / DSPy / OpenRouter)
+├── app/                       Application Streamlit (en refonte)
 │   ├── docker/geneweb-app/    paquet `geneweb-app` : pages Streamlit + `src/`
 │   ├── docker/geneweb-server/ serveur GeneWeb OCaml (implémentation de référence, en conteneur)
 │   └── docker-compose.yml
@@ -117,6 +117,8 @@ Détails : [`core/README.md`](core/README.md), [`core/AGENTS.md`](core/AGENTS.md
 
 ### Module `app` : l'atelier d'enrichissement
 
+> **État (novembre 2026)** : application en refonte. L'enrichissement par LLM est abandonné (pas de service en ligne financé ; le nettoyage relève des outils des humanités numériques, voir « Valider et enrichir ») : les pages 3 et 4 ne sont plus maintenues, et la page 4 ne fonctionne plus avec DSPy 3.
+
 Application Streamlit qui guide l'enrichissement en sept pages, de l'extraction au tableau de bord :
 
 | Page | Rôle |
@@ -129,7 +131,7 @@ Application Streamlit qui guide l'enrichissement en sept pages, de l'extraction 
 | 6. Transformation de masse | Applique le traitement validé à toute la base |
 | 7. Dashboard | Suivi et indicateurs |
 
-L'application s'appuie sur `geneweb-py` via un adaptateur (`src/gw_adapter.py`) : il n'y a **qu'un seul parser** dans le monorepo. Les modèles LLM passent par [OpenRouter](https://openrouter.ai/) (Claude, GPT, Mistral, Gemini…).
+L'application s'appuie sur `geneweb-py` via un adaptateur (`src/gw_adapter.py`) : il n'y a **qu'un seul parser** dans le monorepo.
 
 Détails : [`app/README.md`](app/README.md), [`app/doc/`](app/doc/).
 
@@ -140,7 +142,6 @@ Détails : [`app/README.md`](app/README.md), [`app/doc/`](app/doc/).
 - [`uv`](https://docs.astral.sh/uv/) (gestionnaire Python utilisé exclusivement ici) : `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Python 3.11+ (uv le télécharge au besoin)
 - Docker, seulement si vous voulez la pile conteneurisée
-- Une clé OpenRouter, seulement pour les pages LLM de l'application
 
 ### 1. Installer
 
@@ -211,13 +212,11 @@ curl -F "file=@tests/fixtures/sample_tree.gw" http://127.0.0.1:8000/api/v1/sessi
 curl -H "X-Session-Token: <jeton>" http://127.0.0.1:8000/api/v1/persons/
 ```
 
-### 6. Lancer l'application d'enrichissement
+### 6. Lancer l'application Streamlit
 
 ```bash
 ./run_app.sh                       # Streamlit sur http://localhost:8501
 ```
-
-Dans le panneau latéral, saisissez votre clé OpenRouter (elle n'est jamais écrite dans le code ; pour Docker, voir `app/.env.example`).
 
 Ou en conteneurs, avec le serveur GeneWeb de référence :
 
@@ -237,16 +236,15 @@ Les expériences proches s'exportent en `csv/experiences_proches.csv` dans l'arc
 
 Le `.gw` n'est jamais modifié : les candidates sont des propositions, à valider avant toute exploitation. Le résultat validé a vocation à revenir dans un `.org.json` propre, que la bibliothèque relit (`formats.org_sidecar.import_organizations`).
 
-Deux voies de validation (la voie 1 dépend d'un chantier ultérieur, le chantier B : la page Validation de l'application Streamlit ne lit pas encore le `.org.json`, elle n'est donc pas utilisable pour l'instant) :
+La validation et le nettoyage se font dans vos propres outils, à partir de l'archive d'export :
 
-| Voie | Pour quoi | Méthode |
+| Outil | Pour quoi | Méthode |
 |---|---|---|
-| 1. Application Streamlit du dépôt | Faire arbitrer par un LLM les cas que les règles n'attrapent pas, puis valider | `uv sync --all-packages --all-extras` une fois, puis `./run_app.sh` (http://localhost:8501) ou Docker (section 6). Clé du fournisseur saisie dans le panneau latéral, jamais écrite. |
-| 2. Tableur (LibreOffice Calc, Excel, Google Sheets) | Passer en revue et trancher | Ouvrir `csv/liens.csv` de l'archive, renseigner un statut (à voir / validé / rejeté) et un nom retenu ; trier par organisation puis par date. |
-| 2. OpenRefine | Fusionner les doublons | Importer `csv/organisations.csv`, regrouper les noms (fingerprint, puis n-gram), fusionner, exporter. |
-| 2. Gephi | Voir les cercles | Avec `uv sync --extra analytics`, exporter le réseau personnes-organisations en GEXF. |
-| 2. GeneWeb | Améliorer la source | Harmoniser les tags et compléter les lieux au format `[Complément]_-_Ville`, puis recharger. Seule voie où le `.gw` change, par l'utilisateur dans son outil. |
-| 2. Base légère (Airtable, NocoDB, Baserow) | Valider à plusieurs | Importer `csv/liens.csv`, une vue par validateur, un champ de statut partagé. |
+| Tableur (LibreOffice Calc, Excel, Google Sheets) | Passer en revue et trancher | Ouvrir `csv/liens.csv` de l'archive, renseigner un statut (à voir / validé / rejeté) et un nom retenu ; trier par organisation puis par date. |
+| OpenRefine | Fusionner les doublons | Importer `csv/organisations.csv`, regrouper les noms (fingerprint, puis n-gram), fusionner, exporter. |
+| Gephi | Voir les cercles | Avec `uv sync --extra analytics`, exporter le réseau personnes-organisations en GEXF. |
+| GeneWeb | Améliorer la source | Harmoniser les tags et compléter les lieux au format `[Complément]_-_Ville`, puis recharger. Seule voie où le `.gw` change, par l'utilisateur dans son outil. |
+| Base légère (Airtable, NocoDB, Baserow) | Valider à plusieurs | Importer `csv/liens.csv`, une vue par validateur, un champ de statut partagé. |
 
 ### Analyse de réseaux
 
@@ -260,7 +258,7 @@ Depuis une `Genealogy`, `build_network(genealogy)` produit un réseau exportable
 
 - **Un seul parser, écrit à la main.** Pas de grammaire générée : le format `.gw` a trop de cas particuliers (apostrophes, occurrences `Dupont.1`, blocs `notes-db`, extensions GW Plus) pour qu'une grammaire reste lisible. Lark est présent comme extra expérimental mais n'est **pas** utilisé.
 - **Le `.gw` n'est jamais réécrit.** Les organisations vivent dans un fichier compagnon : la source de l'historien reste intacte et le travail réversible.
-- **Règles d'abord, LLM ensuite.** Le LLM est un recours, jamais le point de départ : ce qui peut être décidé de façon déterministe l'est, avec un score de confiance.
+- **Des règles, pas de LLM.** Ce qui peut être décidé de façon déterministe l'est, avec un score de confiance ; le reste est laissé à l'historien et à ses outils. Le moteur n'appelle aucun LLM : `EventToOrganizationMapper` garde seulement un point d'extension facultatif (`LLMExtractorProtocol`), sans implémentation fournie.
 - **Vie privée par conception.** Les sessions de l'API sont en mémoire, expirent (TTL glissant d'une heure) et ne sont jamais persistées. Les en-têtes de sécurité, le CORS fermé par défaut en production, la limite de taille d'upload (50 Mo) et le *rate limiting* (5 créations de session par heure) complètent le dispositif. Le parser embarque des garde-fous contre les entrées démesurées.
 - **Qualité outillée.** ruff, mypy sur l'ensemble de `core`, couverture ≥ 80 %, tests marqués (`unit`, `integration`, `slow`, `security`, `performance`…), CI sur Python 3.11, 3.12 et 3.13.
 - **Un workspace `uv`, un seul `uv.lock`.** `core` et `app` se résolvent ensemble ; aucun chemin relatif entre eux.

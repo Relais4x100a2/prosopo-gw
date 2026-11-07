@@ -15,7 +15,7 @@ prosopo-gw/
   pyproject.toml        # workspace uv (membres : core, app/docker/geneweb-app)
   uv.lock               # lock unifié, commité
   core/                 # paquet `geneweb-py` : parser .gw, modèles, organisations, analytics, API REST, CLI
-  app/                  # application Streamlit / DSPy / LLM (OpenRouter)
+  app/                  # application Streamlit (en refonte ; pages LLM non maintenues)
     docker-compose.yml  # geneweb-server (OCaml) + geneweb-app (Streamlit)
     docker/geneweb-app/ # paquet `geneweb-app` (pyproject.toml, Dockerfile, code Streamlit, src/)
 ```

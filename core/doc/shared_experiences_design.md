@@ -45,7 +45,7 @@ organisations.
 - Les écrire dans le fichier compagnon `.org.json`, ou les verser dans l'analyse de réseau
   (`analytics`).
 - « Promouvoir » une expérience proche en organisation depuis la webapp (idée mise de côté, § 9).
-- Toute aide d'un LLM (chantier B).
+- Toute aide d'un LLM (chantier B, abandonné).
 
 ### Anti-objectifs
 

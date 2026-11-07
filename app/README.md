@@ -2,6 +2,8 @@
 
 # GeneWeb Revamped - Processeur de Fichiers via LLM
 
+> **État (novembre 2026)** : application en refonte. L'enrichissement par LLM est abandonné : pas de service en ligne financé, et le nettoyage relève des outils des humanités numériques (tableur, OpenRefine, Dataiku…), à partir de l'archive d'export de la webapp. Les pages et la documentation LLM ci-dessous ne sont plus maintenues ; la page « Optimisation DSPy » ne fonctionne plus avec DSPy 3. Voir `core/doc/organizations_candidates_design.md` § 8.
+
 Cette application Streamlit analyse les fichiers GeneWeb (`.gw`) et utilise l'intelligence artificielle via OpenRouter pour identifier et transformer les événements personnalisés en nouvelles entités organisationnelles.
 
 ## 🚀 Fonctionnalités

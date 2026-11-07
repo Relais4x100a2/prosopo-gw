@@ -5,7 +5,7 @@ indépendants, à mener dans cet ordre :
 
 1. **Chantier A** : onglet « Organisations » de la webapp, exports du fichier compagnon et des CSV,
    documentation de la validation. Utile seul, sans LLM.
-2. **Chantier B** : application Streamlit, couche « fournisseur LLM » unique (OpenRouter, OpenAI,
+2. **Chantier B** (abandonné en novembre 2026, voir § 8) : application Streamlit, couche « fournisseur LLM » unique (OpenRouter, OpenAI,
    Anthropic, Mistral, Google AI Studio, Qwen, Ollama), réparation de DSPy 3, pont avec le fichier
    compagnon. Prérequis de la « voie 1 » de validation.
 
@@ -380,6 +380,9 @@ scripts de bout en bout (fixtures synthétiques). Les libellés sont en françai
 
 Texte de référence pour le README (à adapter, pas à recopier mot pour mot).
 
+> **Mise à jour (novembre 2026)** : la voie 1 est abandonnée avec le chantier B (§ 8). Seule la
+> voie 2 est retenue.
+
 **Voie 1 : l'application Streamlit du dépôt.** Depuis la racine : `uv sync --all-packages
 --all-extras` une fois, puis `./run_app.sh` (http://localhost:8501), ou
 `docker compose -f app/docker-compose.yml up -d --build`. La clé du fournisseur LLM se saisit dans
@@ -403,6 +406,11 @@ Le résultat validé a vocation à revenir dans un `.org.json` propre, que la bi
 (`formats.org_sidecar.import_organizations`).
 
 ## 8. Chantier B : application Streamlit
+
+> **Abandonné (novembre 2026), décision de l'auteur.** Pas de crédits pour proposer un LLM au
+> public ; le nettoyage relève des outils des humanités numériques (tableur, OpenRefine, Dataiku,
+> ETL), alimentés par l'archive d'export (`exports_design.md`). Le rôle de l'application Streamlit
+> est à redéfinir. Section conservée pour mémoire ; l'état constaté (§ 8.1) reste exact.
 
 ### 8.1 État constaté
 
@@ -475,5 +483,5 @@ pas déjà ; sinon, les ajouter est hors périmètre et à signaler.
   personnes.
 - La mise en page précise des cartes et du panneau, dans le style existant (`style.css`).
 - Les noms de fonctions, les schémas Pydantic et l'organisation des tests.
-- L'adresse par défaut de DashScope et les suggestions de modèles (chantier B), à dater dans un
-  commentaire.
+- L'adresse par défaut de DashScope et les suggestions de modèles (chantier B, abandonné), à dater
+  dans un commentaire.

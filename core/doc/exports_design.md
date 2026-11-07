@@ -5,12 +5,12 @@ Statut : conception validée (2026-11-06). Remplace l'ancienne conception des pi
 ## 1. Intention
 
 La webapp sert à un **premier tri rapide** des organisations. L'affinement se fait en aval, dans
-un ETL ou dans l'application Streamlit assistée par un LLM. L'export est le passage de relais : il
+les outils des humanités numériques (tableur, OpenRefine, Dataiku, ETL). L'export est le passage de relais : il
 doit contenir tout ce dont l'aval a besoin, sous une forme lisible par trois lecteurs :
 
 - **un humain**, dans un tableur ;
 - **des outils de données** (pandas, SQL, ETL) ;
-- **un LLM**, via Streamlit.
+- **un LLM**, si l'utilisateur en choisit un hors du dépôt (aucun n'est fourni).
 
 Aujourd'hui, sept boutons coexistent (GEDCOM, JSON, XML, compagnon `.org.json`, trois CSV
 d'organisations). Les exports de la base ne contiennent aucune organisation. Le reste à classer et
@@ -175,7 +175,7 @@ séparés par une espace : exception assumée à la règle « pas de liste », u
 entité), `type_devine`, `forte`, `extrait`.
 
 Le contexte (date, lieu, type de l'événement, conjoint) n'est pas recopié : il se lit dans
-`evenements` et `familles` par l'identifiant. Streamlit fait la jointure avant l'envoi au LLM.
+`evenements` et `familles` par l'identifiant. L'aval fait la jointure.
 
 ## 7. Webapp
 
@@ -185,6 +185,10 @@ Le contexte (date, lieu, type de l'événement, conjoint) n'est pas recopié : i
 - Pas de section « Pistes étendues » dans l'onglet Organisations.
 
 ## 8. Streamlit (consommateur, plan séparé)
+
+> **Mise à jour (novembre 2026)** : l'enrichissement par LLM est abandonné
+> (`organizations_candidates_design.md` § 8). Le rôle de l'application est à redéfinir ; le
+> paragraphe ci-dessous décrit l'intention initiale.
 
 Usage local. Charge `base.json` (ou `base.sqlite`), joint `reste_a_classer` et `pistes` à leur
 contexte, envoie au LLM par lots, fait valider. Les propositions validées restent dans Streamlit ;
