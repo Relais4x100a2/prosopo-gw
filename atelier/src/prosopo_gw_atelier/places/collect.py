@@ -19,8 +19,8 @@ from collections.abc import Sequence
 
 # geneweb-py ships no ``py.typed`` marker (PEP 561), so mypy does not read its
 # annotations from the installed package.
-from geneweb_py.core.place import parse_place  # type: ignore[import-not-found]
-from geneweb_py.formats.tables import Row, Table  # type: ignore[import-not-found]
+from geneweb_py.core.place import parse_place
+from geneweb_py.formats.tables import Row, Table
 
 from .model import Occurrence, Writing
 

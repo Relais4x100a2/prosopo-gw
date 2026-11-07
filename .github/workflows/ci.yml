@@ -50,7 +50,7 @@ jobs:
         run: uv run --package prosopo-gw-atelier ruff format --check atelier/src atelier/tests atelier/tools
 
       - name: Mypy (atelier)
-        run: uv run --package prosopo-gw-atelier mypy atelier/src/prosopo_gw_atelier
+        run: uv run --package prosopo-gw-atelier mypy --config-file atelier/pyproject.toml atelier/src/prosopo_gw_atelier
 
   secrets:
     name: Secrets (gitleaks, historique complet)

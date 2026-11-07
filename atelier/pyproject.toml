@@ -57,6 +57,13 @@ include = ["prosopo_gw_atelier*"]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
+# geneweb-py is installed as an editable workspace member, which mypy does not
+# resolve through its .pth file: point at its sources and do not report its errors.
+mypy_path = "$MYPY_CONFIG_FILE_DIR/../core/src"
+
+[[tool.mypy.overrides]]
+module = "geneweb_py.*"
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
