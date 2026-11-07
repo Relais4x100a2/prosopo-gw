@@ -63,6 +63,7 @@
     filter: "todo",
     currentId: null,
     detail: null, // GET /api/clusters/{id}
+    detailError: null, // message when the open cluster could not be loaded
     unchecked: new Set(), // writings of the open cluster to take out
     drafts: {}, // field kind -> value typed in the form
     notice: null, // {fromId, toId, writings, label} after a split
@@ -498,7 +499,12 @@
     const section = $("detail");
     const detail = state.detail;
     if (!detail) {
-      section.replaceChildren(el("p", { class: "empty", text: "Aucun lieu dans ce filtre." }));
+      const text = state.detailError
+        ? `Impossible d'ouvrir ce lieu : ${state.detailError}`
+        : state.currentId === null
+          ? "Aucun lieu dans ce filtre."
+          : "Chargement…";
+      section.replaceChildren(el("p", { class: state.detailError ? "empty error" : "empty", text }));
       return;
     }
     section.replaceChildren(
@@ -531,11 +537,16 @@
     state.occurrences = null;
     state.currentId = id;
     state.detail = null;
+    state.detailError = null;
     try {
       if (id !== null) {
         state.detail = await api("GET", clusterPath(id));
         state.drafts = { ...state.detail.proposal };
       }
+    } catch (error) {
+      // Shown in the detail pane; run() also shows it in the message.
+      state.detailError = error.message;
+      throw error;
     } finally {
       renderAll();
     }
@@ -556,6 +567,9 @@
   }
 
   function setFilter(key) {
+    // While an action runs, run() would drop the opening of the first item:
+    // keep the filter as it is, so the list and the open cluster stay in sync.
+    if (state.busy) return;
     state.filter = key;
     const current = clusterById(state.currentId);
     if (current && (key === "all" || current.state === key)) {

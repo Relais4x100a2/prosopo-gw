@@ -240,3 +240,4 @@ kbd {
 }
 
 .empty { color: var(--mute); padding: 40px; text-align: center; }
+.empty.error { color: var(--bad); }
