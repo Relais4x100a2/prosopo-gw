@@ -42,7 +42,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -66,7 +66,7 @@ from ..store.exchange import (
     import_registry,
     resolve_conflict,
 )
-from ..store.registry import Origin, Place, PlaceRegistry
+from ..store.registry import JournalEntry, Origin, Place, PlaceRegistry
 from . import schemas
 
 T = TypeVar("T")
@@ -85,6 +85,8 @@ _PAGE_CSP = (
 )
 """The page loads only its own files: no inline script, nothing remote."""
 _IMPORT_PATH = "/api/registry/import"
+JOURNAL_WRITINGS = 20
+"""Writings listed per journal entry (``writing_count`` counts them all)."""
 
 _FIXED_KINDS = {
     "naissance": ("birth", "Naissance"),
@@ -344,6 +346,52 @@ def _conflicts(state: AppState) -> schemas.ConflictsOut:
             )
         )
     return schemas.ConflictsOut(conflicts=out)
+
+
+def _journal_place(rows: Sequence[Mapping[str, Any]], details: object) -> str | None:
+    """The one place a journal entry is about, or None (none or several)."""
+    if isinstance(details, Mapping) and isinstance(details.get("place_id"), str):
+        return str(details["place_id"])
+    ids: set[str] = set()
+    for row in rows:
+        if row["table"] == "writings":
+            row_state = row["after"] if row["after"] is not None else row["before"]
+            if row_state and row_state.get("place_id"):
+                ids.add(row_state["place_id"])
+        else:
+            ids.add(row["key"]["place_id"])
+    return ids.pop() if len(ids) == 1 else None
+
+
+def _journal_entry(
+    registry: PlaceRegistry, entry: JournalEntry
+) -> schemas.JournalEntryOut:
+    payload = entry.payload
+    rows: list[Mapping[str, Any]] = payload.get("rows", [])
+    details = payload.get("details")
+    writings = sorted(
+        {row["key"]["writing"] for row in rows if row["table"] == "writings"}
+    )
+    action = entry.action
+    if (
+        action == "import"
+        and isinstance(details, Mapping)
+        and "resolved_conflict" in details
+    ):
+        action = "resolve"
+    undone_entry = payload.get("undone_entry") if action == "undo" else None
+    place_id = _journal_place(rows, details)
+    return schemas.JournalEntryOut(
+        entry_id=entry.entry_id,
+        at=entry.at,
+        action=action,
+        undone=entry.undone,
+        undone_entry=undone_entry if isinstance(undone_entry, int) else None,
+        writings=writings[:JOURNAL_WRITINGS],
+        writing_count=len(writings),
+        place_id=place_id,
+        place_label=_place_label(_known_place(registry, place_id)),
+    )
 
 
 def _attachment(filename: str) -> str:
@@ -736,6 +784,14 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             for conflict in found:
                 state.conflicts[conflict.writing] = conflict
             return _conflicts(state)
+
+    @app.get("/api/registry/journal")
+    def registry_journal(limit: int = Query(50, ge=1, le=500)) -> schemas.JournalOut:
+        with state.lock:
+            entries = registry.journal(limit=limit)
+            return schemas.JournalOut(
+                entries=[_journal_entry(registry, e) for e in entries]
+            )
 
     @app.get("/api/registry/conflicts")
     def pending_conflicts() -> schemas.ConflictsOut:

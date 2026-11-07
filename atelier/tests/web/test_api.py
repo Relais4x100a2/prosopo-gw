@@ -693,3 +693,96 @@ def test_partial_undo_keeps_the_rest_of_the_action(
     assert client.post("/api/undo").json() == {"action": "validate"}
     assert client.get(cluster_url(split_id)).status_code == 404
     assert client.post("/api/undo").status_code == 409
+
+
+# --- registry journal -------------------------------------------------------------
+
+
+def journal(client: TestClient, query: str = "") -> list[dict[str, Any]]:
+    response = client.get(f"/api/registry/journal{query}")
+    assert response.status_code == 200, response.text
+    entries: list[dict[str, Any]] = response.json()["entries"]
+    return entries
+
+
+def test_journal_lists_actions_newest_first(client: TestClient) -> None:
+    assert journal(client) == []
+    place_id, roubaix = validated_roubaix(client)
+    client.post(cluster_url("name:en mer", "reject"))
+    client.patch(
+        f"/api/places/{place_id}", json={"field": "former_name", "value": "Rubeacum"}
+    )
+
+    correct, reject, validate = journal(client)
+    assert validate["action"] == "validate"
+    assert validate["place_id"] == place_id
+    assert validate["place_label"] == "Roubaix"
+    assert validate["writings"] == sorted(writings_of(roubaix))
+    assert validate["writing_count"] == len(writings_of(roubaix))
+    assert validate["undone"] is False
+    assert validate["undone_entry"] is None
+    assert isinstance(validate["at"], str) and validate["at"]
+    assert reject["action"] == "reject"
+    assert reject["writings"] == ["En mer"]
+    assert reject["place_id"] is None and reject["place_label"] is None
+    assert correct["action"] == "correct"
+    assert correct["writings"] == [] and correct["writing_count"] == 0
+    assert correct["place_id"] == place_id
+    assert correct["place_label"] == "Roubaix"
+    assert correct["entry_id"] > reject["entry_id"] > validate["entry_id"]
+
+    client.post("/api/undo")
+    undo, correct_again, *_ = journal(client)
+    assert undo["action"] == "undo"
+    assert undo["undone_entry"] == correct["entry_id"]
+    assert undo["place_id"] == place_id
+    assert correct_again["undone"] is True
+
+
+def test_journal_limit(client: TestClient, registry: PlaceRegistry) -> None:
+    for name in ("A", "B", "C"):
+        registry.reject([name], "p")
+    assert [e["writings"] for e in journal(client, "?limit=2")] == [["C"], ["B"]]
+    assert len(journal(client)) == 3
+    for bad in ("0", "501", "x"):
+        response = client.get(f"/api/registry/journal?limit={bad}")
+        assert response.status_code == 422
+        assert isinstance(response.json()["detail"], str)
+
+
+def test_journal_default_limit_is_50(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    for n in range(55):
+        registry.reject([f"Lieu {n}"], "p")
+    assert len(journal(client)) == 50
+    assert len(journal(client, "?limit=500")) == 55
+
+
+def test_journal_truncates_long_writing_lists(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    writings = [f"Lieu {n:02}" for n in range(30)]
+    registry.reject(writings, "p")
+    (entry,) = journal(client)
+    assert entry["writing_count"] == 30
+    assert entry["writings"] == writings[:20]
+
+
+def test_journal_shows_import_and_resolve(
+    tmp_path: Path, client: TestClient, registry: PlaceRegistry
+) -> None:
+    registry.reject(["En mer"], "p")
+    document = other_registry_document(tmp_path)
+    upload(client, json.dumps(document).encode("utf-8"))
+    client.post(
+        "/api/registry/conflicts/resolve",
+        json={"writing": "En mer", "keep": "incoming"},
+    )
+    resolve, imported, _reject = journal(client)
+    assert imported["action"] == "import"
+    assert imported["writings"] == ["Lyon"]
+    assert imported["place_label"] == "Mer"
+    assert resolve["action"] == "resolve"
+    assert resolve["writings"] == ["En mer"]
+    assert resolve["place_label"] == "Mer"

@@ -146,3 +146,29 @@ class ConflictsOut(BaseModel):
 class ResolveIn(BaseModel):
     writing: str
     keep: Literal["current", "incoming"]
+
+
+class JournalEntryOut(BaseModel):
+    """One registry journal entry, summarized for display.
+
+    ``action`` is the registry's code (``validate``, ``reject``, ``correct``,
+    ``detach``, ``import``, ``undo``), except that an import entry settling
+    a conflict is reported as ``resolve``. ``writings`` holds at most
+    ``JOURNAL_WRITINGS`` of the writings touched (sorted); ``writing_count``
+    counts them all. ``place_id`` is the one place the entry is about, if
+    any; ``place_label`` its current commune or former name.
+    """
+
+    entry_id: int
+    at: str
+    action: str
+    undone: bool
+    undone_entry: int | None
+    writings: list[str]
+    writing_count: int
+    place_id: str | None
+    place_label: str | None
+
+
+class JournalOut(BaseModel):
+    entries: list[JournalEntryOut]
