@@ -14,7 +14,7 @@ name = "geneweb-py"
 version = "0.1.0"
 description = "Librairie Python complète pour parser, manipuler et convertir les fichiers généalogiques au format GeneWeb (.gw)"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Guillaume Cayeux", email = "guillaume.cayeux@relais4x100a2.fr"},
@@ -25,9 +25,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -175,7 +172,7 @@ exclude_lines = [
 [tool.ruff]
 # Compatibilité avec Black
 line-length = 88
-target-version = "py38"
+target-version = "py311"
 
 # Exclure les mêmes répertoires que Black
 extend-exclude = [
@@ -204,16 +201,6 @@ ignore = ["E203"]
 
 # B008 : function call in default (faux positif pour FastAPI Depends/File/Query)
 extend-ignore = ["B008"]
-
-[tool.ruff.lint.per-file-ignores]
-# Scripts CI : syntaxe compat 3.8 (Optional / Dict depuis typing — pas PEP 604)
-"scripts/ci/**" = ["UP006", "UP045"]
-# Couche API : typage explicite typing.* (compat Python 3.8, pas PEP 604)
-"src/geneweb_py/api/serialization.py" = ["UP006", "UP045", "UP007"]
-"src/geneweb_py/api/person_payload.py" = ["UP006", "UP045"]
-"src/geneweb_py/api/family_payload.py" = ["UP006", "UP045"]
-"src/geneweb_py/core/parser/multipass_parser.py" = ["UP006", "UP045"]
-"tests/performance/test_multipass_vs_streaming.py" = ["UP006"]
 
 [tool.ruff.lint.isort]
 # Configuration des imports

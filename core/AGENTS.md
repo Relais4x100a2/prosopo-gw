@@ -51,8 +51,8 @@ uv run python run_api.py --reload                # dev : http://127.0.0.1:8000
 uv run python run_api.py --env prod --workers 4  # prod
 ```
 
-Python ≥ 3.8 déclaré par le paquet `core` (le workspace impose ≥ 3.11). CI (`../.github/workflows/ci.yml`) : tests sur 3.11, 3.12 et 3.13
-à chaque push/PR ; la compatibilité 3.8-3.10 n'est donc plus testée en CI. Le seuil de couverture est de **80 %** : ne pas le faire baisser.
+Python ≥ 3.11 requis par le paquet `core` comme par le workspace. CI (`../.github/workflows/ci.yml`) : tests sur 3.11, 3.12 et 3.13
+à chaque push/PR ; les versions antérieures à 3.11 ne sont plus supportées ; syntaxe moderne (`X | None`, `list[str]`) attendue. Le seuil de couverture est de **80 %** : ne pas le faire baisser.
 
 Typage : mypy est bloquant en CI sur tout `src/geneweb_py/` (0 erreur) avec la configuration de `pyproject.toml`. Annoter tout code nouveau
 et ne rien masquer par des `# type: ignore` sans justification.

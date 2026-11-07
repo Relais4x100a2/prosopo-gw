@@ -41,7 +41,7 @@ Ce dépôt est **PUBLIC** (code, historique et documentation lisibles par tous) 
 
 Pas de `pip install`, `poetry`, `conda` ni de nouveau `requirements.txt`. Un seul `uv.lock` à la racine ; `.venv/` local, jamais commité.
 `geneweb-py` est résolu comme membre du workspace (`[tool.uv.sources] geneweb-py = { workspace = true }` à la racine) :
-les membres n'ont aucun chemin relatif vers l'autre. Le workspace impose `requires-python >= 3.11` (le paquet `core` seul reste compatible 3.8).
+les membres n'ont aucun chemin relatif vers l'autre. Le workspace et le paquet `core` imposent `requires-python >= 3.11`.
 
 ```bash
 uv sync --all-packages --all-extras            # tout installer
