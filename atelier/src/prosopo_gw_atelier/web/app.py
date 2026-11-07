@@ -85,6 +85,7 @@ _PAGE_CSP = (
 )
 """The page loads only its own files: no inline script, nothing remote."""
 _IMPORT_PATH = "/api/registry/import"
+IMPORT_FORMAT_ERROR = "Le fichier n'est pas un export de référentiel valide."
 JOURNAL_WRITINGS = 20
 """Writings listed per journal entry (``writing_count`` counts them all)."""
 
@@ -392,6 +393,17 @@ def _journal_entry(
         place_id=place_id,
         place_label=_place_label(_known_place(registry, place_id)),
     )
+
+
+def _journal_writing_count(registry: PlaceRegistry, entry_id: int) -> int:
+    """Distinct writings touched by journal entry ``entry_id`` (the newest)."""
+    for entry in registry.journal(limit=1):
+        if entry.entry_id == entry_id:
+            rows: list[Mapping[str, Any]] = entry.payload.get("rows", [])
+            return len(
+                {row["key"]["writing"] for row in rows if row["table"] == "writings"}
+            )
+    return 0
 
 
 def _attachment(filename: str) -> str:
@@ -762,7 +774,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
         )
 
     @app.post(_IMPORT_PATH)
-    def import_registry_file(file: UploadFile = File(...)) -> schemas.ConflictsOut:
+    def import_registry_file(file: UploadFile = File(...)) -> schemas.ImportOut:
         data = file.file.read(MAX_IMPORT_BYTES + 1)
         if len(data) > MAX_IMPORT_BYTES:
             raise _error(413, "Fichier trop volumineux (50 Mo au plus).")
@@ -778,12 +790,14 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                     registry, lambda: import_registry(registry, document)
                 )
             except RegistryFormatError as exc:
-                raise _error(400, f"Référentiel invalide : {exc}") from None
+                raise _error(400, f"{IMPORT_FORMAT_ERROR} ({exc})") from None
+            added = 0
             if entry is not None:
                 state.undo.append(_Action("import", (_Ref("registry", entry),)))
+                added = _journal_writing_count(registry, entry)
             for conflict in found:
                 state.conflicts[conflict.writing] = conflict
-            return _conflicts(state)
+            return schemas.ImportOut(added=added, conflicts=_conflicts(state).conflicts)
 
     @app.get("/api/registry/journal")
     def registry_journal(limit: int = Query(50, ge=1, le=500)) -> schemas.JournalOut:

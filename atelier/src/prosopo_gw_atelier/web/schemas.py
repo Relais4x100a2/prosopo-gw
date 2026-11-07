@@ -143,6 +143,12 @@ class ConflictsOut(BaseModel):
     conflicts: list[ConflictOut]
 
 
+class ImportOut(ConflictsOut):
+    """Import result: writings it added, and every pending conflict."""
+
+    added: int
+
+
 class ResolveIn(BaseModel):
     writing: str
     keep: Literal["current", "incoming"]

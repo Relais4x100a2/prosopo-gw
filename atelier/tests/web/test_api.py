@@ -502,7 +502,7 @@ def test_import_with_conflict_then_resolve_and_undo(
             "place_label": "Mer",
         },
     }
-    assert response.json() == {"conflicts": [conflict]}
+    assert response.json() == {"added": 1, "conflicts": [conflict]}
     lyon = registry.decision("Lyon")
     assert lyon is not None and lyon.place_id == incoming_place
     assert client.get("/api/registry/conflicts").json() == {"conflicts": [conflict]}
@@ -562,6 +562,23 @@ def test_import_rejects_invalid_documents(client: TestClient, content: bytes) ->
     response = upload(client, content)
     assert response.status_code == 400
     assert isinstance(response.json()["detail"], str)
+
+
+def test_import_counts_added_decisions(tmp_path: Path, client: TestClient) -> None:
+    content = json.dumps(other_registry_document(tmp_path)).encode("utf-8")
+    first = upload(client, content)
+    assert first.json() == {"added": 2, "conflicts": []}
+    again = upload(client, content)
+    assert again.json() == {"added": 0, "conflicts": []}
+
+
+@pytest.mark.parametrize("content", [b'{"format": "autre"}', b"[]"])
+def test_import_format_error_is_french(client: TestClient, content: bytes) -> None:
+    response = upload(client, content)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail.startswith("Le fichier n'est pas un export de référentiel valide. (")
+    assert detail.endswith(")")
 
 
 def test_import_rejects_too_large_files(

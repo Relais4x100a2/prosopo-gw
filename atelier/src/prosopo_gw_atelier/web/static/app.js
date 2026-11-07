@@ -794,21 +794,17 @@
     const input = $("import-file");
     const file = input && input.files.length ? input.files[0] : null;
     if (!file) throw new ApiError("Choisissez d'abord un fichier de référentiel (.json).");
-    const latest = await api("GET", "/api/registry/journal?limit=1");
-    const before = latest.entries.length ? latest.entries[0].entry_id : 0;
     const form = new FormData();
     form.append("file", file);
     const result = await api("POST", "/api/registry/import", form);
     state.conflicts = result.conflicts;
     await loadRegistry();
-    const top = state.journal[0];
-    const entry = top && top.entry_id > before && top.action === "import" ? top : null;
-    const added = entry ? entry.writing_count : 0;
+    const added = result.added;
     const pending = state.conflicts.length;
     state.importSummary = `Import de « ${file.name} » : `
       + `${plural(added, "décision ajoutée", "décisions ajoutées")}, `
       + `${plural(pending, "conflit", "conflits")} à trancher.`;
-    if (entry) state.history.push(state.currentId); // the import is undoable
+    if (added > 0) state.history.push(state.currentId); // the import is undoable
     await refreshPlaces();
     showMessage(state.importSummary, "info");
   }
