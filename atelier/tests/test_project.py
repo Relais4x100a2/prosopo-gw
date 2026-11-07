@@ -403,10 +403,18 @@ def test_split_state_follows_the_registry(
 ) -> None:
     project = open_project(gw, registry, ref, projects_dir)
     new = project.split("insee:59512", ["59512"])
-    registry.validate(
+    # A split is never anchored: the user separated it on purpose.
+    assert new.cluster.anchor_place_id is None
+    assert new.place_id is None
+    place = registry.validate(
         ["59512"], {"insee_code": "59512"}, {"insee_code": "rule"}, project.project_id
     )
-    assert project.cluster(new.cluster.id).state == "validated"
+    view = project.cluster(new.cluster.id)
+    assert view.state == "validated"
+    # Once decided, the split shows its place, as the registry has it.
+    assert view.place_id == place
+    assert view.cluster.anchor_place_id is None
+    assert view.cluster.proposal == {"insee_code": "59512"}
     assert view_of(project, "Roubaix").state == "todo"
 
 

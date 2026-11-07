@@ -43,6 +43,15 @@ Clusters
     but the ``.gw`` does not are simply ignored. Views hand out copies of the
     cached clusters.
 
+Place of a cluster
+    ``ClusterView.place_id`` is the place that validating the cluster
+    updates. A ``place:`` cluster is its place; any other cluster whose
+    writings are all validated to one same place is that place (typically a
+    validated split). Both show the place as the registry has it: proposal =
+    its fields, ``origins`` = their origins. Otherwise the place is the
+    cluster's anchor, if any, and the proposal comes from the rules
+    (``origins=None``).
+
 State of a cluster
     ``todo`` while one of its writings is undecided (so a new writing that
     joins an anchored cluster sends it back to the queue); once all are
@@ -61,7 +70,9 @@ Splits
     split left with no writing is not shown. A ``build_clusters`` cluster that
     loses writings gets its proposal, confidence and anchor recomputed from
     those it keeps (a ``place:`` or ``rejected:`` cluster only loses the
-    writings); one left empty disappears.
+    writings); one left empty disappears. A split never has an anchor: the
+    user separated its writings on purpose, it does not join a known place
+    by itself.
 
     The writings of the parent are stored with the split. When the stored
     parent id no longer exists (its grouping changed, e.g. it was validated
@@ -100,9 +111,9 @@ from .places.cluster import (
 )
 from .places.collect import collect_writings
 from .places.decompose import decompose
-from .places.model import Decomposition, Writing
+from .places.model import Decomposition, ElementKind, Writing
 from .refdata import RefData
-from .store.registry import Decision, PlaceRegistry, SchemaVersionError
+from .store.registry import Decision, Origin, PlaceRegistry, SchemaVersionError
 
 ClusterState = Literal["todo", "validated", "rejected", "already_decided"]
 
@@ -167,6 +178,12 @@ class ClusterView:
     occurrences: int
     parent_id: str | None
     provisional_name: str | None
+    place_id: str | None = None
+    """The place this cluster is (see "Place of a cluster" in the module
+    docstring), ``None`` if it is to be created."""
+    origins: dict[ElementKind, Origin] | None = None
+    """Origins of the place's fields when ``cluster.proposal`` is the place as
+    the registry has it, ``None`` when the proposal comes from the rules."""
 
 
 @dataclass(frozen=True)
@@ -371,9 +388,14 @@ class Project:
         for item in built:
             cluster = item.cluster
             proposal = dict(cluster.proposal)
-            if cluster.id.startswith(_PLACE):
-                proposal = dict(self._registry.place(cluster.id[len(_PLACE) :]).fields)
             found = [decisions.get(w) for w in cluster.writings]
+            place_id = _decided_place(cluster, found)
+            origins: dict[ElementKind, Origin] | None = None
+            if place_id is not None:
+                place = self._registry.place(place_id)
+                proposal, origins = dict(place.fields), dict(place.origins)
+            else:
+                place_id = cluster.anchor_place_id
             state: ClusterState
             if any(d is None for d in found):
                 state = "todo"
@@ -394,6 +416,8 @@ class Project:
                     ),
                     parent_id=item.parent_id,
                     provisional_name=item.provisional_name,
+                    place_id=place_id,
+                    origins=origins,
                 )
             )
         return views
@@ -465,8 +489,10 @@ class Project:
                 elif cluster_id.startswith((_PLACE, _REJECTED)):
                     clusters[cluster_id] = replace(cluster, writings=kept)
                 else:
-                    clusters[cluster_id] = self._summary(cluster_id, kept, known)
-            clusters[split.split_id] = self._summary(split.split_id, present, known)
+                    anchors = {} if cluster_id.startswith(_SPLIT) else known
+                    clusters[cluster_id] = self._summary(cluster_id, kept, anchors)
+            # Never anchored: the user took these writings out on purpose.
+            clusters[split.split_id] = self._summary(split.split_id, present, {})
             replayed.append((split, present))
             for writing in present:
                 holder[writing] = split.split_id
@@ -553,6 +579,23 @@ class Project:
             )
             for split_id, members in writings.items()
         ]
+
+
+def _decided_place(cluster: Cluster, found: Sequence[Decision | None]) -> str | None:
+    """The place a cluster is by the registry's decisions, if any.
+
+    A ``place:`` cluster is its place; any other cluster whose writings are
+    all validated to one same place is that place.
+    """
+    if cluster.id.startswith(_PLACE):
+        return cluster.id[len(_PLACE) :]
+    places = {
+        d.place_id if d is not None and d.status == "validated" else None for d in found
+    }
+    if len(places) == 1:
+        (place_id,) = places
+        return place_id
+    return None
 
 
 def _parent(split: _Split, clusters: dict[str, Cluster]) -> str | None:

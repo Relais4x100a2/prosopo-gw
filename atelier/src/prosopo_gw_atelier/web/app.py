@@ -78,7 +78,6 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 _LOCAL_ORIGIN = re.compile(r"^http://(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$")
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
-_PLACE = "place:"
 _PAGE_CSP = (
     "default-src 'self'; img-src 'self' data:; object-src 'none'; "
     "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
@@ -153,13 +152,6 @@ def _journaled(
     return result, (after if after != before else None)
 
 
-def _place_id(view: ClusterView) -> str | None:
-    """The place a cluster is: its own (``place:`` cluster) or its anchor."""
-    if view.cluster.id.startswith(_PLACE):
-        return view.cluster.id[len(_PLACE) :]
-    return view.cluster.anchor_place_id
-
-
 def _label(view: ClusterView) -> str:
     if view.provisional_name:
         return view.provisional_name
@@ -179,7 +171,7 @@ def _summary(view: ClusterView) -> schemas.ClusterSummary:
         occurrences=view.occurrences,
         parent_id=view.parent_id,
         provisional_name=view.provisional_name,
-        place_id=_place_id(view),
+        place_id=view.place_id,
         writing_count=len(view.cluster.writings),
     )
 
@@ -226,9 +218,7 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
                 decided=decision.status if decision else None,
             )
         )
-    origins: dict[ElementKind, Origin] = {}
-    if view.cluster.id.startswith(_PLACE):
-        origins = dict(registry.place(view.cluster.id[len(_PLACE) :]).origins)
+    origins = dict(view.origins or {})
     summary = _summary(view)
     return schemas.ClusterDetail(
         id=summary.id,
@@ -628,10 +618,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 raise _error(
                     400, "La forme retenue est vide : renseignez au moins un champ."
                 )
-            place_id = _place_id(view)
-            kept: dict[ElementKind, Origin] = {}
-            if view.cluster.id.startswith(_PLACE) and place_id is not None:
-                kept = dict(registry.place(place_id).origins)
+            place_id = view.place_id
+            kept = dict(view.origins or {})
             proposal = view.cluster.proposal
             origins: dict[ElementKind, Origin] = {
                 kind: kept.get(kind, "rule")

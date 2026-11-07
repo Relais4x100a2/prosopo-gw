@@ -274,6 +274,64 @@ def test_unchecked_writing_of_a_validated_place_is_detached(
     assert writings_of(detail(client, place_cluster)) == writings_of(roubaix)
 
 
+def test_validating_a_split_of_a_place_does_not_touch_that_place(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    roubaix = detail(client, ROUBAIX)
+    checked = [w for w in writings_of(roubaix) if w != "59512"]
+    first = client.post(
+        cluster_url(ROUBAIX, "validate"),
+        json={"fields": roubaix["proposal"], "checked": checked},
+    ).json()
+    parent = first["place_id"]
+    before = registry.place(parent)
+    split_id = first["split"]["id"]
+    # The user took it out on purpose: no anchor on the place it left.
+    assert first["split"]["place_id"] is None
+    assert detail(client, split_id)["place_id"] is None
+
+    result = client.post(
+        cluster_url(split_id, "validate"),
+        json={"fields": {"commune": "Wattrelos"}, "checked": ["59512"]},
+    )
+    assert result.status_code == 200, result.text
+    new_place = result.json()["place_id"]
+    assert new_place != parent
+    assert registry.place(parent) == before
+    split = detail(client, split_id)
+    assert split["state"] == "validated"
+    assert split["place_id"] == new_place
+    assert split["proposal"] == {"commune": "Wattrelos"}
+    assert split["origins"] == {"commune": "manual"}
+
+
+def test_validating_a_split_twice_keeps_one_place(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    lille = detail(client, "insee:59350")
+    split = client.post(
+        cluster_url("insee:59350", "split"), json={"writings": ["Lomme"]}
+    ).json()
+    assert split["place_id"] is None
+    places = []
+    for commune in ("Lomme", "Lomme-lez-Lille"):
+        response = client.post(
+            cluster_url(split["id"], "validate"),
+            json={"fields": {"commune": commune}, "checked": ["Lomme"]},
+        )
+        assert response.status_code == 200, response.text
+        places.append(response.json()["place_id"])
+        data = detail(client, split["id"])
+        assert data["state"] == "validated"
+        assert data["place_id"] == places[0]
+        assert data["proposal"] == {"commune": commune}
+        assert data["origins"] == {"commune": "manual"}
+    assert places[0] == places[1]
+    assert len(registry.places()) == 1
+    assert "Lomme" not in writings_of(detail(client, "insee:59350"))
+    assert len(writings_of(lille)) == 4
+
+
 @pytest.mark.parametrize(
     "checked",
     [[], ["Lille"], ["Nulle Part"]],
