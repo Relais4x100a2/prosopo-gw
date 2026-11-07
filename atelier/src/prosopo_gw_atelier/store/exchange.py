@@ -59,6 +59,10 @@ class RegistryFormatError(ValueError):
     """The document is not a valid registry export; nothing was written."""
 
 
+class StaleConflictError(ValueError):
+    """The local decision changed since the conflict was reported."""
+
+
 @dataclass(frozen=True)
 class Conflict:
     """A writing decided differently here and in the imported document.
@@ -140,7 +144,7 @@ def _parse_place(index: int, raw: Any) -> Place:
     origins: dict[ElementKind, Origin] = {}
     for kind, field in raw_fields.items():
         at = f"{where}.fields.{kind}"
-        if kind not in _KINDS:
+        if not isinstance(kind, str) or kind not in _KINDS:
             raise _fail(
                 f"{at}: unknown element kind (expected one of {sorted(_KINDS)})"
             )
@@ -150,7 +154,7 @@ def _parse_place(index: int, raw: Any) -> Place:
         if not isinstance(value, str):
             raise _fail(f"{at}.value must be a string, not {value!r}")
         origin = _get(field, "origin", at)
-        if origin not in _ORIGINS:
+        if not isinstance(origin, str) or origin not in _ORIGINS:
             raise _fail(
                 f"{at}.origin: unknown origin {origin!r} "
                 f"(expected one of {sorted(_ORIGINS)})"
@@ -166,7 +170,7 @@ def _parse_writing(index: int, raw: Any) -> Decision:
         raise _fail(f"{where} must be an object")
     writing = _text(_get(raw, "writing", where), f"{where}.writing")
     status = _get(raw, "status", where)
-    if status not in _STATUSES:
+    if not isinstance(status, str) or status not in _STATUSES:
         raise _fail(
             f"{where}.status: unknown status {status!r} "
             f"(expected one of {sorted(_STATUSES)})"
@@ -181,12 +185,12 @@ def _parse_writing(index: int, raw: Any) -> Decision:
 
 
 def _parse(
-    data: Mapping[str, Any], local_places: set[str]
+    data: object, local_places: set[str]
 ) -> tuple[str, dict[str, Place], list[Decision]]:
     if not isinstance(data, Mapping):
         raise _fail("the document must be a JSON object")
     fmt = _get(data, "format", "document")
-    if fmt != FORMAT:
+    if not isinstance(fmt, str) or fmt != FORMAT:
         raise _fail(f"format {fmt!r} is not {FORMAT!r}")
     version = _get(data, "version", "document")
     if type(version) is not int or version != VERSION:
@@ -255,9 +259,11 @@ def _writing_change(decision: Decision, project: str | None, now: str) -> RowCha
     )
 
 
-def import_registry(registry: PlaceRegistry, data: Mapping[str, Any]) -> list[Conflict]:
+def import_registry(registry: PlaceRegistry, data: object) -> list[Conflict]:
     """Apply everything in ``data`` that does not conflict; return the conflicts.
 
+    ``data`` is untrusted (typically ``json.load`` output), hence typed
+    ``object``: any mapping is accepted, anything else is a format error.
     See the module docstring. ``RegistryFormatError`` (nothing written) if
     ``data`` is not a valid export.
     """
@@ -309,7 +315,9 @@ def resolve_conflict(
 
     ``"incoming"`` is one undoable ``import`` journal entry, decided under
     ``project``; it creates the incoming place first if the registry lacks it
-    (``KeyError`` if the conflict does not carry that place).
+    (``KeyError`` if the conflict does not carry that place). If the local
+    decision no longer matches ``conflict.current`` (status or place), it
+    raises ``StaleConflictError`` and writes nothing.
     """
     if keep == "current":
         return
@@ -318,12 +326,32 @@ def resolve_conflict(
     now = _now()
     changes: list[RowChange] = []
     place_id = conflict.incoming.place_id
-    if place_id is not None and not _known(registry, place_id):
+    known = place_id is None or _known(registry, place_id)
+    if not known:
         place = conflict.incoming_place
         if place is None or place.place_id != place_id:
             raise KeyError(place_id)
         changes.extend(_place_changes(place, now))
     changes.append(_writing_change(conflict.incoming, project, now))
+
+    def still_current() -> None:
+        # Runs inside the import transaction: nothing can change in between.
+        local = registry.decision(conflict.writing)
+        expected = (conflict.current.status, conflict.current.place_id)
+        if local is None or (local.status, local.place_id) != expected:
+            raise StaleConflictError(
+                f"the decision on {conflict.writing!r} changed since the "
+                "conflict was reported; import again to see the current conflict"
+            )
+        if place_id is not None and _known(registry, place_id) != known:
+            raise StaleConflictError(
+                f"place {place_id!r} was created or removed since the conflict "
+                "was reported; import again"
+            )
+
     registry.apply_import(
-        changes, project, {"resolved_conflict": conflict.writing, "keep": keep}
+        changes,
+        project,
+        {"resolved_conflict": conflict.writing, "keep": keep},
+        check=still_current,
     )

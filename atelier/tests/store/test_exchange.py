@@ -10,11 +10,12 @@ from prosopo_gw_atelier.store.exchange import (
     FORMAT,
     Conflict,
     RegistryFormatError,
+    StaleConflictError,
     export_registry,
     import_registry,
     resolve_conflict,
 )
-from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry
+from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry, RowChange
 
 ROUBAIX = {"commune": "Roubaix", "department": "59", "insee_code": "59512"}
 ROUBAIX_ORIGINS = {"commune": "rule", "department": "manual", "insee_code": "rule"}
@@ -398,7 +399,7 @@ def test_invalid_document_writes_nothing(
 
 def test_document_not_a_mapping(target: PlaceRegistry) -> None:
     with pytest.raises(RegistryFormatError, match="object"):
-        import_registry(target, [])  # type: ignore[arg-type]
+        import_registry(target, [])
 
 
 def test_format_error_message_is_clear(
@@ -421,3 +422,133 @@ def test_registry_format_error_is_a_value_error() -> None:
 def test_place_dataclass_roundtrip_fields(source: PlaceRegistry) -> None:
     roubaix, _ = _fill(source)
     assert source.place(roubaix) == Place(roubaix, ROUBAIX, ROUBAIX_ORIGINS)  # type: ignore[arg-type]
+
+
+# --- Fix round 1: ill-typed enum values, stale conflicts ----------------------
+
+
+def _set_kind_key(key: Any) -> Any:
+    def apply(d: dict[str, Any]) -> None:
+        fields = d["places"][0]["fields"]
+        fields[key] = fields.pop("commune")
+
+    return apply
+
+
+def _set_at(path: tuple[Any, ...], value: Any) -> Any:
+    def apply(d: dict[str, Any]) -> None:
+        node: Any = d
+        for step in path[:-1]:
+            node = node[step]
+        node[path[-1]] = value
+
+    return apply
+
+
+_STATUS = ("writings", 0, "status")
+_ORIGIN = ("places", 0, "fields", "commune", "origin")
+_ENUM_CASES = {
+    "status-list": _set_at(_STATUS, []),
+    "status-dict": _set_at(_STATUS, {}),
+    "origin-list": _set_at(_ORIGIN, []),
+    "origin-dict": _set_at(_ORIGIN, {}),
+    "format-list": _set_at(("format",), []),
+    "format-dict": _set_at(("format",), {}),
+    # JSON object keys are always strings (an unhashable kind cannot even be
+    # a key); a hand-built mapping may still carry non-string keys.
+    "kind-int": _set_kind_key(3),
+    "kind-tuple": _set_kind_key(("commune",)),
+}
+
+
+@pytest.mark.parametrize("mutate", list(_ENUM_CASES.values()), ids=list(_ENUM_CASES))
+def test_unhashable_or_non_str_enum_values_are_format_errors(
+    source: PlaceRegistry, target: PlaceRegistry, mutate: Any
+) -> None:
+    data = _valid(source)
+    target.validate(["Ailleurs"], {"commune": "Ailleurs"}, {"commune": "manual"}, "m")
+    mutate(data)
+    before = _counts(target)
+    with pytest.raises(RegistryFormatError):
+        import_registry(target, data)
+    assert _counts(target) == before
+
+
+def test_resolve_stale_conflict_raises_and_writes_nothing(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _, lille = _fill(source)
+    target.reject(["Lille"], "mine")
+    [conflict] = import_registry(target, export_registry(source))
+    other = target.validate(["Lille"], {"commune": "Lille"}, {"commune": "manual"}, "m")
+    local = target.decision("Lille")
+    before = _counts(target)
+    with pytest.raises(StaleConflictError, match="Lille"):
+        resolve_conflict(target, conflict, "incoming", "proj")
+    assert issubclass(StaleConflictError, ValueError)
+    assert (
+        target.decision("Lille") == local == Decision("Lille", other, "validated", "m")
+    )
+    assert _counts(target) == before
+    with pytest.raises(KeyError):
+        target.place(lille)
+
+
+def test_resolve_after_local_detach_is_stale(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _fill(source)
+    target.reject(["Lille"], "mine")
+    [conflict] = import_registry(target, export_registry(source))
+    target.detach(["Lille"], "mine")
+    before = _counts(target)
+    with pytest.raises(StaleConflictError):
+        resolve_conflict(target, conflict, "incoming", "proj")
+    assert _counts(target) == before
+    assert target.decision("Lille") is None
+
+
+def test_resolve_ignores_a_project_only_change(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _, lille = _fill(source)
+    target.reject(["Lille"], "mine")
+    [conflict] = import_registry(target, export_registry(source))
+    target.reject(["Lille"], "other project")
+    resolve_conflict(target, conflict, "incoming", "proj")
+    assert target.decision("Lille") == Decision("Lille", lille, "validated", "proj")
+
+
+def test_resolve_uses_a_place_that_appeared_meanwhile(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _, lille = _fill(source)
+    target.reject(["Lille"], "mine")
+    [conflict] = import_registry(target, export_registry(source))
+    target.apply_import(
+        [RowChange("places", {"place_id": lille}, {"created_at": "t"})], None
+    )
+    resolve_conflict(target, conflict, "incoming", "proj")
+    assert target.decision("Lille") == Decision("Lille", lille, "validated", "proj")
+    assert target.place(lille).fields == {}  # existing place left as it was
+
+
+def test_resolve_race_on_incoming_place_is_stale(
+    source: PlaceRegistry, target: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, lille = _fill(source)
+    target.reject(["Lille"], "mine")
+    [conflict] = import_registry(target, export_registry(source))
+    original = target.apply_import
+
+    def racing(*args: Any, **kwargs: Any) -> int | None:
+        # another writer creates the place between the reads and the transaction
+        monkeypatch.setattr(target, "apply_import", original)
+        original([RowChange("places", {"place_id": lille}, {"created_at": "t"})], None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(target, "apply_import", racing)
+    with pytest.raises(StaleConflictError, match="place"):
+        resolve_conflict(target, conflict, "incoming", "proj")
+    assert target.decision("Lille") == conflict.current
+    assert target.place(lille).fields == {}

@@ -42,7 +42,7 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -388,13 +388,18 @@ class PlaceRegistry:
         changes: Sequence[RowChange],
         project: str | None,
         details: Mapping[str, Any] | None = None,
+        check: Callable[[], None] | None = None,
     ) -> int | None:
         """Apply ``changes`` as one undoable ``import`` journal entry.
 
         The "before" state of each row is read from the registry. Returns the
         entry id, or ``None`` when no row actually changes (nothing journaled).
+        ``check``, if given, runs first inside the same transaction (it may
+        read the registry); an exception it raises aborts with nothing written.
         """
         with self._transaction():
+            if check is not None:
+                check()
             return self._record("import", project, changes, dict(details or {}))
 
     def undo(self, entry_id: int) -> None:
