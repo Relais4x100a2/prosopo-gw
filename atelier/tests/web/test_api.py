@@ -741,6 +741,32 @@ def test_patch_with_an_empty_value_removes_the_field_then_undo(
     assert registry.place(place_id).fields["department"] == "59"
 
 
+def test_undo_ignores_entries_of_another_instance(
+    tmp_path: Path,
+    client: TestClient,
+    registry: PlaceRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another process sharing the registry writes right after our action."""
+    other = PlaceRegistry(tmp_path / "data" / "referentiel.sqlite")
+    real_reject = registry.reject
+
+    def reject_then_other(writings: list[str], project: str) -> int | None:
+        entry = real_reject(writings, project)
+        other.reject(["Ailleurs"], "other-process")
+        return entry
+
+    monkeypatch.setattr(registry, "reject", reject_then_other)
+    response = client.post(cluster_url("name:en mer", "reject"))
+    assert response.status_code == 200, response.text
+    monkeypatch.undo()
+    assert client.post("/api/undo").json() == {"action": "reject"}
+    assert registry.decision("En mer") is None
+    ailleurs = registry.decision("Ailleurs")
+    assert ailleurs is not None and ailleurs.status == "rejected"
+    other.close()
+
+
 def test_partial_undo_keeps_the_rest_of_the_action(
     client: TestClient, registry: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:

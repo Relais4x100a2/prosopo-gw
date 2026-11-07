@@ -50,7 +50,7 @@ def test_data_dir_defaults_to_platformdirs(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_validate_attaches_all_writings_to_one_place(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "proj")
+    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "proj").place_id
     uuid.UUID(place_id, version=4)
     assert registry.decision("Roubaix") == Decision(
         "Roubaix", place_id, "validated", "proj"
@@ -67,8 +67,25 @@ def test_validate_attaches_all_writings_to_one_place(registry: PlaceRegistry) ->
     assert place.origins == RULE
 
 
+def test_mutations_return_their_journal_entry(registry: PlaceRegistry) -> None:
+    def latest() -> int:
+        return registry.journal(limit=1)[0].entry_id
+
+    validated = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    assert validated.entry_id == latest()
+    assert registry.place(validated.place_id).fields == ROUBAIX
+    assert registry.reject(["En mer"], "p") == latest()
+    assert registry.correct(validated.place_id, "commune", "Ville", "p") == latest()
+    detached = registry.detach(["Roubaix"], "p")
+    assert detached == latest()
+    assert detached is not None
+    assert registry.undo(detached) == latest()
+    # Nothing changes, nothing is journaled.
+    assert registry.detach(["Nulle part"], "p") is None
+
+
 def test_undo_validate_forgets_the_decisions(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "proj")
+    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "proj").place_id
     (entry,) = registry.journal()
     registry.undo(entry.entry_id)
     assert registry.decision("Roubaix") is None
@@ -88,7 +105,7 @@ def test_reject(registry: PlaceRegistry) -> None:
 
 
 def test_correct_changes_field_and_origin(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "proj")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "proj").place_id
     registry.correct(place_id, "commune", "Roubaix-Ville", "proj")
     place = registry.place(place_id)
     assert place.fields["commune"] == "Roubaix-Ville"
@@ -98,7 +115,7 @@ def test_correct_changes_field_and_origin(registry: PlaceRegistry) -> None:
 
 
 def test_undo_correct_restores_field_and_origin(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "proj")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "proj").place_id
     registry.correct(place_id, "commune", "Roubaix-Ville", "proj")
     registry.undo(registry.journal()[0].entry_id)
     place = registry.place(place_id)
@@ -109,7 +126,7 @@ def test_undo_correct_restores_field_and_origin(registry: PlaceRegistry) -> None
 def test_correct_adds_a_missing_field(registry: PlaceRegistry) -> None:
     place_id = registry.validate(
         ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, "p"
-    )
+    ).place_id
     registry.correct(place_id, "country", "France", "p")
     assert registry.place(place_id).fields == {
         "commune": "Roubaix",
@@ -131,14 +148,14 @@ def test_place_unknown_raises_key_error(registry: PlaceRegistry) -> None:
 
 
 def test_validate_existing_place_merges_fields(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "a")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "a").place_id
     same = registry.validate(
         ["59100 Roubaix"],
         {"postal_code": "59100", "commune": "Roubaix"},
         {"postal_code": "rule", "commune": "manual"},
         "b",
         place_id=place_id,
-    )
+    ).place_id
     assert same == place_id
     place = registry.place(place_id)
     assert place.fields == {**ROUBAIX, "postal_code": "59100"}
@@ -167,10 +184,12 @@ def test_validate_requires_an_origin_per_field(registry: PlaceRegistry) -> None:
 def test_reattach_records_previous_row_and_undo_restores_it(
     registry: PlaceRegistry,
 ) -> None:
-    first = registry.validate(["Lile"], {"commune": "Lille"}, {"commune": "rule"}, "a")
+    first = registry.validate(
+        ["Lile"], {"commune": "Lille"}, {"commune": "rule"}, "a"
+    ).place_id
     second = registry.validate(
         ["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "b"
-    )
+    ).place_id
     registry.validate(["Lile"], {}, {}, "b", place_id=second)
     entry = registry.journal()[0]
     (row,) = [r for r in entry.payload["rows"] if r["table"] == "writings"]
@@ -182,7 +201,9 @@ def test_reattach_records_previous_row_and_undo_restores_it(
 
 
 def test_reject_validated_writing_then_undo(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Mer"], {"commune": "Mer"}, {"commune": "rule"}, "a")
+    place_id = registry.validate(
+        ["Mer"], {"commune": "Mer"}, {"commune": "rule"}, "a"
+    ).place_id
     registry.reject(["Mer"], "b")
     assert registry.decision("Mer") == Decision("Mer", None, "rejected", "b")
     registry.undo(registry.journal()[0].entry_id)
@@ -192,7 +213,7 @@ def test_reject_validated_writing_then_undo(registry: PlaceRegistry) -> None:
 def test_detach_makes_writings_undecided_and_keeps_place(
     registry: PlaceRegistry,
 ) -> None:
-    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "a")
+    place_id = registry.validate(["Roubaix", "ROUBAIX"], ROUBAIX, RULE, "a").place_id
     registry.detach(["ROUBAIX"], "a")
     assert registry.decision("ROUBAIX") is None
     assert registry.decision("Roubaix") is not None
@@ -205,7 +226,7 @@ def test_detach_makes_writings_undecided_and_keeps_place(
 
 
 def test_decisions_returns_only_decided(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "a")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "a").place_id
     registry.reject(["en mer"], "a")
     assert registry.decisions(["Roubaix", "en mer", "Lille"]) == {
         "Roubaix": Decision("Roubaix", place_id, "validated", "a"),
@@ -238,7 +259,7 @@ def test_undo_twice_or_undo_of_undo_raises(registry: PlaceRegistry) -> None:
 
 
 def test_undo_conflicting_with_later_entry_raises(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     first = registry.journal()[0].entry_id
     registry.reject(["Roubaix"], "p")
     later = registry.journal()[0].entry_id
@@ -255,7 +276,7 @@ def test_undo_conflicting_with_later_entry_raises(registry: PlaceRegistry) -> No
 def test_undo_place_creation_conflicts_with_later_attachment(
     registry: PlaceRegistry,
 ) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     first = registry.journal()[0].entry_id
     registry.validate(["ROUBAIX"], {}, {}, "p", place_id=place_id)
     later = registry.journal()[0].entry_id
@@ -341,7 +362,7 @@ def test_creates_missing_file_and_parent_dirs(tmp_path: Path) -> None:
 def test_reopen_keeps_data(tmp_path: Path) -> None:
     path = tmp_path / "ref.sqlite"
     with PlaceRegistry(path) as reg:
-        place_id = reg.validate(["Roubaix"], ROUBAIX, RULE, "p")
+        place_id = reg.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     with PlaceRegistry(path) as reg:
         assert reg.place(place_id).fields == ROUBAIX
 
@@ -375,7 +396,7 @@ def test_two_registries_alternate_writes(tmp_path: Path) -> None:
 
 def test_known_places_anchor_fresh_clusters(registry: PlaceRegistry) -> None:
     ref = load_refdata(MINI)
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     known = registry.known_places()
     assert [(k.place_id, k.insee, k.name_key, k.department) for k in known] == [
         (place_id, "59512", name_key("Roubaix"), ROUBAIX["department"])
@@ -392,7 +413,7 @@ def test_known_place_without_insee_anchors_by_name(registry: PlaceRegistry) -> N
     ref = load_refdata(MINI)
     place_id = registry.validate(
         ["Saint-Inconnu"], {"commune": "Saint-Inconnu"}, {"commune": "manual"}, "p"
-    )
+    ).place_id
     known = {k.place_id: k for k in registry.known_places()}
     assert known[place_id].insee is None
     (cluster,) = build_clusters(
@@ -405,7 +426,7 @@ def test_known_place_without_insee_anchors_by_name(registry: PlaceRegistry) -> N
 
 
 def test_validate_with_none_removes_the_field(registry: PlaceRegistry) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     registry.validate(
         ["Roubaix"],
         {"commune": "Roubaix", "department": None},
@@ -429,7 +450,7 @@ def test_validate_with_none_removes_the_field(registry: PlaceRegistry) -> None:
 def test_validate_none_on_a_new_place_is_ignored(registry: PlaceRegistry) -> None:
     place_id = registry.validate(
         ["Roubaix"], {"commune": "Roubaix", "region": None}, {"commune": "rule"}, "p"
-    )
+    ).place_id
     assert registry.place(place_id).fields == {"commune": "Roubaix"}
 
 
@@ -443,7 +464,7 @@ def test_validate_rejects_an_origin_for_a_removed_field(
 def test_correct_with_none_removes_the_field_and_undo_restores_it(
     registry: PlaceRegistry,
 ) -> None:
-    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p")
+    place_id = registry.validate(["Roubaix"], ROUBAIX, RULE, "p").place_id
     registry.correct(place_id, "department", None, "p")
     assert registry.place(place_id).fields == {
         "commune": "Roubaix",

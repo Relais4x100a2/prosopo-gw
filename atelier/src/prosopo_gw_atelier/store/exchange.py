@@ -259,8 +259,17 @@ def _writing_change(decision: Decision, project: str | None, now: str) -> RowCha
     )
 
 
-def import_registry(registry: PlaceRegistry, data: object) -> list[Conflict]:
-    """Apply everything in ``data`` that does not conflict; return the conflicts.
+@dataclass(frozen=True)
+class ImportResult:
+    """The conflicts left to settle, and the ``import`` journal entry written
+    (``None`` if nothing was applied)."""
+
+    conflicts: list[Conflict]
+    entry_id: int | None
+
+
+def import_registry(registry: PlaceRegistry, data: object) -> ImportResult:
+    """Apply everything in ``data`` that does not conflict.
 
     ``data`` is untrusted (typically ``json.load`` output), hence typed
     ``object``: any mapping is accepted, anything else is a format error.
@@ -289,12 +298,12 @@ def import_registry(registry: PlaceRegistry, data: object) -> list[Conflict]:
         if place_id not in local_places and place_id not in deferred:
             changes.extend(_place_changes(places[place_id], now))
     changes.extend(_writing_change(d, d.project, now) for d in applied)
-    registry.apply_import(
+    entry = registry.apply_import(
         changes,
         None,
         {"exported_at": exported_at, "conflicts": [c.writing for c in conflicts]},
     )
-    return conflicts
+    return ImportResult(conflicts, entry)
 
 
 def _known(registry: PlaceRegistry, place_id: str) -> bool:
@@ -310,8 +319,10 @@ def resolve_conflict(
     conflict: Conflict,
     keep: Literal["current", "incoming"],
     project: str | None,
-) -> None:
+) -> int | None:
     """Settle ``conflict``: keep the local decision, or apply the incoming one.
+
+    Returns the journal entry written (``None`` when keeping the local one).
 
     ``"incoming"`` is one undoable ``import`` journal entry, decided under
     ``project``; it creates the incoming place first if the registry lacks it
@@ -320,7 +331,7 @@ def resolve_conflict(
     raises ``StaleConflictError`` and writes nothing.
     """
     if keep == "current":
-        return
+        return None
     if keep != "incoming":
         raise ValueError(f"keep must be 'current' or 'incoming', not {keep!r}")
     now = _now()
@@ -349,7 +360,7 @@ def resolve_conflict(
                 "was reported; import again"
             )
 
-    registry.apply_import(
+    return registry.apply_import(
         changes,
         project,
         {"resolved_conflict": conflict.writing, "keep": keep},

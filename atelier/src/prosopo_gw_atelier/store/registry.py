@@ -8,8 +8,11 @@ Storage
 
 Journal
     Every public mutation is one transaction that changes rows and appends one
-    journal entry. Its JSON payload lists every row it touched, with the full
-    row state before and after (``None`` = no row)::
+    journal entry, whose id it returns (``None`` when no row changes and
+    nothing is journaled): callers never have to guess it from the latest
+    entry, which another process sharing the file may have written. Its JSON
+    payload lists every row it touched, with the full row state before and
+    after (``None`` = no row)::
 
         {"rows": [{"table": "writings", "key": {"writing": "Roubaix"},
                    "before": null,
@@ -90,6 +93,15 @@ class Decision:
     place_id: str | None
     status: Status
     project: str | None
+
+
+@dataclass(frozen=True)
+class Validation:
+    """Result of ``validate``: the place, and the journal entry written
+    (``None`` if nothing changed)."""
+
+    place_id: str
+    entry_id: int | None
 
 
 @dataclass(frozen=True)
@@ -288,8 +300,10 @@ class PlaceRegistry:
         origins: Mapping[ElementKind, Origin],
         project: str,
         place_id: str | None = None,
-    ) -> str:
-        """Attach ``writings`` to one place and set its ``fields``; return its id.
+    ) -> Validation:
+        """Attach ``writings`` to one place and set its ``fields``.
+
+        Returns the place id and the journal entry written.
 
         Without ``place_id`` a new place (UUID4) is created; with it, the
         given fields are merged into that place (``KeyError`` if unknown).
@@ -344,11 +358,15 @@ class PlaceRegistry:
                         },
                     )
                 )
-            self._record("validate", project, changes, {"place_id": place_id})
-        return place_id
+            entry = self._record("validate", project, changes, {"place_id": place_id})
+        return Validation(place_id, entry)
 
-    def reject(self, writings: Sequence[str], project: str) -> None:
-        """Mark ``writings`` as not a usable place (e.g. "en mer")."""
+    def reject(self, writings: Sequence[str], project: str) -> int | None:
+        """Mark ``writings`` as not a usable place (e.g. "en mer").
+
+        Returns the journal entry written (``None`` if nothing changed), as
+        do ``correct`` and ``detach``.
+        """
         now = _now()
         changes = [
             RowChange(
@@ -364,11 +382,11 @@ class PlaceRegistry:
             for writing in dict.fromkeys(writings)
         ]
         with self._transaction():
-            self._record("reject", project, changes, {})
+            return self._record("reject", project, changes, {})
 
     def correct(
         self, place_id: str, field: ElementKind, value: str | None, project: str
-    ) -> None:
+    ) -> int | None:
         """Set ``field`` of a place by hand: its origin becomes ``manual``.
 
         ``value=None`` removes the field (journaled; undo restores it).
@@ -382,16 +400,16 @@ class PlaceRegistry:
                 {"place_id": place_id, "kind": field},
                 None if value is None else {"value": value, "origin": "manual"},
             )
-            self._record("correct", project, [change], {"place_id": place_id})
+            return self._record("correct", project, [change], {"place_id": place_id})
 
-    def detach(self, writings: Sequence[str], project: str) -> None:
+    def detach(self, writings: Sequence[str], project: str) -> int | None:
         """Make ``writings`` undecided again; their place stays."""
         changes = [
             RowChange("writings", {"writing": writing}, None)
             for writing in dict.fromkeys(writings)
         ]
         with self._transaction():
-            self._record("detach", project, changes, {})
+            return self._record("detach", project, changes, {})
 
     def apply_import(
         self,
@@ -412,8 +430,11 @@ class PlaceRegistry:
                 check()
             return self._record("import", project, changes, dict(details or {}))
 
-    def undo(self, entry_id: int) -> None:
-        """Restore the state before entry ``entry_id`` (see the module docstring)."""
+    def undo(self, entry_id: int) -> int:
+        """Restore the state before entry ``entry_id`` (see the module docstring).
+
+        Returns the id of the ``undo`` entry written.
+        """
         with self._transaction():
             row = self._conn.execute(
                 "SELECT action, payload, undone FROM journal WHERE entry_id = ?",
@@ -447,7 +468,7 @@ class PlaceRegistry:
             self._conn.execute(
                 "UPDATE journal SET undone = 1 WHERE entry_id = ?", (entry_id,)
             )
-            self._append_journal(
+            return self._append_journal(
                 "undo", None, {"undone_entry": entry_id, "rows": inverse}
             )
 

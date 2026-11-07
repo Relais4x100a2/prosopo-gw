@@ -53,7 +53,7 @@ def lyon(registry: PlaceRegistry) -> str:
         {"commune": "Lyon", "insee_code": "69123", "department": "Rhône"},
         {"commune": "rule", "insee_code": "rule", "department": "manual"},
         project="p",
-    )
+    ).place_id
 
 
 def by_name(tables: list[Table]) -> dict[str, Table]:
@@ -132,7 +132,7 @@ def test_complement_is_kept_apart_from_the_place(
 def test_person_columns(core_tables: list[Table], registry: PlaceRegistry) -> None:
     arras = registry.validate(
         ["Arras"], {"commune": "Arras"}, {"commune": "rule"}, project="p"
-    )
+    ).place_id
     registry.reject(["En mer"], project="p")
     persons = by_name(build_pivot(core_tables, registry))["personnes"]
     louise = row(persons, "PETIT_Louise_0")
@@ -156,7 +156,7 @@ def test_person_columns(core_tables: list[Table], registry: PlaceRegistry) -> No
 def test_family_columns(core_tables: list[Table], registry: PlaceRegistry) -> None:
     roubaix = registry.validate(
         ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, project="p"
-    )
+    ).place_id
     families = by_name(build_pivot(core_tables, registry))["familles"]
     assert row(families, "FAM_001")["mariage_lieu_id"] == roubaix
     assert row(families, "FAM_001")["mariage_complement"] is None
@@ -186,7 +186,7 @@ def test_places_table_lists_only_places_of_this_gw(
             "former_name": "llm",
         },
         project="p",
-    )
+    ).place_id
     places = by_name(build_pivot(core_tables, registry))["lieux"]
     assert places.spec is LIEUX
     assert [r["lieu_id"] for r in places.rows] == sorted([lyon, roubaix])

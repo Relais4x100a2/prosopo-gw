@@ -44,7 +44,7 @@ def lyon(registry: PlaceRegistry) -> str:
         {"commune": "Lyon", "insee_code": "69123"},
         {"commune": "rule", "insee_code": "rule"},
         project="p",
-    )
+    ).place_id
 
 
 def open_zip(data: bytes) -> zipfile.ZipFile:

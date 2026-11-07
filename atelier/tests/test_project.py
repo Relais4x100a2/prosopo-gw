@@ -221,7 +221,7 @@ def test_cluster_states(
     # Part of a cluster decided: the undecided rest joins the place, still to do.
     roubaix = registry.validate(
         ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, pid
-    )
+    ).place_id
     view = project.cluster(f"place:{roubaix}")
     assert view.cluster.writings == ROUBAIX_WRITINGS
     assert view.state == "todo"
@@ -232,7 +232,7 @@ def test_cluster_states(
     lille = project.cluster("insee:59350").cluster.writings
     place = registry.validate(
         ["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "other"
-    )
+    ).place_id
     registry.validate(
         [w for w in lille if w != "Lille"],
         {"commune": "Lille"},
@@ -422,7 +422,7 @@ def test_merged_anchored_group_takes_the_lowest_confidence(
     project = open_project(gw, registry, ref, projects_dir)
     place = registry.validate(
         ["En mer"], {"commune": "En mer"}, {"commune": "manual"}, project.project_id
-    )
+    ).place_id
     append(gw, "\nfam LEROY Marc 1880 #bp EN_MER + FAURE Alice 1882\n")
     project.reload()
     view = view_of(project, "EN MER")
@@ -442,7 +442,7 @@ def test_split_state_follows_the_registry(
     assert new.place_id is None
     place = registry.validate(
         ["59512"], {"insee_code": "59512"}, {"insee_code": "rule"}, project.project_id
-    )
+    ).place_id
     view = project.cluster(new.cluster.id)
     assert view.state == "validated"
     # Once decided, the split shows its place, as the registry has it.
@@ -524,7 +524,7 @@ def test_anchor_follows_the_registry_without_reload(
         {"commune": "Roubaix", "insee_code": "59512"},
         {"commune": "rule", "insee_code": "rule"},
         "other",
-    )
+    ).place_id
     view = project.cluster("insee:59512")
     assert view.cluster.anchor_place_id == place_id
     assert view.state == "todo"
@@ -545,13 +545,13 @@ def test_writings_validated_to_two_places_stay_apart(
     two = ["59100 Roubaix", "59512", "ROUBAIX, Nord, France"]
     p1 = registry.validate(
         one, {"commune": "Roubaix"}, {"commune": "manual"}, first.project_id
-    )
+    ).place_id
     p2 = registry.validate(
         two,
         {"commune": "Roubaix", "insee_code": "59512"},
         {"commune": "rule", "insee_code": "rule"},
         first.project_id,
-    )
+    ).place_id
     assert first.cluster(f"place:{p1}").state == "validated"
 
     other = open_project(
@@ -607,7 +607,7 @@ def test_split_follows_its_parent_when_the_grouping_changes(
     rest = [w for w in ROUBAIX_WRITINGS if w != "59512"]
     place = registry.validate(
         rest, {"commune": "Roubaix"}, {"commune": "rule"}, project.project_id
-    )
+    ).place_id
     project.reload()
     ids = [v.cluster.id for v in project.clusters()]
     assert "insee:59512" not in ids

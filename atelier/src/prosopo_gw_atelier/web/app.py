@@ -13,8 +13,10 @@ id as a ``path`` parameter and the client percent-encodes it
 Concurrency
     FastAPI runs the (synchronous) endpoints in a thread pool. Project and
     registry are each thread-safe, but an action spans several calls (split
-    then validate, journal lookups for the undo stack): every endpoint that
-    touches them holds ``AppState.lock``, so actions are serialized.
+    then validate, then the undo stack): every endpoint that touches them
+    holds ``AppState.lock``, so actions are serialized. The undo stack keeps
+    the journal entry id each registry mutation returns, never the latest
+    entry of the journal (another process may share the registry).
 
 Undo
     A stack, in memory and per app, of actions; each action is a list of
@@ -42,7 +44,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -68,8 +70,6 @@ from ..store.exchange import (
 )
 from ..store.registry import JournalEntry, Origin, Place, PlaceRegistry
 from . import schemas
-
-T = TypeVar("T")
 
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
 """Largest registry file accepted by the import (413 beyond)."""
@@ -135,21 +135,6 @@ class AppState:
 
 def _error(status: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
-
-
-def _latest_entry(registry: PlaceRegistry) -> int:
-    latest = registry.journal(limit=1)
-    return latest[0].entry_id if latest else 0
-
-
-def _journaled(
-    registry: PlaceRegistry, action: Callable[[], T]
-) -> tuple[T, int | None]:
-    """Run ``action``; return its result and the journal entry it wrote, if any."""
-    before = _latest_entry(registry)
-    result = action()
-    after = _latest_entry(registry)
-    return result, (after if after != before else None)
 
 
 def _label(view: ClusterView) -> str:
@@ -475,9 +460,7 @@ def _split_out(
     decided = list(registry.decisions(writings))
     if decided:
         try:
-            _, entry = _journaled(
-                registry, lambda: registry.detach(decided, project.project_id)
-            )
+            entry = registry.detach(decided, project.project_id)
         except BaseException:
             _undo_refs(state, refs)
             raise
@@ -634,11 +617,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             if unchecked:
                 refs, split_id = _split_out(state, view, unchecked)
             try:
-                new_place, entry = _journaled(
-                    registry,
-                    lambda: registry.validate(
-                        checked, fields, origins, project.project_id, place_id
-                    ),
+                validation = registry.validate(
+                    checked, fields, origins, project.project_id, place_id
                 )
             except BaseException as exc:
                 _undo_refs(state, refs)
@@ -647,14 +627,14 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                         409, "Ce lieu a été supprimé entre-temps ; rechargez la file."
                     ) from None
                 raise
-            if entry is not None:
-                refs.append(_Ref("registry", entry))
+            if validation.entry_id is not None:
+                refs.append(_Ref("registry", validation.entry_id))
             if refs:
                 state.undo.append(_Action("validate", tuple(refs)))
             split = None
             if split_id is not None:
                 split = _summary(project.cluster(split_id))
-            return schemas.ValidateOut(place_id=new_place, split=split)
+            return schemas.ValidateOut(place_id=validation.place_id, split=split)
 
     @app.post("/api/clusters/{cluster_id:path}/split")
     def split_cluster(cluster_id: str, body: schemas.SplitIn) -> schemas.ClusterSummary:
@@ -669,9 +649,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
         with state.lock:
             view = _cluster_or_404(project, cluster_id)
             writings = list(view.cluster.writings)
-            _, entry = _journaled(
-                registry, lambda: registry.reject(writings, project.project_id)
-            )
+            entry = registry.reject(writings, project.project_id)
             if entry is not None:
                 state.undo.append(_Action("reject", (_Ref("registry", entry),)))
             return schemas.RejectOut(writings=writings)
@@ -683,11 +661,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
         value = body.value.strip() or None
         with state.lock:
             try:
-                _, entry = _journaled(
-                    registry,
-                    lambda: registry.correct(
-                        place_id, body.field, value, project.project_id
-                    ),
+                entry = registry.correct(
+                    place_id, body.field, value, project.project_id
                 )
             except KeyError:
                 raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
@@ -774,16 +749,15 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             ) from None
         with state.lock:
             try:
-                found, entry = _journaled(
-                    registry, lambda: import_registry(registry, document)
-                )
+                result = import_registry(registry, document)
             except RegistryFormatError as exc:
                 raise _error(400, f"{IMPORT_FORMAT_ERROR} ({exc})") from None
             added = 0
-            if entry is not None:
+            if result.entry_id is not None:
+                entry = result.entry_id
                 state.undo.append(_Action("import", (_Ref("registry", entry),)))
                 added = _journal_writing_count(registry, entry)
-            for conflict in found:
+            for conflict in result.conflicts:
                 state.conflicts[conflict.writing] = conflict
             return schemas.ImportOut(added=added, conflicts=_conflicts(state).conflicts)
 
@@ -807,11 +781,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             if conflict is None:
                 raise _error(404, "Aucun conflit en attente pour cette écriture.")
             try:
-                _, entry = _journaled(
-                    registry,
-                    lambda: resolve_conflict(
-                        registry, conflict, body.keep, project.project_id
-                    ),
+                entry = resolve_conflict(
+                    registry, conflict, body.keep, project.project_id
                 )
             except (StaleConflictError, KeyError):
                 del state.conflicts[body.writing]

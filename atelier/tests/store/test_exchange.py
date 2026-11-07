@@ -41,8 +41,8 @@ def _fill(reg: PlaceRegistry) -> tuple[str, str]:
         ROUBAIX,
         ROUBAIX_ORIGINS,
         "p1",  # type: ignore[arg-type]
-    )
-    lille = reg.validate(["Lille"], LILLE, LILLE_ORIGINS, "p2")  # type: ignore[arg-type]
+    ).place_id
+    lille = reg.validate(["Lille"], LILLE, LILLE_ORIGINS, "p2").place_id  # type: ignore[arg-type]
     reg.reject(["en mer"], "p1")
     return roubaix, lille
 
@@ -111,7 +111,7 @@ def test_round_trip_into_empty_registry(
 ) -> None:
     roubaix, lille = _fill(source)
     data = json.loads(json.dumps(export_registry(source)))
-    assert import_registry(target, data) == []
+    assert import_registry(target, data).conflicts == []
     assert _all_decisions(target) == _all_decisions(source)
     for place_id in (roubaix, lille):
         assert target.place(place_id) == source.place(place_id)
@@ -135,6 +135,21 @@ def test_import_is_one_undoable_entry(
     assert target.places() == []
 
 
+def test_import_and_resolve_return_their_journal_entry(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _fill(source)
+    target.reject(["Lille"], "mine")
+    data = export_registry(source)
+    result = import_registry(target, data)
+    assert result.entry_id == target.journal(limit=1)[0].entry_id
+    [conflict] = result.conflicts
+    entry = resolve_conflict(target, conflict, "incoming", "mine")
+    assert entry == target.journal(limit=1)[0].entry_id
+    assert resolve_conflict(target, conflict, "current", "mine") is None
+    assert import_registry(target, data).entry_id is None
+
+
 def test_reimport_same_data_writes_nothing(
     source: PlaceRegistry, target: PlaceRegistry
 ) -> None:
@@ -142,7 +157,7 @@ def test_reimport_same_data_writes_nothing(
     data = export_registry(source)
     import_registry(target, data)
     before = _counts(target)
-    assert import_registry(target, data) == []
+    assert import_registry(target, data).conflicts == []
     assert _counts(target) == before
 
 
@@ -154,7 +169,7 @@ def test_same_decision_other_project_is_not_a_conflict(
     for w in data["writings"]:
         w["project"] = "elsewhere"
     import_registry(target, export_registry(source))
-    assert import_registry(target, data) == []
+    assert import_registry(target, data).conflicts == []
     assert target.decision("Lille") == source.decision("Lille")
 
 
@@ -164,9 +179,9 @@ def test_differing_decision_is_a_conflict_and_local_is_kept(
     roubaix, _ = _fill(source)
     local_lille = target.validate(
         ["Lille"], {"commune": "Lille-lez-Tours"}, {"commune": "manual"}, "mine"
-    )
+    ).place_id
     target.validate(["en mer"], {"commune": "Mer"}, {"commune": "manual"}, "mine")
-    conflicts = import_registry(target, export_registry(source))
+    conflicts = import_registry(target, export_registry(source)).conflicts
     by_writing = {c.writing: c for c in conflicts}
     assert sorted(by_writing) == ["Lille", "en mer"]
     lille = by_writing["Lille"]
@@ -187,7 +202,7 @@ def test_conflicting_only_place_is_not_created_but_carried(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     with pytest.raises(KeyError):
         target.place(lille)
     assert conflict.incoming_place == source.place(lille)
@@ -198,7 +213,7 @@ def test_resolve_incoming_applies_and_creates_place(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     entries = len(target.journal())
     resolve_conflict(target, conflict, "incoming", "proj")
     assert target.decision("Lille") == Decision("Lille", lille, "validated", "proj")
@@ -215,7 +230,7 @@ def test_resolve_incoming_rejection(
 ) -> None:
     _fill(source)
     target.validate(["en mer"], {"commune": "Mer"}, {"commune": "manual"}, "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     resolve_conflict(target, conflict, "incoming", None)
     assert target.decision("en mer") == Decision("en mer", None, "rejected", None)
 
@@ -225,7 +240,7 @@ def test_resolve_current_changes_nothing(
 ) -> None:
     _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     before = _counts(target)
     resolve_conflict(target, conflict, "current", "proj")
     assert _counts(target) == before
@@ -278,13 +293,13 @@ def test_existing_place_keeps_local_fields(
     target.correct(roubaix, "commune", "Roubaix (Nord)", "mine")
     local = target.place(roubaix)
     source.validate(["Roubaix 59"], {}, {}, "p3", place_id=roubaix)
-    assert import_registry(target, export_registry(source)) == []
+    assert import_registry(target, export_registry(source)).conflicts == []
     assert target.place(roubaix) == local
     assert target.decision("Roubaix 59") == source.decision("Roubaix 59")
 
 
 def test_writing_may_point_to_a_local_place(target: PlaceRegistry) -> None:
-    local = target.validate(["Lille"], LILLE, LILLE_ORIGINS, "mine")  # type: ignore[arg-type]
+    local = target.validate(["Lille"], LILLE, LILLE_ORIGINS, "mine").place_id  # type: ignore[arg-type]
     data = {
         "format": FORMAT,
         "version": 1,
@@ -299,7 +314,7 @@ def test_writing_may_point_to_a_local_place(target: PlaceRegistry) -> None:
             }
         ],
     }
-    assert import_registry(target, data) == []
+    assert import_registry(target, data).conflicts == []
     assert target.decision("LILLE") == Decision("LILLE", local, "validated", None)
 
 
@@ -479,8 +494,10 @@ def test_resolve_stale_conflict_raises_and_writes_nothing(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
-    other = target.validate(["Lille"], {"commune": "Lille"}, {"commune": "manual"}, "m")
+    [conflict] = import_registry(target, export_registry(source)).conflicts
+    other = target.validate(
+        ["Lille"], {"commune": "Lille"}, {"commune": "manual"}, "m"
+    ).place_id
     local = target.decision("Lille")
     before = _counts(target)
     with pytest.raises(StaleConflictError, match="Lille"):
@@ -499,7 +516,7 @@ def test_resolve_after_local_detach_is_stale(
 ) -> None:
     _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     target.detach(["Lille"], "mine")
     before = _counts(target)
     with pytest.raises(StaleConflictError):
@@ -513,7 +530,7 @@ def test_resolve_ignores_a_project_only_change(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     target.reject(["Lille"], "other project")
     resolve_conflict(target, conflict, "incoming", "proj")
     assert target.decision("Lille") == Decision("Lille", lille, "validated", "proj")
@@ -524,7 +541,7 @@ def test_resolve_uses_a_place_that_appeared_meanwhile(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     target.apply_import(
         [RowChange("places", {"place_id": lille}, {"created_at": "t"})], None
     )
@@ -538,7 +555,7 @@ def test_resolve_race_on_incoming_place_is_stale(
 ) -> None:
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
-    [conflict] = import_registry(target, export_registry(source))
+    [conflict] = import_registry(target, export_registry(source)).conflicts
     original = target.apply_import
 
     def racing(*args: Any, **kwargs: Any) -> int | None:
