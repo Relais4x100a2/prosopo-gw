@@ -51,7 +51,12 @@ where = ["src"]
 include = ["prosopo_gw_atelier*"]
 
 [tool.setuptools.package-data]
-"prosopo_gw_atelier" = ["py.typed", "refdata/data/*", "store/schema.sql"]
+"prosopo_gw_atelier" = [
+    "py.typed",
+    "refdata/data/*",
+    "store/schema.sql",
+    "export/LISEZMOI.txt",
+]
 
 [tool.mypy]
 python_version = "3.11"

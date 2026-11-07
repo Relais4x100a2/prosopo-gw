@@ -1,0 +1,40 @@
+Export de l'atelier prosopo-gw : fichier « {gw} », {date}
+
+Données personnelles
+  Cet export vient d'une base généalogique : il peut contenir des données
+  personnelles, y compris sur des personnes vivantes. Ne le publiez pas et ne le
+  versionnez pas sans l'avoir vérifié.
+
+Fichiers
+  {base}.sqlite       Toutes les tables, pour SQL, pandas ou DB Browser for SQLite.
+  {base}.json         Toutes les tables, pour un script.
+  <table>.csv         Une table par fichier, pour un tableur (UTF-8, séparateur « ; »).
+  dictionnaire.csv    Description de chaque colonne de chaque table.
+
+Lieux
+  Les tables de la base gardent chaque lieu tel qu'il est écrit. Juste après, la
+  colonne …_lieu_id renvoie à la table lieux si l'écriture a été validée ; elle
+  est vide sinon. La colonne …_complement (ou complement) garde l'établissement ou
+  l'adresse écrits entre crochets. La table ecritures_lieux donne la décision prise
+  pour chaque écriture : validated (rattachée à un lieu) ou rejected (pas un lieu
+  exploitable).
+
+Origine des valeurs
+  Dans la table lieux, chaque colonne <champ>_origine dit d'où vient la valeur :
+  rule (proposée par les règles de l'atelier, puis validée), manual (saisie à la
+  main), reference (référentiel externe), llm (proposée par un modèle de langue,
+  puis validée).
+
+Référentiels
+  Code officiel géographique (COG) de l'INSEE, millésime {cog}.
+  Base officielle des codes postaux de La Poste, millésime {postal}.
+  Source : INSEE et La Poste, données publiées sur data.gouv.fr sous
+  Licence Ouverte 2.0 (Etalab).
+
+Les identifiants (personne_id, famille_id, evenement_id…) ne valent que pour ce
+fichier .gw. Les lieu_id sont ceux de votre référentiel personnel, stables d'un
+export à l'autre.
+
+Dans les CSV, un texte qui commence par = + - @ reçoit une apostrophe en tête,
+pour qu'un tableur ne l'exécute pas comme une formule. Le JSON et le SQLite
+gardent le texte exact.

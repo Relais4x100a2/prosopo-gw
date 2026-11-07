@@ -20,7 +20,7 @@ from collections.abc import Sequence
 # geneweb-py ships no ``py.typed`` marker (PEP 561), so mypy does not read its
 # annotations from the installed package.
 from geneweb_py.core.place import parse_place
-from geneweb_py.formats.tables import Row, Table
+from geneweb_py.formats.tables import Row, Table, Value
 
 from .model import Occurrence, Writing
 
@@ -45,6 +45,20 @@ def _text(row: Row, column: str | None) -> str | None:
     return str(value)
 
 
+def split_place(raw: Value) -> tuple[str, str | None] | None:
+    """Writing key and complement of a place cell; ``None`` if it has no place.
+
+    The key is ``parse_place(raw).name`` (complement removed), the key of the
+    registry's decisions.
+    """
+    if not isinstance(raw, str):
+        return None
+    parsed = parse_place(raw)
+    if parsed is None or not parsed.name:
+        return None
+    return parsed.name, parsed.complement
+
+
 def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
     """Return the place writings of the tables, in order of first appearance."""
     writings: dict[str, Writing] = {}
@@ -56,20 +70,18 @@ def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
         for row in table.rows:
             row_id = _text(row, key) or ""
             for column, fixed_type, type_column, date_column in columns:
-                raw = row.get(column)
-                if not isinstance(raw, str):
+                split = split_place(row.get(column))
+                if split is None:
                     continue
-                parsed = parse_place(raw)
-                if parsed is None or not parsed.name:
-                    continue
+                text, complement = split
                 occurrence = Occurrence(
                     table=table.spec.name,
                     row_id=row_id,
                     column=column,
-                    complement=parsed.complement,
+                    complement=complement,
                     event_type=fixed_type or _text(row, type_column),
                     date=_text(row, date_column),
                 )
-                writing = writings.setdefault(parsed.name, Writing(parsed.name))
+                writing = writings.setdefault(text, Writing(text))
                 writing.occurrences.append(occurrence)
     return writings
