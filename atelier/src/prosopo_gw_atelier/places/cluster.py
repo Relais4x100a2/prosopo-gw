@@ -112,6 +112,15 @@ class _Group:
     merged: bool = False
 
 
+def name_key(name: str) -> str:
+    """Name key of a place, as compared by the anchor (``KnownPlace.name_key``).
+
+    The same key ``build_clusters`` gives a group: the normalized commune name
+    (official COG name for a resolved commune), without department.
+    """
+    return normalize(name)
+
+
 def _name_segment(decomposition: Decomposition, ref: RefData) -> str:
     for element in decomposition.elements:
         if element.kind in ("commune", "former_name"):
@@ -297,12 +306,12 @@ def build_clusters(
         if decomposition.insee is not None:
             commune = ref.commune_by_insee(decomposition.insee)
             group_id = f"insee:{decomposition.insee}"
-            key = normalize(commune.name) if commune else decomposition.insee
+            key = name_key(commune.name) if commune else decomposition.insee
             department = commune.department if commune else None
             insee: str | None = decomposition.insee
         else:
             name = _name_segment(decomposition, ref)
-            key = normalize(name)
+            key = name_key(name)
             department = _department(decomposition)
             group_id = (
                 f"name:{key}" if department is None else f"name:{key}|{department}"
