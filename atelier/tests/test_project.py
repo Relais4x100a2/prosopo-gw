@@ -1,3 +1,4 @@
+import dataclasses
 import shutil
 import sqlite3
 from collections.abc import Iterator
@@ -191,8 +192,10 @@ def test_reload_reapplies_decisions(
     assert "Roubaix (59)" not in project.writings
     project.reload()
     assert "Roubaix (59)" in project.writings
+    decision = registry.decision("Roubaix")
+    assert decision is not None
     assert [v.cluster.id for v in project.clusters() if v.state == "todo"] == [
-        "insee:59512"
+        f"place:{decision.place_id}"
     ]
 
 
@@ -213,26 +216,35 @@ def test_cluster_states(
     project = open_project(gw, registry, ref, projects_dir)
     pid = project.project_id
     registry.reject(["En mer"], pid)
-    assert project.cluster("name:en mer").state == "rejected"
+    assert project.cluster("rejected:en mer").state == "rejected"
 
-    # Part of a cluster decided: still to do.
-    registry.validate(["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, pid)
-    assert project.cluster("insee:59512").state == "todo"
+    # Part of a cluster decided: the undecided rest joins the place, still to do.
+    roubaix = registry.validate(
+        ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, pid
+    )
+    view = project.cluster(f"place:{roubaix}")
+    assert view.cluster.writings == ROUBAIX_WRITINGS
+    assert view.state == "todo"
+    assert view.cluster.proposal == {"commune": "Roubaix"}
+    assert view.cluster.confidence == "high"
 
-    # Mixed origins: already decided.
-    registry.validate(["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "other")
+    # One place, decided by two projects: already decided.
     lille = project.cluster("insee:59350").cluster.writings
+    place = registry.validate(
+        ["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "other"
+    )
     registry.validate(
         [w for w in lille if w != "Lille"],
         {"commune": "Lille"},
         {"commune": "rule"},
         pid,
+        place_id=place,
     )
-    assert project.cluster("insee:59350").state == "already_decided"
+    assert project.cluster(f"place:{place}").state == "already_decided"
 
     # Rejected by another project.
     registry.reject(["Merville"], "other")
-    assert project.cluster("name:merville").state == "rejected"
+    assert project.cluster("rejected:merville").state == "rejected"
 
 
 def test_clusters_are_sorted_by_state_confidence_and_occurrences(
@@ -254,8 +266,20 @@ def test_clusters_are_sorted_by_state_confidence_and_occurrences(
     registry.reject(["En mer"], pid)
     registry.validate(["Arras"], {"commune": "Arras"}, {"commune": "rule"}, pid)
     registry.validate(["Lyon"], {"commune": "Lyon"}, {"commune": "rule"}, "other")
-    ids = [v.cluster.id for v in project.clusters()]
-    assert ids[-3:] == ["insee:69123", "insee:62041", "name:en mer"]
+    arras = registry.decision("Arras")
+    lyon = registry.decision("Lyon")
+    assert arras is not None and lyon is not None
+    views = project.clusters()
+    assert [v.cluster.id for v in views[-3:]] == [
+        f"place:{lyon.place_id}",
+        f"place:{arras.place_id}",
+        "rejected:en mer",
+    ]
+    assert [v.state for v in views[-3:]] == [
+        "already_decided",
+        "validated",
+        "rejected",
+    ]
 
 
 # --- Step 2: split -------------------------------------------------------------
@@ -346,7 +370,7 @@ def test_split_state_follows_the_registry(
         ["59512"], {"insee_code": "59512"}, {"insee_code": "rule"}, project.project_id
     )
     assert project.cluster(new.cluster.id).state == "validated"
-    assert project.cluster("insee:59512").state == "todo"
+    assert view_of(project, "Roubaix").state == "todo"
 
 
 @pytest.mark.parametrize(
@@ -415,10 +439,130 @@ def test_anchor_follows_the_registry_without_reload(
 ) -> None:
     project = open_project(gw, registry, ref, projects_dir)
     assert project.cluster("insee:59512").cluster.anchor_place_id is None
+    # The place has no writing in this .gw: the anchored cluster keeps its id.
     place_id = registry.validate(
-        ["Roubaix"],
+        ["Roubaix-Ville"],
         {"commune": "Roubaix", "insee_code": "59512"},
         {"commune": "rule", "insee_code": "rule"},
-        project.project_id,
+        "other",
     )
-    assert project.cluster("insee:59512").cluster.anchor_place_id == place_id
+    view = project.cluster("insee:59512")
+    assert view.cluster.anchor_place_id == place_id
+    assert view.state == "todo"
+
+
+# --- Fix round 1: decided writings attached to their place -------------------
+
+
+def test_writings_validated_to_two_places_stay_apart(
+    gw: Path,
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    first = open_project(gw, registry, ref, projects_dir)
+    one = ["Roubaix", "roubaix, Nord-Pas-de-Calais"]
+    two = ["59100 Roubaix", "59512", "ROUBAIX, Nord, France"]
+    p1 = registry.validate(
+        one, {"commune": "Roubaix"}, {"commune": "manual"}, first.project_id
+    )
+    p2 = registry.validate(
+        two,
+        {"commune": "Roubaix", "insee_code": "59512"},
+        {"commune": "rule", "insee_code": "rule"},
+        first.project_id,
+    )
+    assert first.cluster(f"place:{p1}").state == "validated"
+
+    other = open_project(
+        copy_fixture(tmp_path / "other", "lieux_varies.gw"),
+        registry,
+        ref,
+        projects_dir,
+    )
+    a, b = other.cluster(f"place:{p1}"), other.cluster(f"place:{p2}")
+    assert a.cluster.writings == sorted(one)
+    assert b.cluster.writings == two
+    assert (a.state, b.state) == ("already_decided", "already_decided")
+    assert a.cluster.anchor_place_id == p1
+    assert b.cluster.proposal == {"commune": "Roubaix", "insee_code": "59512"}
+    with pytest.raises(KeyError):
+        other.cluster("insee:59512")
+
+
+def test_rejected_writing_never_joins_undecided_writings(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    registry.reject(["Roubaix"], "other")
+    rejected = view_of(project, "Roubaix")
+    assert rejected.cluster.id == "rejected:roubaix"
+    assert rejected.cluster.writings == ["Roubaix"]
+    assert rejected.state == "rejected"
+    assert "Roubaix" not in project.cluster("insee:59512").cluster.writings
+
+
+def test_split_follows_its_parent_when_the_grouping_changes(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["59512"])
+    rest = [w for w in ROUBAIX_WRITINGS if w != "59512"]
+    place = registry.validate(
+        rest, {"commune": "Roubaix"}, {"commune": "rule"}, project.project_id
+    )
+    project.reload()
+    ids = [v.cluster.id for v in project.clusters()]
+    assert "insee:59512" not in ids
+    assert project.cluster(new.cluster.id).parent_id == f"place:{place}"
+    assert ids[ids.index(f"place:{place}") + 1] == new.cluster.id
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert reopened.cluster(new.cluster.id).parent_id == f"place:{place}"
+
+
+def test_split_without_any_parent_left_is_top_level(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["Roubaix"])
+    for old, fresh in [
+        ("#p 59100_Roubaix", "#p Arras"),
+        ("#p 59512", "#p Arras"),
+        ("#p ROUBAIX,_Nord,_France", "#p Arras"),
+        ("#bp roubaix,_Nord-Pas-de-Calais", "#bp Arras"),
+    ]:
+        replace(gw, old, fresh)
+    project.reload()
+    assert project.cluster(new.cluster.id).parent_id is None
+
+
+def test_views_are_frozen_and_do_not_share_the_cache(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    view = project.cluster("insee:59512")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        view.state = "validated"  # type: ignore[misc]
+    view.cluster.writings.append("Nowhere")
+    view.cluster.proposal["commune"] = "Nowhere"
+    again = project.cluster("insee:59512").cluster
+    assert again.writings == ROUBAIX_WRITINGS
+    assert again.proposal["commune"] == "Roubaix"
+
+
+def test_state_file_of_version_1_is_migrated(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    new = project.split("insee:59512", ["Roubaix"])
+    db = projects_dir / f"{project.project_id}.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.execute("DROP TABLE split_parent_writings")
+        conn.execute("PRAGMA user_version = 1")
+    conn.close()
+    reopened = open_project(gw, registry, ref, projects_dir)
+    assert reopened.cluster(new.cluster.id).parent_id == "insee:59512"
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    conn.close()

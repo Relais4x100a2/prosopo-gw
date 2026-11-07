@@ -7,25 +7,39 @@ Identity
     writes to the registry carry ``project=project_id``.
 
 State file
-    ``projects_dir / f"{project_id}.sqlite"`` (``PRAGMA user_version = 1``),
+    ``projects_dir / f"{project_id}.sqlite"`` (``PRAGMA user_version = 2``),
     apart from the personal registry::
 
         project(id = 1, path, sha256, opened_at)
         splits(seq, split_id, parent_id, created_at)
         split_writings(split_id, position, writing)
+        split_parent_writings(split_id, writing)   -- since version 2
+
+    Version 1 files are migrated on open (their splits have no parent
+    snapshot).
 
     ``sha256`` is the fingerprint of the file content at the last open or
     reload: ``gw_changed`` compares the current content with it (``False`` on
     the first open), then stores the new one.
 
 Clusters
-    ``build_clusters`` groups the writings of the ``.gw`` (anchors: the
-    registry's known places). Decompositions are computed at open and
-    ``reload``; clusters are cached until a reload, a split, or a change of the
-    registry's known places. Decisions are read from the registry at each
-    ``clusters()`` / ``cluster()`` call, so a decision taken through the
-    registry shows at once. Writings the registry knows but the ``.gw`` does
-    not are simply ignored (§ 6.3).
+    Decided writings are attached to their place (§ 6.3, "rattachées
+    d'office"): the writings validated to one place form the cluster
+    ``place:<place_id>`` (proposal: the place's fields in the registry,
+    anchor: the place, confidence ``high``); each rejected writing goes to
+    ``rejected:<name_key>`` (the writing itself if its key is empty; rejected
+    writings sharing a key share the cluster). Only the undecided writings go
+    through ``build_clusters`` (anchors: the registry's known places); a
+    resulting cluster anchored on a place that has a ``place:`` cluster in this
+    ``.gw`` is merged into it, otherwise it keeps its own id.
+
+    Decisions are read from the registry at each ``clusters()`` / ``cluster()``
+    call, so a decision taken through the registry shows at once.
+    Decompositions are computed at open and ``reload``; the grouping is cached
+    until a reload, a split, or a change of the registry's decisions or known
+    places. Place proposals are read at each call. Writings the registry knows
+    but the ``.gw`` does not are simply ignored. Views hand out copies of the
+    cached clusters.
 
 State of a cluster
     ``todo`` while one of its writings is undecided (so a new writing that
@@ -42,10 +56,16 @@ Splits
     out of whatever cluster holds them now (a split of a split comes after
     its parent). A stored writing absent from the ``.gw`` is left out of the
     view (it is kept in the file, and comes back if the writing reappears); a
-    split left with no writing is not shown. A cluster that loses writings
-    gets its proposal, confidence and anchor recomputed from those it keeps;
-    one left empty disappears, and a split whose parent disappeared is shown
-    at top level (``parent_id=None``).
+    split left with no writing is not shown. A ``build_clusters`` cluster that
+    loses writings gets its proposal, confidence and anchor recomputed from
+    those it keeps (a ``place:`` or ``rejected:`` cluster only loses the
+    writings); one left empty disappears.
+
+    The writings of the parent are stored with the split. When the stored
+    parent id no longer exists (its grouping changed, e.g. it was validated
+    and became ``place:<id>``), the parent is the current non-split cluster
+    holding the most of those writings (ties to the smallest id); with none,
+    the split is shown at top level (``parent_id=None``).
 
 Order of ``clusters()``
     Top-level clusters by state (``todo``, ``already_decided``, ``validated``,
@@ -59,6 +79,7 @@ import hashlib
 import sqlite3
 import threading
 import uuid
+from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, replace
@@ -69,16 +90,22 @@ from typing import Literal
 from geneweb_py import GeneWebParser
 from geneweb_py.formats.tables import Table, build_base_tables
 
-from .places.cluster import Cluster, Confidence, KnownPlace, build_clusters
+from .places.cluster import (
+    Cluster,
+    Confidence,
+    KnownPlace,
+    build_clusters,
+    name_key,
+)
 from .places.collect import collect_writings
 from .places.decompose import decompose
 from .places.model import Decomposition, Writing
 from .refdata import RefData
-from .store.registry import PlaceRegistry, SchemaVersionError
+from .store.registry import Decision, PlaceRegistry, SchemaVersionError
 
 ClusterState = Literal["todo", "validated", "rejected", "already_decided"]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE project (
@@ -102,6 +129,22 @@ CREATE TABLE split_writings (
 PRAGMA user_version = 1;
 """
 
+# version -> script bringing the file to version + 1.
+_MIGRATIONS = {
+    1: """
+CREATE TABLE split_parent_writings (
+    split_id TEXT NOT NULL REFERENCES splits (split_id),
+    writing TEXT NOT NULL,
+    PRIMARY KEY (split_id, writing)
+);
+PRAGMA user_version = 2;
+""",
+}
+
+_PLACE = "place:"
+_REJECTED = "rejected:"
+_SPLIT = "split:"
+
 _STATE_RANK: dict[ClusterState, int] = {
     "todo": 0,
     "already_decided": 1,
@@ -111,9 +154,12 @@ _STATE_RANK: dict[ClusterState, int] = {
 _CONFIDENCE_RANK: dict[Confidence, int] = {"high": 0, "medium": 1, "low": 2}
 
 
-@dataclass
+@dataclass(frozen=True)
 class ClusterView:
-    """A cluster as the validation queue shows it."""
+    """A cluster as the validation queue shows it.
+
+    ``cluster`` is a copy: changing it does not change the project.
+    """
 
     cluster: Cluster
     state: ClusterState
@@ -127,6 +173,7 @@ class _Split:
     split_id: str
     parent_id: str
     writings: tuple[str, ...]
+    parent_writings: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -172,7 +219,7 @@ class Project:
         self._lock = threading.RLock()
         self._decompositions: dict[str, Decomposition] = {}
         self._splits: list[_Split] = []
-        self._cache: tuple[tuple[KnownPlace, ...], list[_Built]] | None = None
+        self._cache: tuple[object, list[_Built]] | None = None
         self.gw_changed = False
         self.tables = []
         self.writings = {}
@@ -267,7 +314,12 @@ class Project:
                 raise ValueError(f"writings not in {cluster_id}: {unknown}")
             if len(unique) == len(members):
                 raise ValueError("split cannot take every writing of the cluster")
-            split = _Split(f"split:{uuid.uuid4().hex}", cluster_id, unique)
+            split = _Split(
+                f"{_SPLIT}{uuid.uuid4().hex}",
+                cluster_id,
+                unique,
+                frozenset(origin.cluster.writings),
+            )
             with self._connect() as conn:
                 conn.execute(
                     "INSERT INTO splits (split_id, parent_id, created_at) "
@@ -279,6 +331,11 @@ class Project:
                     "VALUES (?, ?, ?)",
                     [(split.split_id, i, w) for i, w in enumerate(unique)],
                 )
+                conn.executemany(
+                    "INSERT INTO split_parent_writings (split_id, writing) "
+                    "VALUES (?, ?)",
+                    [(split.split_id, w) for w in sorted(split.parent_writings)],
+                )
             self._splits.append(split)
             self._cache = None
             return self.cluster(split.split_id)
@@ -286,11 +343,14 @@ class Project:
     # -- internals ------------------------------------------------------------
 
     def _views(self) -> list[ClusterView]:
-        built = self._built()
         decisions = self._registry.decisions(self._decompositions)
+        built = self._built(decisions)
         views = []
         for item in built:
             cluster = item.cluster
+            proposal = dict(cluster.proposal)
+            if cluster.id.startswith(_PLACE):
+                proposal = dict(self._registry.place(cluster.id[len(_PLACE) :]).fields)
             found = [decisions.get(w) for w in cluster.writings]
             state: ClusterState
             if any(d is None for d in found):
@@ -303,7 +363,9 @@ class Project:
                 state = "already_decided"
             views.append(
                 ClusterView(
-                    cluster=cluster,
+                    cluster=replace(
+                        cluster, writings=list(cluster.writings), proposal=proposal
+                    ),
                     state=state,
                     occurrences=sum(
                         len(self.writings[w].occurrences) for w in cluster.writings
@@ -314,43 +376,84 @@ class Project:
             )
         return views
 
-    def _built(self) -> list[_Built]:
+    def _built(self, decisions: dict[str, Decision]) -> list[_Built]:
         known = tuple(self._registry.known_places())
-        if self._cache is not None and self._cache[0] == known:
+        key = (known, tuple(sorted(decisions.items())))
+        if self._cache is not None and self._cache[0] == key:
             return self._cache[1]
-        built = self._build({place.place_id: place for place in known})
-        self._cache = (known, built)
+        built = self._build({place.place_id: place for place in known}, decisions)
+        self._cache = (key, built)
         return built
 
-    def _build(self, known: dict[str, KnownPlace]) -> list[_Built]:
-        clusters: dict[str, Cluster] = {
-            c.id: c for c in build_clusters(self._decompositions, self._ref, known)
-        }
+    def _grouped(
+        self, known: dict[str, KnownPlace], decisions: dict[str, Decision]
+    ) -> dict[str, Cluster]:
+        """Decided writings by place or rejection, undecided by ``build_clusters``."""
+        undecided: dict[str, Decomposition] = {}
+        by_place: dict[str, list[str]] = defaultdict(list)
+        rejected: dict[str, list[str]] = defaultdict(list)
+        for writing, decomposition in self._decompositions.items():
+            decision = decisions.get(writing)
+            if decision is None:
+                undecided[writing] = decomposition
+            elif decision.status == "rejected" or decision.place_id is None:
+                rejected[f"{_REJECTED}{name_key(writing) or writing}"].append(writing)
+            else:
+                by_place[decision.place_id].append(writing)
+        clusters: dict[str, Cluster] = {}
+        for place_id in sorted(by_place):
+            cluster_id = f"{_PLACE}{place_id}"
+            # The proposal is read from the registry by ``_views``.
+            clusters[cluster_id] = Cluster(
+                cluster_id, sorted(by_place[place_id]), {}, "high", place_id
+            )
+        for cluster_id in sorted(rejected):
+            clusters[cluster_id] = Cluster(
+                cluster_id, sorted(rejected[cluster_id]), {}, "low"
+            )
+        for cluster in build_clusters(undecided, self._ref, known):
+            target = f"{_PLACE}{cluster.anchor_place_id}"
+            if cluster.anchor_place_id is not None and target in clusters:
+                place = clusters[target]
+                clusters[target] = replace(
+                    place, writings=sorted(place.writings + cluster.writings)
+                )
+            else:
+                clusters[cluster.id] = cluster
+        return clusters
+
+    def _build(
+        self, known: dict[str, KnownPlace], decisions: dict[str, Decision]
+    ) -> list[_Built]:
+        clusters = self._grouped(known, decisions)
         holder = {w: c.id for c in clusters.values() for w in c.writings}
-        parents: dict[str, str | None] = dict.fromkeys(clusters)
-        names: dict[str, str | None] = dict.fromkeys(clusters)
+        replayed: list[tuple[_Split, list[str]]] = []
         for split in self._splits:
             present = [w for w in split.writings if w in self._decompositions]
             if not present:
                 continue
             touched = {holder[w] for w in present}
             for cluster_id in sorted(touched):
-                kept = [w for w in clusters[cluster_id].writings if w not in present]
-                if kept:
-                    clusters[cluster_id] = self._summary(cluster_id, kept, known)
-                else:
+                cluster = clusters[cluster_id]
+                kept = [w for w in cluster.writings if w not in present]
+                if not kept:
                     del clusters[cluster_id]
+                elif cluster_id.startswith((_PLACE, _REJECTED)):
+                    clusters[cluster_id] = replace(cluster, writings=kept)
+                else:
+                    clusters[cluster_id] = self._summary(cluster_id, kept, known)
             clusters[split.split_id] = self._summary(split.split_id, present, known)
-            parents[split.split_id] = split.parent_id
-            names[split.split_id] = present[0]
+            replayed.append((split, present))
             for writing in present:
                 holder[writing] = split.split_id
+        parents: dict[str, str | None] = {}
+        names: dict[str, str] = {}
+        for split, present in replayed:
+            if split.split_id in clusters:
+                parents[split.split_id] = _parent(split, clusters)
+                names[split.split_id] = present[0]
         return [
-            _Built(
-                cluster,
-                parents[cluster_id] if parents[cluster_id] in clusters else None,
-                names[cluster_id],
-            )
+            _Built(cluster, parents.get(cluster_id), names.get(cluster_id))
             for cluster_id, cluster in clusters.items()
         ]
 
@@ -394,6 +497,11 @@ class Project:
                 )
             if version == 0:
                 conn.executescript(f"BEGIN IMMEDIATE;\n{_SCHEMA}\nCOMMIT;")
+                version = 1
+            while version < SCHEMA_VERSION:
+                script = _MIGRATIONS[version]
+                conn.executescript(f"BEGIN IMMEDIATE;\n{script}\nCOMMIT;")
+                version += 1
 
     @staticmethod
     def _read_splits(conn: sqlite3.Connection) -> list[_Split]:
@@ -402,12 +510,39 @@ class Project:
             "JOIN split_writings w ON w.split_id = s.split_id "
             "ORDER BY s.seq, w.position"
         ).fetchall()
-        splits: dict[str, _Split] = {}
+        snapshots: dict[str, set[str]] = defaultdict(set)
+        for split_id, writing in conn.execute(
+            "SELECT split_id, writing FROM split_parent_writings"
+        ):
+            snapshots[split_id].add(writing)
+        writings: dict[str, list[str]] = {}
+        parents: dict[str, str] = {}
         for split_id, parent_id, writing in rows:
-            previous = splits.get(split_id)
-            before = previous.writings if previous else ()
-            splits[split_id] = _Split(split_id, parent_id, (*before, writing))
-        return list(splits.values())
+            writings.setdefault(split_id, []).append(writing)
+            parents[split_id] = parent_id
+        return [
+            _Split(
+                split_id,
+                parents[split_id],
+                tuple(members),
+                frozenset(snapshots[split_id]),
+            )
+            for split_id, members in writings.items()
+        ]
+
+
+def _parent(split: _Split, clusters: dict[str, Cluster]) -> str | None:
+    """Current parent of ``split`` (see the module docstring)."""
+    if split.parent_id in clusters:
+        return split.parent_id
+    best: tuple[int, str] | None = None
+    for cluster_id, cluster in clusters.items():
+        if cluster_id.startswith(_SPLIT):
+            continue
+        shared = len(split.parent_writings.intersection(cluster.writings))
+        if shared and (best is None or (-shared, cluster_id) < best):
+            best = (-shared, cluster_id)
+    return best[1] if best is not None else None
 
 
 def _sort_key(view: ClusterView) -> tuple[int, int, int, str]:
