@@ -114,3 +114,10 @@ def test_embedded_reference_data() -> None:
     roubaix = ref.commune_by_insee("59512")
     assert roubaix is not None and roubaix.name == "Roubaix"
     assert [c.insee for c in ref.communes_by_postal("59100")] == ["59512"]
+
+
+def test_region_name(ref: RefData) -> None:
+    assert ref.region_name("32") == "Hauts-de-France"
+    assert ref.region_name("31") == "Nord-Pas-de-Calais"
+    assert ref.region_name(" 84 ") == "Auvergne-Rhône-Alpes"
+    assert ref.region_name("99") is None

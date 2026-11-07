@@ -12,6 +12,7 @@ from prosopo_gw_atelier.places.cluster import (
     SIMILARITY_THRESHOLD,
     Cluster,
     KnownPlace,
+    _length_range,
     build_clusters,
 )
 from prosopo_gw_atelier.places.collect import collect_writings
@@ -68,7 +69,7 @@ def test_roubaix_writings_form_one_high_cluster(
     assert roubaix.proposal == {
         "commune": "Roubaix",
         "department": "59",
-        "region": "32",
+        "region": "Hauts-de-France",
         "insee_code": "59512",
         "postal_code": "59100",
         "country": "France",
@@ -133,7 +134,7 @@ def test_new_writing_is_anchored_to_a_known_place(ref: RefData) -> None:
             proposal={
                 "commune": "Roubaix",
                 "department": "59",
-                "region": "32",
+                "region": "Hauts-de-France",
                 "insee_code": "59512",
             },
             confidence="high",
@@ -179,6 +180,22 @@ def test_threshold_separates_typo_from_other_name() -> None:
 
     assert SequenceMatcher(None, "lile", "lille").ratio() >= SIMILARITY_THRESHOLD
     assert SequenceMatcher(None, "lille", "lillers").ratio() < SIMILARITY_THRESHOLD
+
+
+@pytest.mark.parametrize("size", [17, 23, 34, 46, 68])
+def test_length_range_is_exact_at_the_boundary(size: int) -> None:
+    lengths = _length_range(size)
+    for other in range(1, 3 * size):
+        reachable = 2 * min(size, other) * 20 >= 17 * (size + other)
+        assert (other in lengths) == reachable, (size, other)
+
+
+def test_exact_threshold_ratio_merges(ref: RefData) -> None:
+    # 17 letters inside 23: ratio 2 * 17 / 40 == 0.85 exactly.
+    short, long = "Bourgvalemontagne", "Bourgvalemontagnezqwkjy"
+    assert len(short) == 17 and len(long) == 23
+    clusters = build_clusters(decompose_all([short, long], ref), ref, {})
+    assert [c.writings for c in clusters] == [[short, long]]
 
 
 def test_close_but_distinct_names_do_not_merge(ref: RefData) -> None:
@@ -287,6 +304,15 @@ def test_clusters_large_input() -> None:
     assert len(placed) == len(writings)
     assert set(placed) == writings
     assert len({c.id for c in clusters}) == len(clusters)
+    # The similarity path ran: unresolved writings joined resolved clusters.
+    merged_in = [
+        w
+        for c in clusters
+        if c.id.startswith("insee:")
+        for w in c.writings
+        if decompositions[w].insee is None
+    ]
+    assert merged_in
     print(f"build_clusters: {len(writings)} writings in {elapsed:.2f} s")
 
 

@@ -79,6 +79,7 @@ class RefData:
         regions: list[tuple[str, bool]],
         countries: list[tuple[str, str]],
         postal_codes: list[tuple[str, str]],
+        region_codes: list[tuple[str, str, bool]] | None = None,
     ) -> None:
         self.cog_vintage = cog_vintage
         self.postal_vintage = postal_vintage
@@ -108,6 +109,11 @@ class RefData:
         # Current regions first: a name shared by both lists is a current region.
         for name, before_2016 in sorted(regions, key=lambda r: r[1]):
             self._region_by_name.setdefault(normalize(name), (name, before_2016))
+        self._region_by_code: dict[str, str] = {}
+        # A code shared by a current and a pre-2016 region names the current one
+        # (communes carry current region codes).
+        for code, name, _before_2016 in sorted(region_codes or [], key=lambda r: r[2]):
+            self._region_by_code.setdefault(code.strip(), name)
 
         self._country_by_name: dict[str, str] = {}
         for name, _ in countries:
@@ -161,6 +167,10 @@ class RefData:
     def region(self, token: str) -> tuple[str, bool] | None:
         """Return ``(canonical name, True if pre-2016 region)`` for a region name."""
         return self._region_by_name.get(normalize(token))
+
+    def region_name(self, code: str) -> str | None:
+        """Return the name of a region from its COG code (current region first)."""
+        return self._region_by_code.get(code.strip())
 
     def country(self, token: str) -> str | None:
         """Return the canonical name of a country from its usual or official name."""
@@ -218,6 +228,10 @@ def _load_cached(directory: Path) -> RefData:
         ],
         regions=[
             (row["nom"], row["avant_2016"] == "1")
+            for row in _read_table(directory, "regions.csv.gz")
+        ],
+        region_codes=[
+            (row["code"], row["nom"], row["avant_2016"] == "1")
             for row in _read_table(directory, "regions.csv.gz")
         ],
         countries=[

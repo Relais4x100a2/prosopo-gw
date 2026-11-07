@@ -11,8 +11,9 @@ Confidence of a writing
     ``high``: resolved from a code (an INSEE code element equal to the commune,
     or a postal code element serving it) or from a name plus a department
     element that agrees with the commune; ``medium``: resolved otherwise (a
-    name unique in the COG; a region is not checked against the commune, the
-    reference data only knowing region names); ``low``: not resolved.
+    name unique in the COG; a region is not checked against the commune, as it
+    may be a pre-2016 region while communes carry current region codes);
+    ``low``: not resolved.
 
 Confidence of a cluster
     The best confidence among its members (one ``Roubaix, Nord`` lifts the
@@ -41,7 +42,7 @@ Proposal
     For each element kind, the value most often written in the cluster (ties
     to the smallest value); for a cluster without commune element, the most
     frequent name segment as commune. When the INSEE code is known, the COG
-    fills ``commune`` (official name), ``department`` (code), ``region`` (code)
+    fills ``commune`` (official name), ``department`` (code), ``region`` (name)
     and ``insee_code``.
 
 The output is deterministic: clusters sorted by id, writings sorted, whatever
@@ -51,16 +52,16 @@ then occurrences) is left to the caller.
 
 from __future__ import annotations
 
-import math
 import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
+from fractions import Fraction
 from typing import Literal
 
 from ..refdata import RefData, normalize
-from .decompose import _segments
+from .decompose import segments
 from .model import Decomposition, ElementKind
 
 Confidence = Literal["high", "medium", "low"]
@@ -71,6 +72,10 @@ SIMILARITY_THRESHOLD = 0.85
 ``lile``/``lille`` scores 0.89 and merges; ``lille``/``lillers`` scores 0.83
 and does not.
 """
+
+# The threshold as an exact fraction, for the integer pruning bounds.
+_THRESHOLD = Fraction(SIMILARITY_THRESHOLD).limit_denominator(1000)
+_NUM, _DEN = _THRESHOLD.numerator, _THRESHOLD.denominator
 
 _RANK: dict[Confidence, int] = {"low": 0, "medium": 1, "high": 2}
 _CODE = re.compile(r"^(?:\d{5}|2[ABab]\d{3})$")
@@ -111,7 +116,7 @@ def _name_segment(decomposition: Decomposition, ref: RefData) -> str:
     for element in decomposition.elements:
         if element.kind in ("commune", "former_name"):
             return element.value
-    for segment in _segments(decomposition.writing):
+    for segment in segments(decomposition.writing):
         if _CODE.match(segment):
             continue
         if ref.department(segment) or ref.region(segment) or ref.country(segment):
@@ -176,7 +181,9 @@ def _proposal(group: _Group, ref: RefData) -> dict[ElementKind, str]:
     if commune is not None:
         proposal["commune"] = commune.name
         proposal["department"] = commune.department
-        proposal["region"] = commune.region
+        region = ref.region_name(commune.region)
+        if region is not None:
+            proposal["region"] = region
         proposal["insee_code"] = commune.insee
     return proposal
 
@@ -209,6 +216,21 @@ def _confidence(group: _Group, ref: RefData) -> Confidence:
     return best
 
 
+def _length_range(size: int) -> range:
+    """Lengths ``n`` such that ``2 * min(size, n) / (size + n)`` reaches the threshold.
+
+    Exact integer arithmetic: a float bound can mis-round at the boundary.
+    """
+    low = -(-_NUM * size // (2 * _DEN - _NUM))
+    high = size * (2 * _DEN - _NUM) // _NUM
+    return range(low, high + 1)
+
+
+def _may_reach(matches: int, total: int) -> bool:
+    """Whether ``2 * matches / total`` reaches the threshold (exactly)."""
+    return 2 * matches * _DEN >= _NUM * total
+
+
 class _Blocks:
     """Similarity targets indexed by first character, then by key length."""
 
@@ -229,13 +251,10 @@ class _Blocks:
         matcher.set_seq2(key)
         size = len(key)
         letters = frozenset(key)
-        threshold = SIMILARITY_THRESHOLD
         best: _Group | None = None
-        best_score = threshold
+        best_score = SIMILARITY_THRESHOLD
         # ratio <= 2 * min(a, b) / (a + b): only these lengths can reach it.
-        low = math.ceil(size * threshold / (2 - threshold))
-        high = math.floor(size * (2 - threshold) / threshold)
-        for length in range(low, high + 1):
+        for length in _length_range(size):
             for target_letters, target in block.get(length, ()):
                 if (
                     department is not None
@@ -249,9 +268,11 @@ class _Blocks:
                     size - len(letters - target_letters),
                     length - len(target_letters - letters),
                 )
-                if 2 * matches < best_score * (size + length):
+                if not _may_reach(matches, size + length):
                     continue
                 matcher.set_seq1(target.key)
+                # Float vs float: rounding is monotonic, so an exact 0.85
+                # ratio still compares equal to the threshold.
                 if matcher.quick_ratio() < best_score:
                     continue
                 score = matcher.ratio()
@@ -305,6 +326,7 @@ def build_clusters(
             final[group_id] = group
             continue
         target = blocks.best(group.key, group.department)
+        # Not transitive: a merged group is not a target for later groups.
         if target is None:
             final[group_id] = group
             blocks.add(group)

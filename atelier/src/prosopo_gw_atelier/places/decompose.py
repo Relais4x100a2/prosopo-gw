@@ -50,7 +50,8 @@ HINT_COUNTRY = "pays"
 HINT_FORMER_NAME = "ancien nom"
 
 
-def _segments(writing: str) -> list[str]:
+def segments(writing: str) -> list[str]:
+    """Cut a writing into its non-empty, stripped segments, in order."""
     parts = _SPLIT.split(writing)
     cleaned = (part.strip(_STRIP) for part in parts if part is not None)
     return [part for part in cleaned if part]
@@ -174,7 +175,7 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
     """Split ``writing`` into typed elements and resolve its commune if possible."""
     state = _State()
     codes: list[tuple[int, str]] = []
-    for index, segment in enumerate(_segments(writing)):
+    for index, segment in enumerate(segments(writing)):
         if _CODE_ONLY.match(segment):
             codes.append((index, segment.upper()))
         else:
