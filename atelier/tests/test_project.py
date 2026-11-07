@@ -216,7 +216,7 @@ def test_cluster_states(
     project = open_project(gw, registry, ref, projects_dir)
     pid = project.project_id
     registry.reject(["En mer"], pid)
-    assert project.cluster("rejected:en mer").state == "rejected"
+    assert project.cluster("rejected:name:en mer").state == "rejected"
 
     # Part of a cluster decided: the undecided rest joins the place, still to do.
     roubaix = registry.validate(
@@ -244,7 +244,7 @@ def test_cluster_states(
 
     # Rejected by another project.
     registry.reject(["Merville"], "other")
-    assert project.cluster("rejected:merville").state == "rejected"
+    assert project.cluster("rejected:name:merville").state == "rejected"
 
 
 def test_clusters_are_sorted_by_state_confidence_and_occurrences(
@@ -273,7 +273,7 @@ def test_clusters_are_sorted_by_state_confidence_and_occurrences(
     assert [v.cluster.id for v in views[-3:]] == [
         f"place:{lyon.place_id}",
         f"place:{arras.place_id}",
-        "rejected:en mer",
+        "rejected:name:en mer",
     ]
     assert [v.state for v in views[-3:]] == [
         "already_decided",
@@ -534,10 +534,27 @@ def test_rejected_writing_never_joins_undecided_writings(
     project = open_project(gw, registry, ref, projects_dir)
     registry.reject(["Roubaix"], "other")
     rejected = view_of(project, "Roubaix")
-    assert rejected.cluster.id == "rejected:roubaix"
+    assert rejected.cluster.id == "rejected:insee:59512"
     assert rejected.cluster.writings == ["Roubaix"]
     assert rejected.state == "rejected"
     assert "Roubaix" not in project.cluster("insee:59512").cluster.writings
+
+
+def test_rejected_cluster_stays_one_cluster(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    """Rejected writings are grouped like undecided ones (``rejected:`` + id)."""
+    project = open_project(gw, registry, ref, projects_dir)
+    before = len(project.clusters())
+    lille = project.cluster("insee:59350").cluster.writings
+    assert len(lille) >= 3
+    registry.reject(lille, project.project_id)
+    views = project.clusters()
+    assert len(views) == before
+    rejected = [v for v in views if v.state == "rejected"]
+    assert [v.cluster.id for v in rejected] == ["rejected:insee:59350"]
+    assert rejected[0].cluster.writings == lille
+    assert rejected[0].occurrences == 4
 
 
 def test_split_follows_its_parent_when_the_grouping_changes(

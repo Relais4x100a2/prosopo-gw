@@ -6,7 +6,7 @@ in each function below; JSON keys are English, user-facing messages French.
 
 Writings never appear in a URL path (they hold ``/``, ``?``, ``#``,
 quotes…): they travel in JSON bodies. Cluster ids may be derived from a
-writing (``name:<key>``, ``rejected:<key>``), so the cluster routes take the
+writing (``name:<key>``, ``rejected:name:<key>``), so the cluster routes take the
 id as a ``path`` parameter and the client percent-encodes it
 (``encodeURIComponent``).
 

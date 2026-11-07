@@ -331,6 +331,19 @@ def test_reject_then_undo(client: TestClient, registry: PlaceRegistry) -> None:
     assert registry.decision("En mer") is None
 
 
+def test_reject_keeps_the_cluster_whole(client: TestClient) -> None:
+    lille = writings_of(detail(client, "insee:59350"))
+    assert client.post(cluster_url("insee:59350", "reject")).status_code == 200
+    clusters = client.get("/api/clusters").json()
+    assert len(clusters) == 8
+    rejected = [c for c in clusters if c["state"] == "rejected"]
+    assert [c["id"] for c in rejected] == ["rejected:insee:59350"]
+    assert writings_of(detail(client, "rejected:insee:59350")) == lille
+    assert client.get("/api/project").json()["counts"]["rejected"] == 1
+    assert client.post("/api/undo").json() == {"action": "reject"}
+    assert "insee:59350" in {c["id"] for c in client.get("/api/clusters").json()}
+
+
 def test_correct_a_place_then_undo(client: TestClient, registry: PlaceRegistry) -> None:
     lyon = detail(client, "insee:69123")
     place_id = client.post(

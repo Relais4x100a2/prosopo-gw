@@ -26,10 +26,12 @@ Clusters
     Decided writings are attached to their place (§ 6.3, "rattachées
     d'office"): the writings validated to one place form the cluster
     ``place:<place_id>`` (proposal: the place's fields in the registry,
-    anchor: the place, confidence ``high``); each rejected writing goes to
-    ``rejected:<name_key>`` (the writing itself if its key is empty; rejected
-    writings sharing a key share the cluster). Only the undecided writings go
-    through ``build_clusters`` (anchors: the registry's known places); a
+    anchor: the place, confidence ``high``). The rejected writings are grouped
+    by ``build_clusters`` too, on their own and without anchors, so a rejected
+    cluster stays one cluster: ``rejected:<build_clusters id>`` (e.g.
+    ``rejected:insee:59350``), no proposal, confidence ``low``. The undecided
+    writings go through ``build_clusters`` (anchors: the registry's known
+    places); a
     resulting cluster anchored on a place that has a ``place:`` cluster in this
     ``.gw`` is merged into it, otherwise it keeps its own id.
 
@@ -95,7 +97,6 @@ from .places.cluster import (
     Confidence,
     KnownPlace,
     build_clusters,
-    name_key,
 )
 from .places.collect import collect_writings
 from .places.decompose import decompose
@@ -409,16 +410,17 @@ class Project:
     def _grouped(
         self, known: dict[str, KnownPlace], decisions: dict[str, Decision]
     ) -> dict[str, Cluster]:
-        """Decided writings by place or rejection, undecided by ``build_clusters``."""
+        """Validated writings by place; rejected and undecided writings, each
+        apart, by ``build_clusters``."""
         undecided: dict[str, Decomposition] = {}
         by_place: dict[str, list[str]] = defaultdict(list)
-        rejected: dict[str, list[str]] = defaultdict(list)
+        rejected: dict[str, Decomposition] = {}
         for writing, decomposition in self._decompositions.items():
             decision = decisions.get(writing)
             if decision is None:
                 undecided[writing] = decomposition
             elif decision.status == "rejected" or decision.place_id is None:
-                rejected[f"{_REJECTED}{name_key(writing) or writing}"].append(writing)
+                rejected[writing] = decomposition
             else:
                 by_place[decision.place_id].append(writing)
         clusters: dict[str, Cluster] = {}
@@ -428,9 +430,10 @@ class Project:
             clusters[cluster_id] = Cluster(
                 cluster_id, sorted(by_place[place_id]), {}, "high", place_id
             )
-        for cluster_id in sorted(rejected):
+        for cluster in build_clusters(rejected, self._ref, {}):
+            cluster_id = f"{_REJECTED}{cluster.id}"
             clusters[cluster_id] = Cluster(
-                cluster_id, sorted(rejected[cluster_id]), {}, "low"
+                cluster_id, sorted(cluster.writings), {}, "low"
             )
         for cluster in build_clusters(undecided, self._ref, known):
             target = f"{_PLACE}{cluster.anchor_place_id}"
