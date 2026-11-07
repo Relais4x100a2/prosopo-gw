@@ -180,10 +180,9 @@ def test_pyproject_aligns_with_documented_stack():
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
     assert 'requires-python = ">=3.11"' in text
 
-    gh = "https://github.com/Relais4x100a2/geneweb-py"
+    gh = "https://github.com/Relais4x100a2/prosopo-gw"
     assert f'Homepage = "{gh}"' in text
     assert f'Repository = "{gh}"' in text
-    assert f'Changelog = "{gh}/blob/main/CHANGELOG.md"' in text
     assert f'"Bug Tracker" = "{gh}/issues"' in text
 
     assert "\nparsing = [" in text

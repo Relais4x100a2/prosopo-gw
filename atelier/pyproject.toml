@@ -37,6 +37,12 @@ dev = [
     "mypy>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Relais4x100a2/prosopo-gw"
+Repository = "https://github.com/Relais4x100a2/prosopo-gw"
+Documentation = "https://github.com/Relais4x100a2/prosopo-gw/tree/main/atelier/doc"
+"Bug Tracker" = "https://github.com/Relais4x100a2/prosopo-gw/issues"
+
 [project.scripts]
 prosopo-gw-atelier = "prosopo_gw_atelier.cli:main"
 

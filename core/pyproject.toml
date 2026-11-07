@@ -83,11 +83,11 @@ parsing = [
 geneweb-py = "geneweb_py.cli.entry:main"
 
 [project.urls]
-Homepage = "https://github.com/Relais4x100a2/geneweb-py"
-Repository = "https://github.com/Relais4x100a2/geneweb-py"
-Documentation = "https://geneweb-py.readthedocs.io"
-Changelog = "https://github.com/Relais4x100a2/geneweb-py/blob/main/CHANGELOG.md"
-"Bug Tracker" = "https://github.com/Relais4x100a2/geneweb-py/issues"
+Homepage = "https://github.com/Relais4x100a2/prosopo-gw"
+Repository = "https://github.com/Relais4x100a2/prosopo-gw"
+Documentation = "https://github.com/Relais4x100a2/prosopo-gw/tree/main/core/doc"
+Changelog = "https://github.com/Relais4x100a2/prosopo-gw/blob/main/core/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/Relais4x100a2/prosopo-gw/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

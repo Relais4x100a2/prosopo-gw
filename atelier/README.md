@@ -1,11 +1,47 @@
 # Prosopo-gw-Atelier
 
 Atelier local de nettoyage pour les bases généalogiques GeneWeb (`.gw`). Il lit une base via le moteur
-`geneweb-py` (`core/`) et produit un « pivot » importable ; premier thème : les lieux.
+[`geneweb-py`](https://pypi.org/project/geneweb-py/) et produit un « pivot » importable. Premier thème : les lieux.
 
-**État : en développement** (squelette uniquement). Conception : [`doc/design_v1.md`](doc/design_v1.md).
+**État : alpha (0.1).** Conception : [`doc/design_v1.md`](https://github.com/Relais4x100a2/prosopo-gw/blob/main/atelier/doc/design_v1.md).
 
-Installation depuis la racine du monorepo : `uv sync --all-packages --all-extras`.
+## Installation
+
+```bash
+uv tool install prosopo-gw-atelier
+```
+
+Python 3.11 ou plus récent est requis.
+
+## Lancement
+
+```bash
+prosopo-gw-atelier ma_base.gw
+```
+
+Le serveur n'écoute que sur `127.0.0.1` ; le navigateur s'ouvre une fois l'atelier prêt. Ctrl+C l'arrête.
+
+| Option | Effet |
+| --- | --- |
+| `--port N` | port d'écoute (par défaut : un port libre) |
+| `--no-browser` | ne pas ouvrir le navigateur |
+| `--data-dir DOSSIER` | dossier du référentiel personnel et des projets |
+
+## Ce que fait l'atelier
+
+- Il travaille d'abord sur les lieux : repérage des graphies voisines d'un même lieu, rapprochement avec
+  les référentiels publics (COG de l'INSEE, codes postaux), décisions de regroupement ou de rejet.
+- Tout reste en local : la base n'est ni envoyée ni modifiée, aucun service distant n'est appelé.
+- La sortie est un zip « pivot » de données importables, pas un fichier `.gw` réécrit.
+- Un référentiel personnel de lieux se constitue au fil des sessions ; il peut être exporté et échangé.
+
+## Où sont les données
+
+Le référentiel (`referentiel.sqlite`) et les projets (`projets/`) vivent dans le dossier de données de
+l'utilisateur (via `platformdirs`, par exemple `~/.local/share/prosopo-gw-atelier` sous Linux). La variable
+d'environnement `PROSOPO_GW_ATELIER_HOME` ou l'option `--data-dir` le remplacent.
+
+Développement, depuis la racine du monorepo : `uv sync --all-packages --all-extras`.
 
 ## Données de référence (COG INSEE et codes postaux)
 
