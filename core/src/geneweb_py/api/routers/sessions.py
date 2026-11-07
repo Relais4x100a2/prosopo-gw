@@ -3,7 +3,6 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, Set
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -16,7 +15,7 @@ from ..session_store import SessionFullError, SessionStore
 
 router = APIRouter()
 
-_ALLOWED_CONTENT_TYPES: Set[str] = {
+_ALLOWED_CONTENT_TYPES: set[str] = {
     "application/octet-stream",
     "text/plain",
     "application/genealogy",
@@ -28,7 +27,7 @@ def _sanitize_filename(raw: str) -> str:
     return Path(raw).name if raw else ""
 
 
-def _validate_meta(content_type: Optional[str], name: str) -> None:
+def _validate_meta(content_type: str | None, name: str) -> None:
     if not name.lower().endswith((".gw", ".gwplus")):
         raise HTTPException(400, "Le fichier doit avoir l'extension .gw ou .gwplus")
     if content_type is not None:

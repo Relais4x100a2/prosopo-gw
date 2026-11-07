@@ -23,7 +23,7 @@ Dates : préfixes ``ABT`` / ``BEF`` / ``AFT`` / ``EST``, intervalles
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import chardet
 
@@ -54,14 +54,14 @@ class GEDCOMExporter(BaseExporter):
         """
         super().__init__(encoding)
         self.version = version
-        self._person_ids: Dict[str, str] = {}
-        self._family_ids: Dict[str, str] = {}
-        self._spouse_families: Dict[str, List[str]] = {}
-        self._child_families: Dict[str, List[str]] = {}
+        self._person_ids: dict[str, str] = {}
+        self._family_ids: dict[str, str] = {}
+        self._spouse_families: dict[str, list[str]] = {}
+        self._child_families: dict[str, list[str]] = {}
         self._next_person_id = 1
         self._next_family_id = 1
 
-    def export(self, genealogy: Genealogy, output_path: Union[str, Path]) -> None:
+    def export(self, genealogy: Genealogy, output_path: str | Path) -> None:
         """
         Exporte une généalogie vers un fichier GEDCOM.
 
@@ -135,7 +135,7 @@ class GEDCOMExporter(BaseExporter):
 
         return "\n".join(lines)
 
-    def _generate_header(self) -> List[str]:
+    def _generate_header(self) -> list[str]:
         """Génère l'en-tête GEDCOM."""
         lines = []
         lines.append("0 HEAD")
@@ -156,7 +156,7 @@ class GEDCOMExporter(BaseExporter):
         lines.append("2 FORM LINEAGE-LINKED")
         return lines
 
-    def _export_person(self, person: Person) -> List[str]:
+    def _export_person(self, person: Person) -> list[str]:
         """Exporte une personne vers le format GEDCOM."""
         lines = []
         person_id = self._person_ids[person.unique_id]
@@ -248,7 +248,7 @@ class GEDCOMExporter(BaseExporter):
             for child in family.children:
                 self._child_families.setdefault(child.person_id, []).append(fid)
 
-    def _export_family(self, family: Family) -> List[str]:
+    def _export_family(self, family: Family) -> list[str]:
         """Exporte une famille vers le format GEDCOM."""
         lines = []
         family_id = self._family_ids[family.family_id]
@@ -278,7 +278,7 @@ class GEDCOMExporter(BaseExporter):
 
         return lines
 
-    def _export_event(self, event: Event, in_family: bool = False) -> List[str]:
+    def _export_event(self, event: Event, in_family: bool = False) -> list[str]:
         """Exporte un événement vers le format GEDCOM.
 
         MARR / DIV / ENGA ne sont valides que dans un bloc FAM, et les autres
@@ -320,11 +320,11 @@ class GEDCOMExporter(BaseExporter):
         return lines
 
     @staticmethod
-    def _split_note(note: str) -> List[str]:
+    def _split_note(note: str) -> list[str]:
         """Découpe une note en lignes (une ligne GEDCOM ne contient jamais de saut de ligne)."""
         return note.splitlines() or [""]
 
-    def _export_date(self, date: Date, event_type: str) -> List[str]:
+    def _export_date(self, date: Date, event_type: str) -> list[str]:
         """Exporte une date vers le format GEDCOM."""
         lines = []
 
@@ -432,7 +432,7 @@ class GEDCOMExporter(BaseExporter):
 
         return " ".join(parts)
 
-    def _map_event_type(self, event_type: str) -> Optional[str]:
+    def _map_event_type(self, event_type: str) -> str | None:
         """Mappe un type d'événement GeneWeb vers GEDCOM."""
         mapping = {
             # Noms complets
@@ -487,7 +487,7 @@ class GEDCOMImporter(BaseImporter):
     Hors périmètre : ``OBJE``, ``SOUR`` structuré, extensions logicielles.
     """
 
-    _GEDCOM_MONTHS: Dict[str, int] = {
+    _GEDCOM_MONTHS: dict[str, int] = {
         "JAN": 1,
         "FEB": 2,
         "MAR": 3,
@@ -502,7 +502,7 @@ class GEDCOMImporter(BaseImporter):
         "DEC": 12,
     }
 
-    _GEDCOM_TAG_TO_EVENT: Dict[str, EventType] = {
+    _GEDCOM_TAG_TO_EVENT: dict[str, EventType] = {
         "BIRT": EventType.BIRTH,
         "DEAT": EventType.DEATH,
         "BAPM": EventType.BAPTISM,
@@ -529,10 +529,10 @@ class GEDCOMImporter(BaseImporter):
 
     def __init__(self, encoding: str = "utf-8") -> None:
         super().__init__(encoding)
-        self._xref_to_uid: Dict[str, str] = {}
-        self._xref_to_family_id: Dict[str, str] = {}
-        self._pending_spouse_fams: Dict[str, List[str]] = {}
-        self._pending_child_fams: Dict[str, List[str]] = {}
+        self._xref_to_uid: dict[str, str] = {}
+        self._xref_to_family_id: dict[str, str] = {}
+        self._pending_spouse_fams: dict[str, list[str]] = {}
+        self._pending_child_fams: dict[str, list[str]] = {}
 
     @staticmethod
     def _normalize_xref_key(token: str) -> str:
@@ -541,7 +541,7 @@ class GEDCOMImporter(BaseImporter):
             return t[1:-1]
         return t
 
-    def _decode_file_bytes(self, raw_data: bytes) -> Tuple[str, str]:
+    def _decode_file_bytes(self, raw_data: bytes) -> tuple[str, str]:
         try:
             return raw_data.decode("utf-8"), "utf-8"
         except UnicodeDecodeError:
@@ -561,7 +561,7 @@ class GEDCOMImporter(BaseImporter):
             enc = detected or "utf-8"
             return raw_data.decode(enc, errors="replace"), enc
 
-    def import_from_file(self, input_path: Union[str, Path]) -> Genealogy:
+    def import_from_file(self, input_path: str | Path) -> Genealogy:
         path = self._validate_file_path(input_path)
         try:
             with open(path, "rb") as f:
@@ -589,8 +589,8 @@ class GEDCOMImporter(BaseImporter):
             blocks = self._split_level_zero_blocks(tokens)
             genealogy = Genealogy()
 
-            indi_blocks: List[Tuple[str, List[Tuple[int, str]]]] = []
-            fam_blocks: List[Tuple[str, List[Tuple[int, str]]]] = []
+            indi_blocks: list[tuple[str, list[tuple[int, str]]]] = []
+            fam_blocks: list[tuple[str, list[tuple[int, str]]]] = []
 
             for block in blocks:
                 if not block:
@@ -630,8 +630,8 @@ class GEDCOMImporter(BaseImporter):
                 source_format="GEDCOM",
             ) from exc
 
-    def _non_empty_lines(self, data: str) -> List[Tuple[int, str]]:
-        out: List[Tuple[int, str]] = []
+    def _non_empty_lines(self, data: str) -> list[tuple[int, str]]:
+        out: list[tuple[int, str]] = []
         for i, raw in enumerate(data.splitlines(), start=1):
             s = raw.strip()
             if s:
@@ -640,16 +640,16 @@ class GEDCOMImporter(BaseImporter):
 
     def _try_parse_line(
         self, raw: str, line_number: int
-    ) -> Optional[Tuple[int, Optional[str], str, str]]:
+    ) -> tuple[int, str | None, str, str] | None:
         try:
             return self._parse_line(raw, line_number)
         except ConversionError:
             return None
 
     def _split_level_zero_blocks(
-        self, tokens: List[Tuple[int, str]]
-    ) -> List[List[Tuple[int, str]]]:
-        blocks: List[List[Tuple[int, str]]] = []
+        self, tokens: list[tuple[int, str]]
+    ) -> list[list[tuple[int, str]]]:
+        blocks: list[list[tuple[int, str]]] = []
         n = len(tokens)
         i = 0
         while i < n:
@@ -671,7 +671,7 @@ class GEDCOMImporter(BaseImporter):
 
     def _parse_line(
         self, raw: str, line_number: int
-    ) -> Tuple[int, Optional[str], str, str]:
+    ) -> tuple[int, str | None, str, str]:
         s = raw.strip()
         if not s:
             raise ConversionError(
@@ -690,7 +690,7 @@ class GEDCOMImporter(BaseImporter):
             )
         level = int(head)
         rest = rest.strip()
-        record_xref: Optional[str] = None
+        record_xref: str | None = None
         if level == 0:
             if rest.startswith("@"):
                 end = rest.find("@", 1)
@@ -737,9 +737,9 @@ class GEDCOMImporter(BaseImporter):
         return level, None, tag, value
 
     def _apply_head_block(
-        self, genealogy: Genealogy, block: List[Tuple[int, str]]
+        self, genealogy: Genealogy, block: list[tuple[int, str]]
     ) -> None:
-        notes: List[str] = []
+        notes: list[str] = []
         for ln, raw in block[1:]:
             p = self._try_parse_line(raw, ln)
             if p is None:
@@ -752,7 +752,7 @@ class GEDCOMImporter(BaseImporter):
         if notes:
             genealogy.metadata.database_notes.extend(notes)
 
-    def _parse_gedcom_date(self, value: str, line_number: int) -> Optional[Date]:
+    def _parse_gedcom_date(self, value: str, line_number: int) -> Date | None:
         if not value or not value.strip():
             return None
         tokens = value.strip().split()
@@ -768,7 +768,7 @@ class GEDCOMImporter(BaseImporter):
             "AFT": DatePrefix.AFTER,
             "AFTER": DatePrefix.AFTER,
         }
-        prefix: Optional[DatePrefix] = None
+        prefix: DatePrefix | None = None
         if tokens[0] in prefix_map:
             prefix = prefix_map[tokens[0]]
             tokens = tokens[1:]
@@ -787,9 +787,9 @@ class GEDCOMImporter(BaseImporter):
                 break
         if not tokens:
             return None
-        day: Optional[int] = None
-        month: Optional[int] = None
-        year: Optional[int] = None
+        day: int | None = None
+        month: int | None = None
+        year: int | None = None
         if len(tokens) == 1:
             if tokens[0].isdigit():
                 year = int(tokens[0])
@@ -821,9 +821,7 @@ class GEDCOMImporter(BaseImporter):
                 source_format="GEDCOM",
             ) from exc
 
-    def _parse_gedcom_between(
-        self, tokens: List[str], line_number: int
-    ) -> Optional[Date]:
+    def _parse_gedcom_between(self, tokens: list[str], line_number: int) -> Date | None:
         """Lit ``<date> AND <date>`` : la borne de fin va dans ``alternative_dates``."""
         if "AND" not in tokens:
             return None
@@ -839,11 +837,11 @@ class GEDCOMImporter(BaseImporter):
         return start
 
     def _parse_note_payload(
-        self, block: List[Tuple[int, str]], start: int, base_level: int
-    ) -> Tuple[str, int]:
+        self, block: list[tuple[int, str]], start: int, base_level: int
+    ) -> tuple[str, int]:
         ln, raw = block[start]
         _lv, _xr, _tg, first = self._parse_line(raw, ln)
-        parts: List[str] = []
+        parts: list[str] = []
         if first:
             parts.append(first)
         i = start + 1
@@ -863,8 +861,8 @@ class GEDCOMImporter(BaseImporter):
         return "".join(parts).strip(), i
 
     def _parse_name_payload(
-        self, block: List[Tuple[int, str]], start: int
-    ) -> Tuple[str, str, int]:
+        self, block: list[tuple[int, str]], start: int
+    ) -> tuple[str, str, int]:
         givn = ""
         surn = ""
         i = start
@@ -880,7 +878,7 @@ class GEDCOMImporter(BaseImporter):
             i += 1
         return givn, surn, i
 
-    def _slash_name_parts(self, payload: str) -> Tuple[str, str]:
+    def _slash_name_parts(self, payload: str) -> tuple[str, str]:
         if "/" in payload:
             chunks = payload.split("/")
             if len(chunks) >= 3:
@@ -890,16 +888,16 @@ class GEDCOMImporter(BaseImporter):
         return "", payload.strip()
 
     def _parse_event_payload(
-        self, block: List[Tuple[int, str]], start: int, tag_expected: str
-    ) -> Tuple[Dict[str, Any], int]:
+        self, block: list[tuple[int, str]], start: int, tag_expected: str
+    ) -> tuple[dict[str, Any], int]:
         ln0, raw0 = block[start]
         lv0, _xr0, tg0, _v0 = self._parse_line(raw0, ln0)
         if tg0 != tag_expected:
             return {"date": None, "place": None, "notes": [], "type": None}, start + 1
-        date_v: Optional[Date] = None
-        place_v: Optional[str] = None
-        type_v: Optional[str] = None
-        notes_acc: List[str] = []
+        date_v: Date | None = None
+        place_v: str | None = None
+        type_v: str | None = None
+        notes_acc: list[str] = []
         i = start + 1
         while i < len(block):
             ln, raw = block[i]
@@ -931,8 +929,8 @@ class GEDCOMImporter(BaseImporter):
 
     @staticmethod
     def _resolve_generic_event_type(
-        type_value: Optional[str],
-    ) -> Tuple[EventType, Optional[str]]:
+        type_value: str | None,
+    ) -> tuple[EventType, str | None]:
         """Type d'un EVEN : code EventType connu, sinon libellé libre (OTHER)."""
         if type_value:
             for event_type in EventType:
@@ -956,7 +954,7 @@ class GEDCOMImporter(BaseImporter):
     def _import_indi_block(
         self,
         xref_key: str,
-        block: List[Tuple[int, str]],
+        block: list[tuple[int, str]],
         genealogy: Genealogy,
     ) -> None:
         if xref_key in self._xref_to_uid:
@@ -969,16 +967,16 @@ class GEDCOMImporter(BaseImporter):
         givn = ""
         surn = ""
         gender = Gender.UNKNOWN
-        birth_date: Optional[Date] = None
-        death_date: Optional[Date] = None
-        birth_place: Optional[str] = None
-        death_place: Optional[str] = None
-        notes: List[str] = []
-        fams_raw: List[str] = []
-        famc_raw: List[str] = []
-        extra_events: List[PersonalEvent] = []
-        titles: List[Title] = []
-        occupation: Optional[str] = None
+        birth_date: Date | None = None
+        death_date: Date | None = None
+        birth_place: str | None = None
+        death_place: str | None = None
+        notes: list[str] = []
+        fams_raw: list[str] = []
+        famc_raw: list[str] = []
+        extra_events: list[PersonalEvent] = []
+        titles: list[Title] = []
+        occupation: str | None = None
 
         i = 1
         while i < len(block):
@@ -1051,14 +1049,14 @@ class GEDCOMImporter(BaseImporter):
                 i += 1
                 continue
             et = self._GEDCOM_TAG_TO_EVENT.get(tag)
-            raw_type: Optional[str] = None
+            raw_type: str | None = None
             if tag == "EVEN":
                 payload, ni = self._parse_event_payload(block, i, tag)
                 et, raw_type = self._resolve_generic_event_type(payload.get("type"))
             if et is not None:
                 if tag != "EVEN":
                     payload, ni = self._parse_event_payload(block, i, tag)
-                meta: Dict[str, str] = {}
+                meta: dict[str, str] = {}
                 if tag in ("IMMI", "EMIG"):
                     meta["gedcom_tag"] = tag
                 ev = PersonalEvent(
@@ -1105,7 +1103,7 @@ class GEDCOMImporter(BaseImporter):
     def _import_fam_block(
         self,
         xref_key: str,
-        block: List[Tuple[int, str]],
+        block: list[tuple[int, str]],
         genealogy: Genealogy,
     ) -> None:
         family_id = xref_key
@@ -1116,14 +1114,14 @@ class GEDCOMImporter(BaseImporter):
                 line_number=ln0,
                 source_format="GEDCOM",
             )
-        husband_id: Optional[str] = None
-        wife_id: Optional[str] = None
-        children: List[Child] = []
-        marriage_date: Optional[Date] = None
-        marriage_place: Optional[str] = None
-        divorce_date: Optional[Date] = None
-        fam_notes: List[str] = []
-        fam_events: List[FamilyEvent] = []
+        husband_id: str | None = None
+        wife_id: str | None = None
+        children: list[Child] = []
+        marriage_date: Date | None = None
+        marriage_place: str | None = None
+        divorce_date: Date | None = None
+        fam_notes: list[str] = []
+        fam_events: list[FamilyEvent] = []
 
         i = 1
         while i < len(block):

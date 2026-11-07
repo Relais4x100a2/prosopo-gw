@@ -2,8 +2,9 @@
 
 import asyncio
 import pathlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Awaitable, Callable, Tuple
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,7 +45,7 @@ class _StaticMount(Mount):
        FastAPI redirect to the trailing-slash form.
     """
 
-    def matches(self, scope: Scope) -> Tuple[Any, Any]:
+    def matches(self, scope: Scope) -> tuple[Any, Any]:
         if scope.get("type") == "http":
             method = scope.get("method", "GET")
             path = scope.get("path", "")

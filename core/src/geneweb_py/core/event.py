@@ -7,7 +7,7 @@ avec support des événements gwplus.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from .date import Date
 from .place import ParsedPlace, parse_place
@@ -126,44 +126,44 @@ class Event:
     event_type: EventType
 
     # Date de l'événement
-    date: Optional[Date] = None
+    date: Date | None = None
 
     # Lieu de l'événement
-    place: Optional[str] = None
+    place: str | None = None
 
     # Source de l'événement
-    source: Optional[str] = None
+    source: str | None = None
 
     # Raison ou cause de l'événement
-    reason: Optional[str] = None
+    reason: str | None = None
 
     # ID de la personne associée (pour les événements personnels)
-    person_id: Optional[str] = None
+    person_id: str | None = None
 
     # ID de la famille associée (pour les événements familiaux)
-    family_id: Optional[str] = None
+    family_id: str | None = None
 
     # Témoins (pour les événements familiaux)
-    witnesses: List[Dict[str, Any]] = field(default_factory=list)
+    witnesses: list[dict[str, Any]] = field(default_factory=list)
 
     # Notes sur l'événement
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     # Informations spécifiques selon le type d'événement
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # Type brut pour les événements non reconnus (event_type == OTHER dans ce cas)
-    event_type_raw: Optional[str] = None
+    event_type_raw: str | None = None
 
     # Provenance : lignes du fichier .gw source (1-indexées, bornes incluses)
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
+    start_line: int | None = None
+    end_line: int | None = None
 
     def add_witness(
         self,
         person_id: str,
-        witness_type: Optional[str] = None,
-        witness_kind: Optional[WitnessKind] = None,
+        witness_type: str | None = None,
+        witness_kind: WitnessKind | None = None,
     ) -> None:
         """Ajoute un témoin à l'événement
 
@@ -185,7 +185,7 @@ class Event:
         self.notes.append(note)
 
     @property
-    def place_parts(self) -> Optional[ParsedPlace]:
+    def place_parts(self) -> ParsedPlace | None:
         """Lieu décomposé (complément / commune) ; ``place`` reste la chaîne brute"""
         return parse_place(self.place)
 
@@ -210,7 +210,7 @@ class Event:
         }
         return self.event_type in family_events
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'événement en dictionnaire pour sérialisation"""
         return {
             "type": self.event_type.value,
@@ -228,7 +228,7 @@ class Event:
 class FamilyEvent(Event):
     """Événement familial spécifique (format gwplus)"""
 
-    family_event_type: Optional[FamilyEventType] = None
+    family_event_type: FamilyEventType | None = None
 
     def __post_init__(self) -> None:
         """Initialisation post-création"""

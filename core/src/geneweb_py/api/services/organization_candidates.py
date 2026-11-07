@@ -7,8 +7,9 @@ rattachés à leur événement d'origine via ``OrganizationLink.source_event_id`
 """
 
 import unicodedata
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any
 
 from ...core.event import Event, EventType
 from ...core.event_to_organization import (
@@ -30,7 +31,7 @@ UNMATCHED_MIN_WORD_LEN = 4
 UNMATCHED_GROUP_CAP = 50
 
 # Mots ignorés par défaut : aucun. L'état civil est écarté par ``is_civil_status``.
-DEFAULT_IGNORED_WORDS: Tuple[str, ...] = ()
+DEFAULT_IGNORED_WORDS: tuple[str, ...] = ()
 IGNORED_WORDS_MAX = 50
 IGNORED_WORD_MAX_LEN = 40
 
@@ -44,17 +45,17 @@ class CandidateMember:
 
     person_id: str
     person_name: str
-    role: Optional[str]
-    date: Optional[str]
-    place: Optional[str]
+    role: str | None
+    date: str | None
+    place: str | None
     source_event_type: str
-    event_type_raw: Optional[str]
+    event_type_raw: str | None
     event_label: str
     witness_count: int
-    year: Optional[int]
+    year: int | None
     # Témoin de l'événement (et non son porteur)
     witness: bool = False
-    source_event_id: Optional[str] = None
+    source_event_id: str | None = None
 
 
 @dataclass
@@ -64,22 +65,22 @@ class Candidate:
     id: str
     name: str
     type: str
-    place: Optional[str]
-    named_from: Optional[str]
-    sources: List[str]
-    trigger: Optional[str]
-    confidence: Optional[float]
+    place: str | None
+    named_from: str | None
+    sources: list[str]
+    trigger: str | None
+    confidence: float | None
     needs_review: bool
     to_determine: bool
     relation: bool
     collective: bool
     person_count: int
     event_count: int
-    first_year: Optional[int]
-    last_year: Optional[int]
-    places: List[str]
-    roles: List[str]
-    members: List[CandidateMember] = field(default_factory=list)
+    first_year: int | None
+    last_year: int | None
+    places: list[str]
+    roles: list[str]
+    members: list[CandidateMember] = field(default_factory=list)
 
 
 @dataclass
@@ -90,8 +91,8 @@ class UnmatchedEvent:
     person_name: str
     event_type_raw: str
     label: str
-    date: Optional[str]
-    place: Optional[str]
+    date: str | None
+    place: str | None
     # Rang de l'événement dans ``person.events`` (identifiant stable de l'export)
     event_index: int
 
@@ -102,19 +103,19 @@ class UnmatchedGroup:
 
     word: str
     count: int
-    events: List[UnmatchedEvent]
+    events: list[UnmatchedEvent]
 
 
 @dataclass
 class CandidateIndex:
     """Candidats par identifiant et reste à classer."""
 
-    candidates: Dict[str, Candidate]
+    candidates: dict[str, Candidate]
     unmatched_total: int
-    unmatched_groups: List[UnmatchedGroup]
+    unmatched_groups: list[UnmatchedGroup]
     ignored_total: int = 0
     civil_status_total: int = 0
-    matched: FrozenSet[Tuple[str, int]] = frozenset()
+    matched: frozenset[tuple[str, int]] = frozenset()
 
 
 def person_display_name(person: Person) -> str:
@@ -127,9 +128,9 @@ def person_display_name(person: Person) -> str:
 
 def shared_experience_persons(
     genealogy: Genealogy, experience: SharedExperience
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Événements d'une expérience proche avec le nom de la personne, triés (nom replié, année)."""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for event in experience.events:
         person = genealogy.persons.get(event.person_id)
         rows.append(
@@ -155,13 +156,13 @@ def _fold(text: str) -> str:
     return "".join(c for c in stripped if not unicodedata.combining(c)).casefold()
 
 
-def normalize_ignored_words(words: Iterable[str]) -> Tuple[str, ...]:
+def normalize_ignored_words(words: Iterable[str]) -> tuple[str, ...]:
     """Mots repliés, dédoublonnés dans l'ordre ; les vides sont retirés.
 
     Lève ``ValueError`` pour un mot trop long, contenant autre chose que des
     lettres, ou au-delà de ``IGNORED_WORDS_MAX`` mots.
     """
-    result: List[str] = []
+    result: list[str] = []
     for raw in words:
         word = _fold(raw.strip())
         if not word:
@@ -184,7 +185,7 @@ def is_weak_organization(org: Organization) -> bool:
     )
 
 
-def _is_civil(event: Optional[Event]) -> bool:
+def _is_civil(event: Event | None) -> bool:
     """Événement « Autre » dont le tag relève de l'état civil."""
     return (
         event is not None
@@ -193,14 +194,14 @@ def _is_civil(event: Optional[Event]) -> bool:
     )
 
 
-def _is_ignored(event: Optional[Event], ignored: Set[str]) -> bool:
+def _is_ignored(event: Event | None, ignored: set[str]) -> bool:
     """Événement « Autre » dont le nom contient un mot ignoré (mot entier, replié)."""
     if not ignored or event is None or event.event_type is not EventType.OTHER:
         return False
     return not ignored.isdisjoint(_words(event.event_type_raw or ""))
 
 
-def _resolve_event(genealogy: Genealogy, ref: Optional[str]) -> Optional[Event]:
+def _resolve_event(genealogy: Genealogy, ref: str | None) -> Event | None:
     parsed = parse_event_ref(ref)
     if parsed is None:
         return None
@@ -244,10 +245,10 @@ def _build_member(genealogy: Genealogy, link: OrganizationLink) -> CandidateMemb
 
 
 def _build_candidates(
-    genealogy: Genealogy, ignored: Set[str]
-) -> Tuple[Dict[str, Candidate], Set[Tuple[str, int]]]:
-    members: Dict[str, List[CandidateMember]] = {}
-    refs: Dict[str, Set[Tuple[str, int]]] = {}
+    genealogy: Genealogy, ignored: set[str]
+) -> tuple[dict[str, Candidate], set[tuple[str, int]]]:
+    members: dict[str, list[CandidateMember]] = {}
+    refs: dict[str, set[tuple[str, int]]] = {}
     for link in genealogy.organization_links:
         if link.organization_id not in genealogy.organizations:
             continue
@@ -263,8 +264,8 @@ def _build_candidates(
         if parsed is not None:
             refs.setdefault(link.organization_id, set()).add(parsed)
 
-    candidates: Dict[str, Candidate] = {}
-    matched: Set[Tuple[str, int]] = set()
+    candidates: dict[str, Candidate] = {}
+    matched: set[tuple[str, int]] = set()
     for org_id, org_members in members.items():
         persons = {m.person_id for m in org_members}
         org = genealogy.organizations[org_id]
@@ -311,11 +312,11 @@ def _build_candidates(
 
 def _build_unmatched(
     genealogy: Genealogy,
-    matched: Set[Tuple[str, int]],
-    ignored: Set[str],
+    matched: set[tuple[str, int]],
+    ignored: set[str],
     capped: bool = True,
-) -> Tuple[int, List[UnmatchedGroup], int, int]:
-    entries: List[Tuple[UnmatchedEvent, Set[str]]] = []
+) -> tuple[int, list[UnmatchedGroup], int, int]:
+    entries: list[tuple[UnmatchedEvent, set[str]]] = []
     ignored_total = 0
     civil_total = 0
     for person_id, person in genealogy.persons.items():
@@ -350,14 +351,14 @@ def _build_unmatched(
                 )
             )
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for _, words in entries:
         for word in words:
             counts[word] = counts.get(word, 0) + 1
     kept = {w for w, n in counts.items() if n >= 2}
 
-    grouped: Dict[str, List[UnmatchedEvent]] = {w: [] for w in kept}
-    others: List[UnmatchedEvent] = []
+    grouped: dict[str, list[UnmatchedEvent]] = {w: [] for w in kept}
+    others: list[UnmatchedEvent] = []
     for entry, words in entries:
         retained = words & kept
         if not retained:
@@ -377,10 +378,10 @@ def _build_unmatched(
 
 def build_unmatched(
     genealogy: Genealogy,
-    exclude: Iterable[Tuple[str, int]],
+    exclude: Iterable[tuple[str, int]],
     ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS,
     capped: bool = True,
-) -> Tuple[int, List[UnmatchedGroup]]:
+) -> tuple[int, list[UnmatchedGroup]]:
     """Reste à classer sans les événements de ``exclude`` ; renvoie ``(total, groupes)``.
 
     ``exclude`` réunit les événements d'organisations et ceux d'expériences proches :
@@ -414,7 +415,7 @@ def build_candidate_index(
     )
 
 
-def sort_candidates(candidates: Iterable[Candidate], sort: str) -> List[Candidate]:
+def sort_candidates(candidates: Iterable[Candidate], sort: str) -> list[Candidate]:
     """Tri par ``persons`` (effectif décroissant), ``period`` ou ``name``."""
     items = list(candidates)
     if sort == "period":
@@ -429,10 +430,10 @@ def sort_candidates(candidates: Iterable[Candidate], sort: str) -> List[Candidat
 
 def filter_candidates(
     candidates: Iterable[Candidate],
-    type_: Optional[str] = None,
-    named_from: Optional[str] = None,
-    q: Optional[str] = None,
-) -> List[Candidate]:
+    type_: str | None = None,
+    named_from: str | None = None,
+    q: str | None = None,
+) -> list[Candidate]:
     """Filtre par type, origine du nom et sous-chaîne repliée du nom."""
     needle = _fold(q) if q else None
     return [

@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..core.genealogy import Genealogy
@@ -30,7 +30,7 @@ EDGE_SPOUSE = "spouse"
 EDGE_PARENT = "parent"
 EDGE_CO_MEMBER = "co_member"
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 
 def _require(module: str) -> Any:
@@ -48,7 +48,7 @@ class NetworkNode:
     id: str
     label: str
     kind: str
-    attrs: Dict[str, Any] = field(default_factory=dict)
+    attrs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -63,8 +63,8 @@ class NetworkEdge:
 class Network:
     """Graphe non orienté, indépendant de toute bibliothèque."""
 
-    nodes: List[NetworkNode] = field(default_factory=list)
-    edges: List[NetworkEdge] = field(default_factory=list)
+    nodes: list[NetworkNode] = field(default_factory=list)
+    edges: list[NetworkEdge] = field(default_factory=list)
 
     def node(self, node_id: str) -> NetworkNode:
         return next(n for n in self.nodes if n.id == node_id)
@@ -76,11 +76,11 @@ class Network:
     def co_membership(self) -> "Network":
         """Projection sur les personnes : lien pondéré par le nombre d'organisations
         partagées."""
-        members: Dict[str, Set[str]] = {}
+        members: dict[str, set[str]] = {}
         for e in self.edges:
             if e.kind == EDGE_MEMBER:
                 members.setdefault(e.target, set()).add(e.source)
-        shared: Dict[Tuple[str, str], int] = {}
+        shared: dict[tuple[str, str], int] = {}
         for people in members.values():
             for pair in combinations(sorted(people), 2):
                 shared[pair] = shared.get(pair, 0) + 1
@@ -168,8 +168,8 @@ def build_network(
         include_families: ajoute les liens de parenté (``spouse``, ``parent``).
     """
     network = Network()
-    node_ids: Set[str] = set()
-    weights: Dict[Tuple[str, str, str], int] = {}
+    node_ids: set[str] = set()
+    weights: dict[tuple[str, str, str], int] = {}
 
     def add_node(node: NetworkNode) -> None:
         if node.id not in node_ids:

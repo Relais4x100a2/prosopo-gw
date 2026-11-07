@@ -16,7 +16,7 @@ les événements d'un bloc par date puis par type ; on garde l'ordre du fichier
 """
 
 from dataclasses import replace
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..date import Date, DatePrefix
 from ..event import EventType, FamilyEvent, FamilyEventType, PersonalEvent
@@ -48,11 +48,11 @@ _QUALIFIER_EVENT = {
 }
 
 
-def _copy_witnesses(witnesses: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _copy_witnesses(witnesses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [dict(w) for w in witnesses]
 
 
-def _about(date: Optional[Date]) -> Optional[Date]:
+def _about(date: Date | None) -> Date | None:
     """Précision « vers » d'un contrat de mariage recopié comme mariage."""
     if date is None or date.is_unknown or date.year is None:
         return date
@@ -70,8 +70,8 @@ def _set_marriage_fields(family: Family, event: FamilyEvent) -> None:
 def _set_kind(
     family: Family,
     status: MarriageStatus,
-    qualifier: Optional[FamilyQualifier],
-    nsck: Optional[FamilyQualifier],
+    qualifier: FamilyQualifier | None,
+    nsck: FamilyQualifier | None,
 ) -> None:
     """Pose le type d'union ; ``nsck`` garde le « sans contrôle des sexes » de la ligne."""
     family.marriage_status = status
@@ -97,7 +97,7 @@ def _family_from_events(family: Family) -> None:
         family.is_separated = True
 
 
-def _marriage_pass(family: Family) -> Optional[FamilyEvent]:
+def _marriage_pass(family: Family) -> FamilyEvent | None:
     """Recopie le mariage ; renvoie le divorce ou la séparation retenus, s'il y en a."""
     nsck = next(
         (
@@ -110,7 +110,7 @@ def _marriage_pass(family: Family) -> Optional[FamilyEvent]:
     )
     nsck_std = nsck is not None
     found_marriage = False
-    divorce: Optional[FamilyEvent] = None
+    divorce: FamilyEvent | None = None
     for event in reversed(family.events):
         fet = event.family_event_type
         if fet is _FET.MARRIAGE:
@@ -181,7 +181,7 @@ def _marriage_event_type(family: Family) -> FamilyEventType:
 
 
 def _new_family_event(
-    family: Family, fet: FamilyEventType, date: Optional[Date] = None
+    family: Family, fet: FamilyEventType, date: Date | None = None
 ) -> FamilyEvent:
     try:
         generic = EventType(fet.value)
@@ -237,7 +237,7 @@ _PERSON_TYPES = (
 )
 
 
-def _real_date(date: Optional[Date]) -> bool:
+def _real_date(date: Date | None) -> bool:
     return date is not None and not date.is_unknown
 
 
@@ -276,9 +276,9 @@ def _person_from_events(person: Person) -> None:
 def _new_person_event(
     person: Person,
     kind: EventType,
-    date: Optional[Date],
-    place: Optional[str],
-    source: Optional[str],
+    date: Date | None,
+    place: str | None,
+    source: str | None,
 ) -> PersonalEvent:
     return PersonalEvent(
         event_type=kind,
@@ -293,7 +293,7 @@ def _new_person_event(
 
 def _events_from_person(person: Person) -> None:
     """Pas de bloc ``pevt`` : événements fabriqués depuis les champs de la personne."""
-    events: List[PersonalEvent] = []
+    events: list[PersonalEvent] = []
     if _real_date(person.birth_date) or person.birth_place or person.birth_source:
         events.append(
             _new_person_event(

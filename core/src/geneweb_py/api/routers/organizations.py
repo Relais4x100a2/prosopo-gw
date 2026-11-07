@@ -5,7 +5,7 @@ session, sans effet sur le fichier) s'écrit.
 """
 
 import dataclasses
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -35,9 +35,9 @@ async def list_candidates(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     sort: Literal["persons", "period", "name"] = Query("persons"),
-    type: Optional[str] = Query(None),
-    named_from: Optional[str] = Query(None),
-    q: Optional[str] = Query(None),
+    type: str | None = Query(None),
+    named_from: str | None = Query(None),
+    q: str | None = Query(None),
     service: GenealogyService = Depends(get_session_service),
 ) -> PaginatedResponse:
     """Candidats triés et filtrés, paginés."""

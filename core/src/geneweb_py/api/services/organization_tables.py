@@ -4,7 +4,7 @@ Voir ``core/doc/exports_design.md``. Les lignes suivent l'ordre des CSV actuels 
 événements sont désignés par l'identifiant stable de la table ``evenements``.
 """
 
-from typing import Dict, List, Sequence, Set, Tuple
+from collections.abc import Sequence
 
 from ...core.event_to_organization import event_ref
 from ...core.genealogy import Genealogy
@@ -114,7 +114,7 @@ EXPERIENCES_PROCHES = TableSpec(
 )
 
 
-def _organisations(index: CandidateIndex) -> List[Row]:
+def _organisations(index: CandidateIndex) -> list[Row]:
     return [
         {
             "organisation_id": c.id,
@@ -140,7 +140,7 @@ def _organisations(index: CandidateIndex) -> List[Row]:
     ]
 
 
-def _liens(index: CandidateIndex) -> List[Row]:
+def _liens(index: CandidateIndex) -> list[Row]:
     return [
         {
             "organisation_id": c.id,
@@ -174,14 +174,14 @@ def _reste_a_classer(
     index: CandidateIndex,
     shared: SharedExperienceIndex,
     ignored_words: Sequence[str],
-) -> List[Row]:
-    exclude: Set[Tuple[str, int]] = set(index.matched)
+) -> list[Row]:
+    exclude: set[tuple[str, int]] = set(index.matched)
     for exp in shared.items:
         exclude.update((ev.person_id, ev.event_index) for ev in exp.events)
     _, groups = build_unmatched(genealogy, exclude, ignored_words, capped=False)
     # Un événement peut partager plusieurs mots : une seule ligne, ses mots réunis,
     # dans l'ordre des groupes (le premier groupe qui le cite fixe son rang).
-    words: Dict[Tuple[str, int], List[str]] = {}
+    words: dict[tuple[str, int], list[str]] = {}
     for group in groups:
         for e in group.events:
             words.setdefault((e.person_id, e.event_index), []).append(group.word)
@@ -193,8 +193,8 @@ def _reste_a_classer(
 
 def _experiences_proches(
     genealogy: Genealogy, shared: SharedExperienceIndex
-) -> List[Row]:
-    rows: List[Row] = []
+) -> list[Row]:
+    rows: list[Row] = []
     for e in shared.items:
         period = _years(e.year_min, e.year_max)
         places = ", ".join(e.places)
@@ -218,9 +218,9 @@ def _experiences_proches(
     return rows
 
 
-def _linked_names(index: CandidateIndex) -> Dict[str, Set[str]]:
+def _linked_names(index: CandidateIndex) -> dict[str, set[str]]:
     """Noms des organisations candidates rattachées à chaque événement."""
-    linked: Dict[str, Set[str]] = {}
+    linked: dict[str, set[str]] = {}
     for candidate in index.candidates.values():
         for member in candidate.members:
             if member.source_event_id:
@@ -233,7 +233,7 @@ def build_organization_tables(
     index: CandidateIndex,
     shared: SharedExperienceIndex,
     ignored_words: Sequence[str] = DEFAULT_IGNORED_WORDS,
-) -> List[Table]:
+) -> list[Table]:
     """Tables ``organisations``, ``liens``, ``reste_a_classer``, ``pistes``,
     ``experiences_proches``.
 

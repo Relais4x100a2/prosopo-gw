@@ -8,8 +8,8 @@ sont sensibles à la casse, sans quoi « sa » ou « et » déclencheraient part
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from typing import Iterable, List, Optional, Tuple
 
 from .event_to_organization import (
     COMPANY_NAME_TRIGGERS,
@@ -36,7 +36,7 @@ class NoteLead:
 
     start: int
     end: int
-    words: Tuple[str, ...]
+    words: tuple[str, ...]
     guessed_type: str
     strong: bool
     excerpt: str
@@ -66,8 +66,8 @@ class _Hit:
     strong: bool
 
 
-def _tokens(text: str) -> List[_Token]:
-    tokens: List[_Token] = []
+def _tokens(text: str) -> list[_Token]:
+    tokens: list[_Token] = []
     for match in _TOKEN_RE.finditer(text):
         word, start, end = match.group(), match.start(), match.end()
         if word + text[end : end + 1] == _ABBREVIATED_FORM:
@@ -76,11 +76,11 @@ def _tokens(text: str) -> List[_Token]:
     return tokens
 
 
-def _at(tokens: List[_Token], index: int) -> Optional[_Token]:
+def _at(tokens: list[_Token], index: int) -> _Token | None:
     return tokens[index] if 0 <= index < len(tokens) else None
 
 
-def _is_en_compagnie_de(tokens: List[_Token], index: int) -> bool:
+def _is_en_compagnie_de(tokens: list[_Token], index: int) -> bool:
     before, after = _at(tokens, index - 1), _at(tokens, index + 1)
     return (
         before is not None
@@ -90,7 +90,7 @@ def _is_en_compagnie_de(tokens: List[_Token], index: int) -> bool:
     )
 
 
-def _names_follow(tokens: List[_Token], index: int) -> bool:
+def _names_follow(tokens: list[_Token], index: int) -> bool:
     """Un mot à initiale capitale suit, après au plus un mot de liaison."""
     following = _at(tokens, index + 1)
     if following is not None and following.folded in _LINKING_WORDS:
@@ -100,7 +100,7 @@ def _names_follow(tokens: List[_Token], index: int) -> bool:
     )
 
 
-def _hit(tokens: List[_Token], index: int, ignored: frozenset) -> Optional[_Hit]:
+def _hit(tokens: list[_Token], index: int, ignored: frozenset) -> _Hit | None:
     token = tokens[index]
     folded = token.folded
     if folded in ignored or folded.rstrip(".") in ignored:
@@ -129,7 +129,7 @@ def _hit(tokens: List[_Token], index: int, ignored: frozenset) -> Optional[_Hit]
     return _Hit(token.start, token.end, folded, guessed, strong)
 
 
-def _widen(text: str, start: int, end: int) -> Tuple[int, int]:
+def _widen(text: str, start: int, end: int) -> tuple[int, int]:
     """Fenêtre autour d'un déclencheur, élargie aux limites de mots."""
     left = max(0, start - EXCERPT_RADIUS)
     right = min(len(text), end + EXCERPT_RADIUS)
@@ -143,8 +143,8 @@ def _widen(text: str, start: int, end: int) -> Tuple[int, int]:
     return left, right
 
 
-def _lead(text: str, start: int, end: int, hits: List[_Hit]) -> NoteLead:
-    words: List[str] = []
+def _lead(text: str, start: int, end: int, hits: list[_Hit]) -> NoteLead:
+    words: list[str] = []
     for h in hits:
         if h.word not in words:
             words.append(h.word)
@@ -158,13 +158,13 @@ def _lead(text: str, start: int, end: int, hits: List[_Hit]) -> NoteLead:
     )
 
 
-def _all_caps(tokens: List[_Token]) -> bool:
+def _all_caps(tokens: list[_Token]) -> bool:
     """Vrai si la note compte plusieurs mots et qu'aucun n'a de minuscule."""
     words = [t.text for t in tokens if any(ch.isalpha() for ch in t.text)]
     return len(words) > 1 and all(not any(ch.islower() for ch in w) for w in words)
 
 
-def find_note_leads(text: str, ignored_words: Iterable[str] = ()) -> List[NoteLead]:
+def find_note_leads(text: str, ignored_words: Iterable[str] = ()) -> list[NoteLead]:
     """Pistes d'une note, dans l'ordre du texte ; ``[]`` si aucune."""
     clean = _URL_RE.sub(lambda m: " " * len(m.group()), text)
     ignored = frozenset(_fold(w).strip() for w in ignored_words)
@@ -174,8 +174,8 @@ def find_note_leads(text: str, ignored_words: Iterable[str] = ()) -> List[NoteLe
         # Note en capitales : la majuscule ne signale plus un nom propre
         # (« IL ÉPOUSE SA COUSINE »), aucune piste n'est forte.
         hits = [replace(h, strong=False) for h in hits]
-    leads: List[NoteLead] = []
-    group: List[_Hit] = []
+    leads: list[NoteLead] = []
+    group: list[_Hit] = []
     start = end = 0
     for h in hits:
         left, right = _widen(clean, h.start, h.end)

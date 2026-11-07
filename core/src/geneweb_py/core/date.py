@@ -9,7 +9,6 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import Enum
-from typing import List, Optional, Tuple
 
 from .exceptions import UnsupportedCalendarError
 
@@ -82,19 +81,19 @@ class Date:
     """
 
     # Composants de date
-    day: Optional[int] = None
-    month: Optional[int] = None
-    year: Optional[int] = None
+    day: int | None = None
+    month: int | None = None
+    year: int | None = None
 
     # Préfixes et modificateurs
-    prefix: Optional[DatePrefix] = None
+    prefix: DatePrefix | None = None
     calendar: CalendarType = CalendarType.GREGORIAN
 
     # Dates alternatives (pour OR et BETWEEN)
-    alternative_dates: List["Date"] = field(default_factory=list)
+    alternative_dates: list["Date"] = field(default_factory=list)
 
     # Date textuelle (format 0(5_Mai_1990))
-    text_date: Optional[str] = None
+    text_date: str | None = None
 
     # Type de décès (pour les dates de décès)
     death_type: DeathType = DeathType.NORMAL
@@ -103,7 +102,7 @@ class Date:
     is_unknown: bool = False
 
     # Chaîne telle qu'écrite dans le .gw (renseignée par parse ; hors comparaison)
-    raw_text: Optional[str] = field(default=None, compare=False)
+    raw_text: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         """Validation et normalisation après initialisation"""
@@ -139,7 +138,7 @@ class Date:
             return False
         return self.year is not None and (self.day is None or self.month is None)
 
-    def sort_year(self) -> Optional[int]:
+    def sort_year(self) -> int | None:
         """Année utilisée pour le tri et les filtres par plage (ex.: recherche API).
 
         Les dates textuelles ou inconnues ne fournissent pas d'année exploitable ;
@@ -152,7 +151,7 @@ class Date:
             return None
         return self.year
 
-    def filter_years_for_range(self) -> List[int]:
+    def filter_years_for_range(self) -> list[int]:
         """Années candidates pour un filtre par plage [début, fin].
 
         Inclut l'année du segment principal et, pour OR/BETWEEN, les années issues
@@ -161,7 +160,7 @@ class Date:
         Returns:
             Liste vide si aucune année exploitable.
         """
-        years: List[int] = []
+        years: list[int] = []
         y = self.sort_year()
         if y is not None:
             years.append(y)
@@ -227,9 +226,7 @@ class Date:
 
         return result
 
-    def to_bounds(
-        self, fuzzy_window_years: int = 5
-    ) -> Tuple[Optional[date], Optional[date]]:
+    def to_bounds(self, fuzzy_window_years: int = 5) -> tuple[date | None, date | None]:
         """Intervalle grégorien ``(date_min, date_max)`` couvert par la date
 
         Une date partielle couvre toute sa période (année → 1er janvier au
@@ -291,9 +288,7 @@ class Date:
             return (high + timedelta(days=1), None)
         return (low, high)
 
-    def _span(
-        self, year: int, month: Optional[int], day: Optional[int]
-    ) -> Tuple[date, date]:
+    def _span(self, year: int, month: int | None, day: int | None) -> tuple[date, date]:
         """Premier et dernier jour (grégoriens) de la période, dans le calendrier"""
         if self.calendar == CalendarType.FRENCH_REPUBLICAN:
             return self._republican_span(year, month, day)
@@ -307,8 +302,8 @@ class Date:
         return self._to_gregorian(*first), self._to_gregorian(*last)
 
     def _republican_span(
-        self, year: int, month: Optional[int], day: Optional[int]
-    ) -> Tuple[date, date]:
+        self, year: int, month: int | None, day: int | None
+    ) -> tuple[date, date]:
         """Période républicaine en jours grégoriens (l'an XIV s'arrête au 31/12/1805)"""
         start = _REPUBLICAN_YEAR_STARTS[year]
         complementary = _republican_complementary_days(year)
@@ -347,7 +342,7 @@ class Date:
         julian_day_number = day + (153 * m + 2) // 5 + 365 * y + y // 4 - 32083
         return date.fromordinal(julian_day_number - 1721425)
 
-    def to_iso_format(self) -> Optional[str]:
+    def to_iso_format(self) -> str | None:
         """Convertit la date au format ISO (YYYY-MM-DD) si possible"""
         if not self.is_complete or self.is_unknown:
             return None
@@ -355,7 +350,7 @@ class Date:
         return f"{self.year:04d}-{self.month:02d}-{self.day:02d}"
 
     @classmethod
-    def parse(cls, date_str: Optional[str]) -> "Date":
+    def parse(cls, date_str: str | None) -> "Date":
         """Parse une chaîne de date au format GeneWeb et garde le texte d'origine
 
         ``raw_text`` reçoit la chaîne écrite (sans espaces de bord), ``None`` si
@@ -367,7 +362,7 @@ class Date:
         return resultat
 
     @classmethod
-    def _parse_impl(cls, date_str: Optional[str]) -> "Date":
+    def _parse_impl(cls, date_str: str | None) -> "Date":
         """Parse une chaîne de date au format GeneWeb
 
         Args:

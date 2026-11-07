@@ -2,7 +2,7 @@
 Router FastAPI pour la gestion des personnes dans l'API geneweb-py.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -71,24 +71,24 @@ async def create_person(
 async def list_persons(
     page: int = Query(1, ge=1, description="Numéro de page"),
     size: int = Query(20, ge=1, le=100, description="Taille de la page"),
-    query: Optional[str] = Query(None, description="Recherche textuelle"),
-    first_name: Optional[str] = Query(None, description="Filtrer par prénom"),
-    surname: Optional[str] = Query(None, description="Filtrer par nom de famille"),
-    sex: Optional[str] = Query(None, description="Filtrer par sexe"),
-    access_level: Optional[str] = Query(None, description="Filtrer par niveau d'accès"),
-    birth_year_from: Optional[int] = Query(
+    query: str | None = Query(None, description="Recherche textuelle"),
+    first_name: str | None = Query(None, description="Filtrer par prénom"),
+    surname: str | None = Query(None, description="Filtrer par nom de famille"),
+    sex: str | None = Query(None, description="Filtrer par sexe"),
+    access_level: str | None = Query(None, description="Filtrer par niveau d'accès"),
+    birth_year_from: int | None = Query(
         None, ge=1000, le=3000, description="Année de naissance minimum"
     ),
-    birth_year_to: Optional[int] = Query(
+    birth_year_to: int | None = Query(
         None, ge=1000, le=3000, description="Année de naissance maximum"
     ),
-    death_year_from: Optional[int] = Query(
+    death_year_from: int | None = Query(
         None, ge=1000, le=3000, description="Année de décès minimum"
     ),
-    death_year_to: Optional[int] = Query(
+    death_year_to: int | None = Query(
         None, ge=1000, le=3000, description="Année de décès maximum"
     ),
-    place: Optional[str] = Query(
+    place: str | None = Query(
         None,
         description=(
             "Filtrer par lieu (naissance, décès, baptême, sépulture) ; "
@@ -119,7 +119,7 @@ async def list_persons(
         PaginatedResponse: Réponse paginée avec les personnes
     """
     # Construction des paramètres de recherche (query → schéma Pydantic)
-    raw_params: Dict[str, Any] = {
+    raw_params: dict[str, Any] = {
         "page": page,
         "size": size,
         "query": query,
@@ -268,7 +268,7 @@ async def get_related_persons(
 
 @router.get("/names", response_model=SuccessResponse)
 async def get_person_names(
-    ids: List[str] = Query(
+    ids: list[str] = Query(
         default_factory=list,
         description="Identifiants (paramètre répété : ?ids=a&ids=b)",
     ),
@@ -295,7 +295,7 @@ async def get_person_names(
                 }
             ]
         )
-    names: Dict[str, Dict[str, Any]] = {}
+    names: dict[str, dict[str, Any]] = {}
     for person_id in dict.fromkeys(ids):
         person = service.get_person(person_id)
         if person is None:

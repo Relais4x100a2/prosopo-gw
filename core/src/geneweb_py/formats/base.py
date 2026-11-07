@@ -7,7 +7,7 @@ de formats généalogiques.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 from ..core.exceptions import GeneWebConversionError
 from ..core.genealogy import Genealogy
@@ -16,9 +16,7 @@ from ..core.genealogy import Genealogy
 class ConversionError(GeneWebConversionError):
     """Exception levée lors d'erreurs de conversion de formats."""
 
-    def __init__(
-        self, message: str, details: Optional[Dict[str, Any]] = None, **kwargs
-    ):
+    def __init__(self, message: str, details: dict[str, Any] | None = None, **kwargs):
         """
         Initialise l'erreur de conversion.
 
@@ -44,7 +42,7 @@ class BaseExporter(ABC):
         self.encoding = encoding
 
     @abstractmethod
-    def export(self, genealogy: Genealogy, output_path: Union[str, Path]) -> None:
+    def export(self, genealogy: Genealogy, output_path: str | Path) -> None:
         """
         Exporte une généalogie vers un fichier.
 
@@ -103,7 +101,7 @@ class BaseImporter(ABC):
         self.encoding = encoding
 
     @abstractmethod
-    def import_from_file(self, input_path: Union[str, Path]) -> Genealogy:
+    def import_from_file(self, input_path: str | Path) -> Genealogy:
         """
         Importe une généalogie depuis un fichier.
 
@@ -134,7 +132,7 @@ class BaseImporter(ABC):
         """
         pass
 
-    def _validate_file_path(self, input_path: Union[str, Path]) -> Path:
+    def _validate_file_path(self, input_path: str | Path) -> Path:
         """
         Valide qu'un chemin de fichier est valide.
 

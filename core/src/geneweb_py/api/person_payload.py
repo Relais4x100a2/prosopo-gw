@@ -2,8 +2,6 @@
 Construction des charges utiles Person pour les réponses API.
 """
 
-from typing import List
-
 from ..core.person import Person
 from .models.person import PersonListSchema, PersonSchema
 from .serialization import (
@@ -17,7 +15,7 @@ from .serialization import (
 
 def person_to_person_schema(person: Person) -> PersonSchema:
     """Convertit une personne domaine en schéma API complet."""
-    event_ids: List[str] = []
+    event_ids: list[str] = []
     for idx, ev in enumerate(person.events):
         uid = getattr(ev, "unique_id", None)
         if uid is not None:

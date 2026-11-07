@@ -2,7 +2,7 @@
 Schémas de réponse standardisés pour l'API geneweb-py.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,11 +10,9 @@ from pydantic import BaseModel, Field
 class ErrorDetail(BaseModel):
     """Détail d'une erreur."""
 
-    field: Optional[str] = Field(
-        default=None, description="Champ concerné par l'erreur"
-    )
+    field: str | None = Field(default=None, description="Champ concerné par l'erreur")
     message: str = Field(..., description="Message d'erreur")
-    code: Optional[str] = Field(default=None, description="Code d'erreur")
+    code: str | None = Field(default=None, description="Code d'erreur")
 
 
 class ErrorResponse(BaseModel):
@@ -22,10 +20,10 @@ class ErrorResponse(BaseModel):
 
     error: bool = Field(default=True, description="Indique qu'il s'agit d'une erreur")
     message: str = Field(..., description="Message d'erreur principal")
-    details: Optional[List[ErrorDetail]] = Field(
+    details: list[ErrorDetail] | None = Field(
         default=None, description="Détails des erreurs"
     )
-    code: Optional[str] = Field(default=None, description="Code d'erreur HTTP")
+    code: str | None = Field(default=None, description="Code d'erreur HTTP")
 
 
 class SuccessResponse(BaseModel):
@@ -33,7 +31,7 @@ class SuccessResponse(BaseModel):
 
     success: bool = Field(default=True, description="Indique que l'opération a réussi")
     message: str = Field(..., description="Message de succès")
-    data: Optional[Any] = Field(default=None, description="Données retournées")
+    data: Any | None = Field(default=None, description="Données retournées")
 
 
 class PaginationInfo(BaseModel):
@@ -50,7 +48,7 @@ class PaginationInfo(BaseModel):
 class PaginatedResponse(BaseModel):
     """Réponse paginée."""
 
-    items: List[Any] = Field(..., description="Éléments de la page")
+    items: list[Any] = Field(..., description="Éléments de la page")
     pagination: PaginationInfo = Field(..., description="Informations de pagination")
 
 
@@ -68,33 +66,33 @@ class StatsResponse(BaseModel):
     total_persons: int = Field(..., ge=0, description="Nombre total de personnes")
     total_families: int = Field(..., ge=0, description="Nombre total de familles")
     total_events: int = Field(..., ge=0, description="Nombre total d'événements")
-    persons_by_sex: Dict[str, int] = Field(
+    persons_by_sex: dict[str, int] = Field(
         default_factory=dict, description="Répartition par sexe"
     )
-    persons_by_access_level: Dict[str, int] = Field(
+    persons_by_access_level: dict[str, int] = Field(
         default_factory=dict, description="Répartition par niveau d'accès"
     )
-    persons_by_birth_century: Dict[str, int] = Field(
+    persons_by_birth_century: dict[str, int] = Field(
         default_factory=dict,
         description="Répartition des personnes par siècle de naissance",
     )
-    families_by_status: Dict[str, int] = Field(
+    families_by_status: dict[str, int] = Field(
         default_factory=dict, description="Répartition des familles par statut"
     )
-    families_by_marriage_century: Dict[str, int] = Field(
+    families_by_marriage_century: dict[str, int] = Field(
         default_factory=dict,
         description="Répartition des familles par siècle de mariage",
     )
-    events_by_type: Dict[str, int] = Field(
+    events_by_type: dict[str, int] = Field(
         default_factory=dict, description="Répartition des événements par type"
     )
-    events_by_century: Dict[str, int] = Field(
+    events_by_century: dict[str, int] = Field(
         default_factory=dict, description="Répartition des événements par siècle"
     )
     average_children_per_family: float = Field(
         default=0.0, ge=0, description="Nombre moyen d'enfants par famille"
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None, description="Métadonnées (fichier source, encodage, dates)"
     )
     persons_with_birth_date: int = Field(
@@ -118,7 +116,7 @@ class StatsResponse(BaseModel):
     families_with_divorce_date: int = Field(
         default=0, ge=0, description="Familles avec date de divorce renseignée"
     )
-    advanced: Optional[Dict[str, Any]] = Field(
+    advanced: dict[str, Any] | None = Field(
         default=None,
         description="Statistiques avancées (longévité, géographie, tailles de famille)",
     )

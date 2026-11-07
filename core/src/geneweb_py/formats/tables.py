@@ -7,10 +7,9 @@ personne et famille = clés de ``Genealogy`` ; événement personnel = ``event_r
 """
 
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple, Union
-
-from typing_extensions import Literal
+from typing import Literal
 
 from ..core.date import Date
 from ..core.event import Event, WitnessKind
@@ -20,8 +19,8 @@ from ..core.person import Gender
 from ..core.place import parse_place, place_city
 
 ColumnType = Literal["text", "int", "real", "bool"]
-Value = Union[str, int, float, bool, None]
-Row = Dict[str, Value]
+Value = str | int | float | bool | None
+Row = dict[str, Value]
 
 
 @dataclass(frozen=True)
@@ -38,11 +37,11 @@ class TableSpec:
     """Définition d'une table, partagée par tous les rendus."""
 
     name: str
-    columns: Tuple[Column, ...]
-    primary_key: Optional[str] = None
+    columns: tuple[Column, ...]
+    primary_key: str | None = None
 
     @property
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         return [c.name for c in self.columns]
 
 
@@ -51,7 +50,7 @@ class Table:
     """Une table et ses lignes."""
 
     spec: TableSpec
-    rows: List[Row]
+    rows: list[Row]
 
 
 def _text(name: str, description: str) -> Column:
@@ -62,7 +61,7 @@ def _int(name: str, description: str) -> Column:
     return Column(name, "int", description)
 
 
-EVENT_TYPE_LABELS: Dict[str, str] = {
+EVENT_TYPE_LABELS: dict[str, str] = {
     "birt": "Naissance",
     "bapt": "Baptême",
     "deat": "Décès",
@@ -174,17 +173,17 @@ def family_event_ref(family_id: str, index: int) -> str:
     return f"fevt:{family_id}:{index}"
 
 
-def _date(date: Optional[Date]) -> Optional[str]:
+def _date(date: Date | None) -> str | None:
     if date is None:
         return None
     return date.raw_text or str(date)
 
 
-def _year(date: Optional[Date]) -> Optional[int]:
+def _year(date: Date | None) -> int | None:
     return date.sort_year() if date is not None else None
 
 
-def _note(notes: Iterable[str]) -> Optional[str]:
+def _note(notes: Iterable[str]) -> str | None:
     text = "\n".join(n for n in notes if n)
     return text or None
 
@@ -192,7 +191,7 @@ def _note(notes: Iterable[str]) -> Optional[str]:
 _SEX = {Gender.MALE: "M", Gender.FEMALE: "F"}
 
 
-def _persons(genealogy: Genealogy) -> List[Row]:
+def _persons(genealogy: Genealogy) -> list[Row]:
     return [
         {
             "personne_id": pid,
@@ -213,7 +212,7 @@ def _persons(genealogy: Genealogy) -> List[Row]:
     ]
 
 
-def _families(genealogy: Genealogy) -> List[Row]:
+def _families(genealogy: Genealogy) -> list[Row]:
     return [
         {
             "famille_id": fid,
@@ -228,7 +227,7 @@ def _families(genealogy: Genealogy) -> List[Row]:
     ]
 
 
-def _children(genealogy: Genealogy) -> List[Row]:
+def _children(genealogy: Genealogy) -> list[Row]:
     return [
         {"famille_id": fid, "personne_id": c.person_id, "rang": rank}
         for fid, f in genealogy.families.items()
@@ -237,7 +236,7 @@ def _children(genealogy: Genealogy) -> List[Row]:
 
 
 def _event_row(
-    event_id: str, person_id: Optional[str], family_id: Optional[str], event: Event
+    event_id: str, person_id: str | None, family_id: str | None, event: Event
 ) -> Row:
     code = str(event.event_type.value)
     parsed = parse_place(event.place)
@@ -260,9 +259,9 @@ def _event_row(
 
 def _all_events(
     genealogy: Genealogy,
-) -> List[Tuple[str, Optional[str], Optional[str], Event]]:
+) -> list[tuple[str, str | None, str | None, Event]]:
     """(identifiant, personne, famille, événement), personnels puis familiaux."""
-    result: List[Tuple[str, Optional[str], Optional[str], Event]] = []
+    result: list[tuple[str, str | None, str | None, Event]] = []
     for pid, p in genealogy.persons.items():
         for i, e in enumerate(p.events):
             result.append((event_ref(pid, i), pid, None, e))
@@ -272,13 +271,13 @@ def _all_events(
     return result
 
 
-def _role(witness: Dict[str, object]) -> str:
+def _role(witness: dict[str, object]) -> str:
     kind = witness.get("witness_kind")
     return WITNESS_KIND_ROLES[kind] if isinstance(kind, WitnessKind) else WITNESS_ROLE
 
 
 def _witness_row(
-    event_id: Optional[str], family_id: Optional[str], witness: Dict[str, object]
+    event_id: str | None, family_id: str | None, witness: dict[str, object]
 ) -> Row:
     person = witness.get("person_id")
     return {
@@ -291,8 +290,8 @@ def _witness_row(
 
 def _witnesses(
     genealogy: Genealogy,
-    events: List[Tuple[str, Optional[str], Optional[str], Event]],
-) -> List[Row]:
+    events: list[tuple[str, str | None, str | None, Event]],
+) -> list[Row]:
     rows = [
         _witness_row(None, fid, w)
         for fid, f in genealogy.families.items()
@@ -326,9 +325,7 @@ _PERSON_EVENT_FIELDS = {
 _FAMILY_EVENT_FIELDS = {"marr": "marriage_source"}
 
 
-def _source_row(
-    cible: str, cible_id: str, objet: str, texte: Optional[str]
-) -> Optional[Row]:
+def _source_row(cible: str, cible_id: str, objet: str, texte: str | None) -> Row | None:
     if texte is None or not texte.strip():
         return None
     key = f"{cible}|{cible_id}|{objet}".encode()
@@ -344,13 +341,13 @@ def _source_row(
 
 def _duplicate_source(
     genealogy: Genealogy,
-    person_id: Optional[str],
-    family_id: Optional[str],
+    person_id: str | None,
+    family_id: str | None,
     event: Event,
 ) -> bool:
     code = str(event.event_type.value)
     owner: object = None
-    field: Optional[str] = None
+    field: str | None = None
     if person_id is not None:
         owner, field = genealogy.persons[person_id], _PERSON_EVENT_FIELDS.get(code)
     elif family_id is not None:
@@ -360,9 +357,9 @@ def _duplicate_source(
 
 def _sources(
     genealogy: Genealogy,
-    events: List[Tuple[str, Optional[str], Optional[str], Event]],
-) -> List[Row]:
-    candidates: List[Optional[Row]] = []
+    events: list[tuple[str, str | None, str | None, Event]],
+) -> list[Row]:
+    candidates: list[Row | None] = []
     for pid, p in genealogy.persons.items():
         candidates.extend(
             _source_row("personne", pid, objet, getattr(p, attr))
@@ -379,7 +376,7 @@ def _sources(
     return [row for row in candidates if row is not None]
 
 
-def build_base_tables(genealogy: Genealogy) -> List[Table]:
+def build_base_tables(genealogy: Genealogy) -> list[Table]:
     """Tables tirées de la base seule, dans l'ordre de l'export."""
     events = _all_events(genealogy)
     return [

@@ -1,7 +1,6 @@
 """Table ``sources`` de l'export. Fixtures 100 % synthétiques."""
 
 from pathlib import Path
-from typing import List, Tuple
 
 from geneweb_py.core.genealogy import Genealogy
 from geneweb_py.core.parser.gw_parser import GeneWebParser
@@ -33,7 +32,7 @@ def _sources(genealogy: Genealogy) -> Table:
     return {t.spec.name: t for t in build_base_tables(genealogy)}["sources"]
 
 
-def _triples(table: Table) -> List[Tuple[object, object, object, object]]:
+def _triples(table: Table) -> list[tuple[object, object, object, object]]:
     return [(r["cible"], r["cible_id"], r["objet"], r["texte"]) for r in table.rows]
 
 

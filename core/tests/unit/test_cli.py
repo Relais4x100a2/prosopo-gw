@@ -4,7 +4,7 @@ Tests unitaires du binaire ``geneweb-py`` (Click + Rich).
 
 import builtins
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import pytest
 from click.testing import CliRunner, Result
@@ -135,7 +135,7 @@ def test_entry_main_imports_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     import geneweb_py.cli.commands as commands_module
     from geneweb_py.cli import entry
 
-    called: Dict[str, bool] = {}
+    called: dict[str, bool] = {}
 
     def fake_cli() -> None:
         called["ok"] = True
@@ -368,9 +368,9 @@ def test_entry_main_without_cli_deps_exits(
 
     def fake_import(
         name: str,
-        globals_: Optional[Dict[str, Any]],
-        locals_: Optional[Dict[str, Any]],
-        fromlist: Tuple[str, ...] = (),
+        globals_: dict[str, Any] | None,
+        locals_: dict[str, Any] | None,
+        fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> Any:
         if name == "geneweb_py.cli.commands":

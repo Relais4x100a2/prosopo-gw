@@ -1,7 +1,5 @@
 """Dépendances FastAPI pour l'API geneweb-py."""
 
-from typing import Tuple
-
 from fastapi import Depends, Header, HTTPException, Request, Response, status
 
 import geneweb_py.api.limits as _limits_mod
@@ -52,7 +50,7 @@ def require_write_mode() -> None:
 
 def get_pagination_params(
     page: int = 1, size: int = 20, max_size: int = 100
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Valide et retourne les paramètres de pagination."""
     if page < 1:
         raise HTTPException(

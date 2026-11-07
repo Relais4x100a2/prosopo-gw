@@ -5,7 +5,7 @@ Les erreurs utilisateur sont affichées sur stderr via Rich (panneaux).
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import click
 from rich import box
@@ -60,7 +60,7 @@ def _render_parse_summary(genealogy: Genealogy, source: Path) -> None:
     table.add_column("Indicateur", style="cyan", no_wrap=True)
     table.add_column("Valeur")
 
-    rows: List[Tuple[str, str]] = [
+    rows: list[tuple[str, str]] = [
         ("Fichier source", str(source)),
         ("Encodage détecté", meta.encoding),
         ("Format gwplus", "oui" if meta.is_gwplus else "non"),
@@ -83,9 +83,9 @@ def _render_parse_summary(genealogy: Genealogy, source: Path) -> None:
     _stdout.print(table)
 
 
-def _get_exporter(export_format: str) -> Tuple[Any, str]:
+def _get_exporter(export_format: str) -> tuple[Any, str]:
     """Retourne une instance d'exporteur et une étiquette de format."""
-    mapping: Dict[str, Tuple[Any, str]] = {
+    mapping: dict[str, tuple[Any, str]] = {
         "gedcom": (GEDCOMExporter(), "GEDCOM"),
         "json": (JSONExporter(), "JSON"),
         "xml": (XMLExporter(), "XML"),

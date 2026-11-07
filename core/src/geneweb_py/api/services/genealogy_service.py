@@ -6,9 +6,10 @@ les données généalogiques.
 """
 
 import unicodedata
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any
 
 from ...core.date import Date
 from ...core.models import (
@@ -66,7 +67,7 @@ def _normalize_search_text(text: str) -> str:
 
 def _family_search_text(genealogy: Genealogy, family: Family) -> str:
     """Texte normalisé où chercher une famille : noms des conjoints, lieu du mariage."""
-    parts: List[str] = []
+    parts: list[str] = []
     for pid in (family.husband_id, family.wife_id):
         person = genealogy.persons.get(pid) if pid else None
         if person is not None:
@@ -89,8 +90,8 @@ class EventSearchHit:
     """Contexte d'un événement pour recherche et sérialisation API."""
 
     event: Event
-    person_id: Optional[str]
-    family_id: Optional[str]
+    person_id: str | None
+    family_id: str | None
     index: int
 
 
@@ -99,20 +100,20 @@ class GenealogyService:
 
     def __init__(
         self,
-        genealogy: Optional[Genealogy] = None,
-        source_name: Optional[str] = None,
+        genealogy: Genealogy | None = None,
+        source_name: str | None = None,
     ) -> None:
         """Initialise le service ; ``source_name`` nomme l'archive d'export."""
         self._source_name = source_name
-        self._genealogy: Optional[Genealogy] = None
+        self._genealogy: Genealogy | None = None
         self._parser = GeneWebParser(use_multipass=False)
-        self._witness_index: Optional[Dict[str, set]] = None  # lazy cache
-        self._candidate_index: Optional[CandidateIndex] = None
-        self._shared_experiences: Optional[SharedExperienceIndex] = None
-        self._unmatched: Optional[Tuple[int, List[UnmatchedGroup]]] = None
-        self._export_summary: Optional[Dict[str, int]] = None
+        self._witness_index: dict[str, set] | None = None  # lazy cache
+        self._candidate_index: CandidateIndex | None = None
+        self._shared_experiences: SharedExperienceIndex | None = None
+        self._unmatched: tuple[int, list[UnmatchedGroup]] | None = None
+        self._export_summary: dict[str, int] | None = None
         self._orgs_inferred = False  # organisations produites par l'inférence
-        self._ignored_words: Tuple[str, ...] = DEFAULT_IGNORED_WORDS
+        self._ignored_words: tuple[str, ...] = DEFAULT_IGNORED_WORDS
         if genealogy is not None:
             self._genealogy = genealogy
         else:
@@ -245,7 +246,7 @@ class GenealogyService:
 
         return person
 
-    def get_person(self, person_id: str) -> Optional[Person]:
+    def get_person(self, person_id: str) -> Person | None:
         """
         Récupère une personne par son ID.
 
@@ -260,7 +261,7 @@ class GenealogyService:
 
     def update_person(
         self, person_id: str, person_data: PersonUpdateSchema
-    ) -> Optional[Person]:
+    ) -> Person | None:
         """
         Met à jour une personne.
 
@@ -335,7 +336,7 @@ class GenealogyService:
 
     def search_persons(
         self, search_params: PersonSearchSchema
-    ) -> Tuple[List[Person], int]:
+    ) -> tuple[list[Person], int]:
         """
         Recherche des personnes selon les critères.
 
@@ -477,7 +478,7 @@ class GenealogyService:
 
         return family
 
-    def get_family(self, family_id: str) -> Optional[Family]:
+    def get_family(self, family_id: str) -> Family | None:
         """
         Récupère une famille par son ID.
 
@@ -492,7 +493,7 @@ class GenealogyService:
 
     def update_family(
         self, family_id: str, family_data: FamilyUpdateSchema
-    ) -> Optional[Family]:
+    ) -> Family | None:
         """
         Met à jour une famille.
 
@@ -519,7 +520,7 @@ class GenealogyService:
         if family_data.notes is not None:
             family.comments = family_data.notes
         if family_data.sources is not None:
-            src_first: Optional[str] = None
+            src_first: str | None = None
             for s in family_data.sources:
                 if s and str(s).strip():
                     src_first = str(s).strip()
@@ -569,7 +570,7 @@ class GenealogyService:
 
     def search_families(
         self, search_params: FamilySearchSchema
-    ) -> Tuple[List[Family], int]:
+    ) -> tuple[list[Family], int]:
         """
         Recherche des familles selon les critères.
 
@@ -654,7 +655,7 @@ class GenealogyService:
         if person is None:
             raise ValueError(f"Personne avec l'ID {event_data.person_id} non trouvée")
 
-        witness_dicts: List[Dict[str, Any]] = []
+        witness_dicts: list[dict[str, Any]] = []
         for w in event_data.witnesses or []:
             witness_dicts.append({"person_id": str(w)})
 
@@ -691,10 +692,10 @@ class GenealogyService:
         if family is None:
             raise ValueError(f"Famille avec l'ID {event_data.family_id} non trouvée")
 
-        witness_dicts: List[Dict[str, Any]] = []
+        witness_dicts: list[dict[str, Any]] = []
         for w in event_data.witnesses or []:
             witness_dicts.append({"person_id": str(w)})
-        source_val: Optional[str] = None
+        source_val: str | None = None
         if event_data.sources:
             for s in event_data.sources:
                 if s and str(s).strip():
@@ -720,7 +721,7 @@ class GenealogyService:
 
         return event
 
-    def get_event(self, event_id: str) -> Optional[Event]:
+    def get_event(self, event_id: str) -> Event | None:
         """
         Récupère un événement par son ID.
 
@@ -762,9 +763,7 @@ class GenealogyService:
 
         return None
 
-    def get_event_context(
-        self, event: Event
-    ) -> Tuple[Optional[str], Optional[str], int]:
+    def get_event_context(self, event: Event) -> tuple[str | None, str | None, int]:
         """Identifie la personne ou la famille et l'indice d'un événement en mémoire."""
         genealogy = self.genealogy
         for person in genealogy.persons.values():
@@ -779,7 +778,7 @@ class GenealogyService:
 
     def update_event(
         self, event_id: str, event_data: EventUpdateSchema
-    ) -> Optional[Event]:
+    ) -> Event | None:
         """
         Met à jour un événement.
 
@@ -824,7 +823,7 @@ class GenealogyService:
         if event_data.witnesses is not None:
             event.witnesses = [{"person_id": str(w)} for w in event_data.witnesses]
         if event_data.sources is not None:
-            first_src: Optional[str] = None
+            first_src: str | None = None
             for s in event_data.sources:
                 if s and str(s).strip():
                     first_src = str(s).strip()
@@ -892,14 +891,14 @@ class GenealogyService:
     def _hit_label(self, hit: "EventSearchHit") -> str:
         """Nom(s) affichés pour un résultat : personne, ou époux d'une famille."""
         genealogy = self.genealogy
-        ids: List[Optional[str]] = []
+        ids: list[str | None] = []
         if hit.person_id is not None:
             ids = [hit.person_id]
         elif hit.family_id is not None:
             fam = genealogy.families.get(hit.family_id)
             if fam is not None:
                 ids = [fam.husband_id, fam.wife_id]
-        names: List[str] = []
+        names: list[str] = []
         for pid in ids:
             person = genealogy.persons.get(pid) if pid else None
             if person is not None:
@@ -907,8 +906,8 @@ class GenealogyService:
         return " ".join(names)
 
     def search_events(
-        self, search_params: Dict[str, Any]
-    ) -> Tuple[List[EventSearchHit], int]:
+        self, search_params: dict[str, Any]
+    ) -> tuple[list[EventSearchHit], int]:
         """
         Recherche des événements selon les critères.
 
@@ -919,7 +918,7 @@ class GenealogyService:
             Tuple[List[EventSearchHit], int]: (résultats avec contexte, nombre total)
         """
         genealogy = self.genealogy
-        hits: List[EventSearchHit] = []
+        hits: list[EventSearchHit] = []
 
         for person in genealogy.persons.values():
             for idx, pev in enumerate(person.events):
@@ -947,7 +946,7 @@ class GenealogyService:
         if search_params.get("query"):
             query_lower = search_params["query"].lower()
 
-            def _match_notes(notes: List[str]) -> bool:
+            def _match_notes(notes: list[str]) -> bool:
                 return any(query_lower in (n or "").lower() for n in notes)
 
             hits = [
@@ -1040,7 +1039,7 @@ class GenealogyService:
 
     # === VALIDATION ===
 
-    def validate_genealogy(self, strict: bool = False) -> Dict[str, Any]:
+    def validate_genealogy(self, strict: bool = False) -> dict[str, Any]:
         """
         Valide la cohérence des références personnes/familles.
 
@@ -1059,7 +1058,7 @@ class GenealogyService:
         genealogy = self.genealogy
         errors_list = genealogy.validate_consistency(strict=strict)
         error_payloads = [err.to_dict() for err in errors_list]
-        suggestions: List[str] = []
+        suggestions: list[str] = []
         if error_payloads:
             suggestions.append(
                 "Vérifiez que chaque identifiant cité dans une famille existe "
@@ -1074,14 +1073,14 @@ class GenealogyService:
 
     # === GRAPHE DE PARENTÉ ===
 
-    def _get_witness_index(self) -> Dict[str, set]:
+    def _get_witness_index(self) -> dict[str, set]:
         """Returns {witness_id: set_of_person_ids_whose_events_they_witnessed}.
 
         Lazy-computed and cached on first call.
         """
         if self._witness_index is not None:
             return self._witness_index
-        index: Dict[str, set] = {}
+        index: dict[str, set] = {}
         genealogy = self.genealogy
         for person in genealogy.persons.values():
             for event in person.events:
@@ -1132,7 +1131,7 @@ class GenealogyService:
             )
         return self._shared_experiences
 
-    def get_unmatched(self) -> Tuple[int, List[UnmatchedGroup]]:
+    def get_unmatched(self) -> tuple[int, list[UnmatchedGroup]]:
         """Reste à classer ``(total, groupes)`` : sans organisations ni expériences proches."""
         if self._unmatched is None:
             index = self.get_candidate_index()
@@ -1145,7 +1144,7 @@ class GenealogyService:
             )
         return self._unmatched
 
-    def export_bundle(self, now: datetime) -> Tuple[str, bytes]:
+    def export_bundle(self, now: datetime) -> tuple[str, bytes]:
         """Archive d'export de la session : ``(nom, octets)``."""
         return build_export_bundle(
             self.genealogy,
@@ -1156,7 +1155,7 @@ class GenealogyService:
             now,
         )
 
-    def export_summary(self) -> Dict[str, int]:
+    def export_summary(self) -> dict[str, int]:
         """Comptes de la ligne de résumé, tirés des mêmes tables que l'archive.
 
         Mis en cache comme l'index des candidats : invalidé à l'écriture et au
@@ -1182,11 +1181,11 @@ class GenealogyService:
         return dict(self._export_summary)
 
     @property
-    def ignored_words(self) -> Tuple[str, ...]:
+    def ignored_words(self) -> tuple[str, ...]:
         """Mots qui écartent un événement « Autre » des organisations candidates."""
         return self._ignored_words
 
-    def set_ignored_words(self, words: Iterable[str]) -> Tuple[str, ...]:
+    def set_ignored_words(self, words: Iterable[str]) -> tuple[str, ...]:
         """Remplace les mots ignorés (normalisés) et invalide l'index des candidats."""
         normalized = normalize_ignored_words(words)
         if normalized != self._ignored_words:
@@ -1197,7 +1196,7 @@ class GenealogyService:
             self._export_summary = None
         return self._ignored_words
 
-    def get_related_person_ids(self, person_id: str, degree: int) -> Dict[str, Any]:
+    def get_related_person_ids(self, person_id: str, degree: int) -> dict[str, Any]:
         """Returns person_ids and family_ids related to person_id up to the given degree.
 
         Degree 1: self + spouses + families_as_spouse
@@ -1255,7 +1254,7 @@ class GenealogyService:
 
     # === STATISTIQUES ===
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Récupère les statistiques de la généalogie.
 
@@ -1265,8 +1264,8 @@ class GenealogyService:
         genealogy = self.genealogy
 
         # Statistiques des personnes
-        persons_by_sex: Dict[str, int] = {}
-        persons_by_access: Dict[str, int] = {}
+        persons_by_sex: dict[str, int] = {}
+        persons_by_access: dict[str, int] = {}
         persons_with_birth_date = 0
         persons_with_death_date = 0
 
@@ -1286,7 +1285,7 @@ class GenealogyService:
                 persons_with_death_date += 1
 
         # Statistiques des familles
-        families_by_status: Dict[str, int] = {}
+        families_by_status: dict[str, int] = {}
         families_with_children = 0
         total_children = 0
 
@@ -1303,7 +1302,7 @@ class GenealogyService:
             total_children += len(family.children)
 
         # Statistiques des événements (collectés depuis les personnes et familles)
-        events_by_type: Dict[str, int] = {}
+        events_by_type: dict[str, int] = {}
         personal_events = 0
         family_events = 0
 
@@ -1365,9 +1364,9 @@ class GenealogyService:
 
 
 def _person_year_in_range(
-    date_val: Optional[Date],
-    year_from: Optional[int],
-    year_to: Optional[int],
+    date_val: Date | None,
+    year_from: int | None,
+    year_to: int | None,
 ) -> bool:
     """Indique si au moins une année candidate chevauche ``[year_from, year_to]``.
 
@@ -1412,19 +1411,19 @@ def _person_matches_place(person: Person, needle_normalized: str) -> bool:
     return False
 
 
-def _build_advanced_genealogy_stats(genealogy: Genealogy) -> Dict[str, Any]:
+def _build_advanced_genealogy_stats(genealogy: Genealogy) -> dict[str, Any]:
     """Construit des statistiques complémentaires.
 
     Inclut longévité (âge au décès), répartition géographique (lieux fréquents)
     et distribution des tailles de famille (histogramme du nombre d'enfants).
     """
     persons = list(genealogy.persons.values())
-    ages_at_death: List[int] = []
+    ages_at_death: list[int] = []
     for p in persons:
         if p.age_at_death is not None:
             ages_at_death.append(int(p.age_at_death))
 
-    longevity: Dict[str, Any] = {
+    longevity: dict[str, Any] = {
         "count_with_age_at_death": len(ages_at_death),
         "average_age_at_death": None,
         "min_age_at_death": None,
@@ -1439,14 +1438,14 @@ def _build_advanced_genealogy_stats(genealogy: Genealogy) -> Dict[str, Any]:
     death_places = _top_places_from_persons(persons, "death_place", limit=15)
 
     child_counts = [len(f.children) for f in genealogy.families.values()]
-    distribution: Dict[str, int] = {"0": 0, "1": 0, "2": 0, "3": 0, "4+": 0}
+    distribution: dict[str, int] = {"0": 0, "1": 0, "2": 0, "3": 0, "4+": 0}
     for n in child_counts:
         if n <= 3:
             distribution[str(n)] += 1
         else:
             distribution["4+"] += 1
 
-    family_sizes: Dict[str, Any] = {
+    family_sizes: dict[str, Any] = {
         "max_children_per_family": max(child_counts) if child_counts else 0,
         "min_children_per_family": min(child_counts) if child_counts else 0,
         "children_per_family_histogram": distribution,
@@ -1475,9 +1474,9 @@ _SOURCE_ATTRS = (
 )
 
 
-def _births_by_decade(persons: List[Person]) -> Dict[str, int]:
+def _births_by_decade(persons: list[Person]) -> dict[str, int]:
     """Naissances datées par décennie (« 1850 » = 1850-1859), en ordre chronologique."""
-    counts: Dict[int, int] = {}
+    counts: dict[int, int] = {}
     for person in persons:
         year = person.birth_date.sort_year() if person.birth_date else None
         if year is None or year <= 0:
@@ -1487,10 +1486,10 @@ def _births_by_decade(persons: List[Person]) -> Dict[str, int]:
     return {str(decade): counts[decade] for decade in sorted(counts)}
 
 
-def _top_surnames(persons: List[Person], limit: int) -> List[Dict[str, Any]]:
+def _top_surnames(persons: list[Person], limit: int) -> list[dict[str, Any]]:
     """Patronymes les plus portés (comparaison insensible à la casse ; ``?`` exclu)."""
-    counts: Dict[str, int] = {}
-    label_for_key: Dict[str, str] = {}
+    counts: dict[str, int] = {}
+    label_for_key: dict[str, str] = {}
     for person in persons:
         surname = (person.last_name or "").strip()
         if not surname or surname == "?":
@@ -1505,7 +1504,7 @@ def _top_surnames(persons: List[Person], limit: int) -> List[Dict[str, Any]]:
     ]
 
 
-def _coverage(persons: List[Person]) -> Dict[str, int]:
+def _coverage(persons: list[Person]) -> dict[str, int]:
     """Nombre de personnes renseignées pour chaque information clé."""
     return {
         "persons": len(persons),
@@ -1537,11 +1536,11 @@ def _distinct_places(persons: Iterable[Any], attr: str) -> int:
 
 def _top_places_from_persons(
     persons: Iterable[Any], attr: str, limit: int
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Villes les plus fréquentes pour l'attribut lieu ``attr`` (« Lille, Nord » compte
     pour « Lille », « [Maternité] - Lille » aussi)."""
-    counts: Dict[str, int] = {}
-    label_for_key: Dict[str, str] = {}
+    counts: dict[str, int] = {}
+    label_for_key: dict[str, str] = {}
     for place in _person_cities(persons, attr):
         key = place.lower()
         counts[key] = counts.get(key, 0) + 1

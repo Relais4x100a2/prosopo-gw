@@ -8,7 +8,7 @@ familles liées) pour des réponses JSON cohérentes sans champs fantômes vides
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from ..core.date import Date
 from ..core.event import Event, FamilyEvent, PersonalEvent
@@ -20,7 +20,7 @@ from .models.family import ChildSchema
 from .models.person import TitleSchema
 
 
-def date_to_api_string(date_val: Optional[Date]) -> Optional[str]:
+def date_to_api_string(date_val: Date | None) -> str | None:
     """Convertit une ``Date`` core en chaîne GeneWeb pour l'API.
 
     Args:
@@ -35,7 +35,7 @@ def date_to_api_string(date_val: Optional[Date]) -> Optional[str]:
     return date_val.display_text
 
 
-def parse_api_date_string(raw: Optional[str]) -> Optional[Date]:
+def parse_api_date_string(raw: str | None) -> Date | None:
     """Parse une date fournie par le corps API (GeneWeb ou vide).
 
     Args:
@@ -66,13 +66,13 @@ def title_to_schema(title: Title) -> TitleSchema:
 
 
 def titles_from_create_schemas(
-    title_data_list: List[Any],
-) -> List[Title]:
+    title_data_list: list[Any],
+) -> list[Title]:
     """Construit des ``Title`` à partir des schémas de création / mise à jour."""
-    titles: List[Title] = []
+    titles: list[Title] = []
     for title_data in title_data_list:
-        start_d: Optional[Date] = None
-        end_d: Optional[Date] = None
+        start_d: Date | None = None
+        end_d: Date | None = None
         if (
             getattr(title_data, "start_date", None) is not None
             and str(title_data.start_date).strip()
@@ -97,9 +97,9 @@ def titles_from_create_schemas(
     return titles
 
 
-def person_source_fields(person: Person) -> List[str]:
+def person_source_fields(person: Person) -> list[str]:
     """Agrège les champs source renseignés sur une personne."""
-    out: List[str] = []
+    out: list[str] = []
     for raw in (
         person.birth_source,
         person.death_source,
@@ -113,7 +113,7 @@ def person_source_fields(person: Person) -> List[str]:
 
 
 def child_to_schema(
-    child: Union[Child, str],
+    child: Child | str,
 ) -> ChildSchema:
     """Convertit un enfant domaine (ou identifiant brut) en schéma API."""
     if isinstance(child, str):
@@ -150,9 +150,9 @@ def stable_event_id(
     return f"evt_{scope}_{scope_key}_{index}_{suffix}"
 
 
-def event_witnesses_to_api_strings(witnesses: List[Any]) -> List[str]:
+def event_witnesses_to_api_strings(witnesses: list[Any]) -> list[str]:
     """Normalise les témoins (dict ou chaîne) en liste de chaînes."""
-    out: List[str] = []
+    out: list[str] = []
     for w in witnesses:
         if isinstance(w, str):
             if w.strip():
@@ -164,7 +164,7 @@ def event_witnesses_to_api_strings(witnesses: List[Any]) -> List[str]:
     return out
 
 
-def event_sources_list(event: Event) -> List[str]:
+def event_sources_list(event: Event) -> list[str]:
     """Liste des sources pour l'API à partir d'un événement domaine."""
     if event.source and str(event.source).strip():
         return [str(event.source).strip()]
@@ -179,9 +179,9 @@ def event_to_schema(
     event: Event,
     *,
     event_id: str,
-    person_id: Optional[str],
-    family_id: Optional[str],
-    genealogy: Optional[Genealogy] = None,
+    person_id: str | None,
+    family_id: str | None,
+    genealogy: Genealogy | None = None,
 ) -> EventSchema:
     """Construit un ``EventSchema`` à partir d'un événement domaine."""
     if isinstance(event, PersonalEvent):
@@ -191,16 +191,16 @@ def event_to_schema(
     else:
         evt_type = event.event_type
 
-    note_joined: Optional[str] = None
+    note_joined: str | None = None
     if event.notes:
         joined = "\n".join(str(n) for n in event.notes if n is not None)
         note_joined = joined if joined else None
 
     # Name resolution (requires genealogy)
-    resolved_person_name: Optional[str] = None
-    resolved_family_label: Optional[str] = None
-    resolved_witness_names: List[str] = []
-    date_sort_year: Optional[int] = None
+    resolved_person_name: str | None = None
+    resolved_family_label: str | None = None
+    resolved_witness_names: list[str] = []
+    date_sort_year: int | None = None
 
     if genealogy is not None:
         if person_id is not None:
@@ -213,7 +213,7 @@ def event_to_schema(
         if family_id is not None:
             fam = genealogy.families.get(family_id)
             if fam is not None:
-                parts: List[str] = []
+                parts: list[str] = []
                 if fam.husband_id:
                     h = genealogy.persons.get(fam.husband_id)
                     if h:
@@ -242,7 +242,7 @@ def event_to_schema(
     if event.date is not None:
         date_sort_year = event.date.sort_year()
 
-    custom_type: Optional[str] = None
+    custom_type: str | None = None
     if str(getattr(evt_type, "value", evt_type)) in _CUSTOM_EVENT_CODES:
         custom_type = (event.event_type_raw or "").strip() or None
 
@@ -265,12 +265,12 @@ def event_to_schema(
     )
 
 
-def related_family_ids_for_person(person: Person) -> List[str]:
+def related_family_ids_for_person(person: Person) -> list[str]:
     """Retourne les IDs des familles où la personne est conjoint(e)."""
     return list(person.families_as_spouse)
 
 
-def century_key_from_year(year: Optional[int]) -> str:
+def century_key_from_year(year: int | None) -> str:
     """Retourne la clé de siècle du type ``19`` pour 1900–1999."""
     if year is None:
         return "unknown"
@@ -280,9 +280,9 @@ def century_key_from_year(year: Optional[int]) -> str:
     return str(century)
 
 
-def count_by_birth_century(genealogy: Genealogy) -> Dict[str, int]:
+def count_by_birth_century(genealogy: Genealogy) -> dict[str, int]:
     """Répartition des personnes par siècle de naissance (année principale)."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for person in genealogy.persons.values():
         y = person.birth_date.sort_year() if person.birth_date else None
         key = century_key_from_year(y)
@@ -290,9 +290,9 @@ def count_by_birth_century(genealogy: Genealogy) -> Dict[str, int]:
     return counts
 
 
-def count_marriage_century(genealogy: Genealogy) -> Dict[str, int]:
+def count_marriage_century(genealogy: Genealogy) -> dict[str, int]:
     """Répartition des familles par siècle de la date de mariage."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for family in genealogy.families.values():
         y = family.marriage_date.sort_year() if family.marriage_date else None
         key = century_key_from_year(y)
@@ -300,11 +300,11 @@ def count_marriage_century(genealogy: Genealogy) -> Dict[str, int]:
     return counts
 
 
-def count_event_century(genealogy: Genealogy) -> Dict[str, int]:
+def count_event_century(genealogy: Genealogy) -> dict[str, int]:
     """Répartition de tous les événements par siècle (date principal)."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
 
-    def bump(ed: Optional[Date]) -> None:
+    def bump(ed: Date | None) -> None:
         y = ed.sort_year() if ed else None
         key = century_key_from_year(y)
         counts[key] = counts.get(key, 0) + 1
@@ -327,7 +327,7 @@ def _date_has_usable_parts(d: Date) -> bool:
     return d.year is not None or d.month is not None or d.day is not None
 
 
-def family_events_breakdown(genealogy: Genealogy) -> Dict[str, int]:
+def family_events_breakdown(genealogy: Genealogy) -> dict[str, int]:
     """Nombre de familles avec date de mariage / divorce (présence)."""
     with_marriage = 0
     with_divorce = 0

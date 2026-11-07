@@ -7,7 +7,8 @@ pas recopié : il se joint par les identifiants des autres tables.
 """
 
 import hashlib
-from typing import AbstractSet, Iterable, List, Mapping, Optional
+from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 
 from ..core.event import Event, EventType
 from ..core.event_to_organization import (
@@ -66,7 +67,7 @@ def _lead_id(origin: str, target: str, rank: int, start: int) -> str:
     return "p-" + digest.hexdigest()[:12]
 
 
-def _family_owner(genealogy: Genealogy, family: Family) -> Optional[str]:
+def _family_owner(genealogy: Genealogy, family: Family) -> str | None:
     for spouse in (family.husband_id, family.wife_id):
         if spouse and spouse in genealogy.persons:
             return spouse
@@ -103,15 +104,15 @@ def build_leads_table(
     """
     ignored = list(ignored_words)
     mapper = EventToOrganizationMapper()
-    rows: List[Row] = []
+    rows: list[Row] = []
 
     def add(
         origin: str,
         target: str,
         notes: Iterable[str],
-        person_id: Optional[str],
-        event_id: Optional[str] = None,
-        family_id: Optional[str] = None,
+        person_id: str | None,
+        event_id: str | None = None,
+        family_id: str | None = None,
         skip_first: bool = False,
     ) -> None:
         for rank, note in enumerate(notes):

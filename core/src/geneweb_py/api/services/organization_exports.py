@@ -6,7 +6,7 @@ BOM, séparés par ``;`` (ouverture directe dans un Excel français).
 
 import csv
 import io
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ...core.genealogy import Genealogy
 from ...core.shared_experiences import SharedExperienceIndex
@@ -21,7 +21,7 @@ from .organization_candidates import (
 LIST_SEPARATOR = "|"
 
 # Libellés français des codes (mêmes textes que l'onglet Organisations de la webapp).
-TYPE_LABELS: Dict[str, str] = {
+TYPE_LABELS: dict[str, str] = {
     "company": "Entreprise",
     "school": "École",
     "association": "Association",
@@ -30,14 +30,14 @@ TYPE_LABELS: Dict[str, str] = {
     "military": "Militaire",
     "other": "Autre",
 }
-NAMED_FROM_LABELS: Dict[str, str] = {
+NAMED_FROM_LABELS: dict[str, str] = {
     "tag": "Nom personnalisé",
     "place": "Lieu",
     "typed_event": "Événement typé",
     "occupation_text": "Profession",
     "address": "Adresse",
 }
-SOURCE_LABELS: Dict[str, str] = {
+SOURCE_LABELS: dict[str, str] = {
     "oth": "événement libre",
     "occu": "profession",
     "educ": "éducation",
@@ -52,7 +52,7 @@ SOURCE_LABELS: Dict[str, str] = {
     "occu_attr": "profession (attribut)",
 }
 
-CANDIDATES_CSV_HEADER: List[str] = [
+CANDIDATES_CSV_HEADER: list[str] = [
     "id",
     "nom",
     "type",
@@ -71,7 +71,7 @@ CANDIDATES_CSV_HEADER: List[str] = [
     "roles",
 ]
 
-LINKS_CSV_HEADER: List[str] = [
+LINKS_CSV_HEADER: list[str] = [
     "organisation_id",
     "organisation",
     "personne_id",
@@ -86,7 +86,7 @@ LINKS_CSV_HEADER: List[str] = [
     "nom_retenu",
 ]
 
-SHARED_EXPERIENCES_CSV_HEADER: List[str] = [
+SHARED_EXPERIENCES_CSV_HEADER: list[str] = [
     "experience",
     "theme",
     "periode",
@@ -99,22 +99,22 @@ SHARED_EXPERIENCES_CSV_HEADER: List[str] = [
 ]
 
 
-def _text(value: Optional[Any]) -> str:
+def _text(value: Any | None) -> str:
     """Cellule de texte : jamais interprétée comme une formule."""
     return "" if value is None else neutralize_formula(str(value))
 
 
-def _label(labels: Dict[str, str], code: Optional[str]) -> str:
+def _label(labels: dict[str, str], code: str | None) -> str:
     """Libellé français d'un code ; le code lui-même s'il est inconnu."""
     return "" if code is None else neutralize_formula(labels.get(code, code))
 
 
-def _decimal(value: Optional[float]) -> str:
+def _decimal(value: float | None) -> str:
     """Nombre décimal à virgule, lu comme un nombre par un Excel français."""
     return "" if value is None else f"{value:g}".replace(".", ",")
 
 
-def _sorted(index: CandidateIndex) -> List[Candidate]:
+def _sorted(index: CandidateIndex) -> list[Candidate]:
     return sorted(index.candidates.values(), key=lambda c: (c.name.casefold(), c.id))
 
 
@@ -122,7 +122,7 @@ def _bool(value: bool) -> str:
     return "oui" if value else "non"
 
 
-def _render(header: List[str], rows: List[List[str]]) -> str:
+def _render(header: list[str], rows: list[list[str]]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\n")
     writer.writerow(header)
@@ -188,7 +188,7 @@ def _years(start: int, end: int) -> str:
     return str(start) if start == end else f"{start}-{end}"
 
 
-def _reason_label(kind: str, place: Optional[str], words: Any) -> str:
+def _reason_label(kind: str, place: str | None, words: Any) -> str:
     if kind == "rare_word":
         return "mot commun : " + ", ".join(words)
     return "même lieu"
@@ -196,7 +196,7 @@ def _reason_label(kind: str, place: Optional[str], words: Any) -> str:
 
 def shared_experiences_csv(genealogy: Genealogy, index: SharedExperienceIndex) -> str:
     """Une ligne par événement, dans l'ordre des expériences puis nom replié et année."""
-    rows: List[List[str]] = []
+    rows: list[list[str]] = []
     for e in index.items:
         period = _years(e.year_min, e.year_max)
         places = ", ".join(e.places)
@@ -218,6 +218,6 @@ def shared_experiences_csv(genealogy: Genealogy, index: SharedExperienceIndex) -
     return _render(SHARED_EXPERIENCES_CSV_HEADER, rows)
 
 
-def candidates_sidecar(genealogy: Genealogy, index: CandidateIndex) -> Dict[str, Any]:
+def candidates_sidecar(genealogy: Genealogy, index: CandidateIndex) -> dict[str, Any]:
     """Fichier compagnon limité aux candidats et à leurs liens."""
     return sidecar_payload(genealogy, set(index.candidates))

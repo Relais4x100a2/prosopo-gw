@@ -6,10 +6,11 @@ tous les tokens du format : blocs, mots-clés, identifiants, dates, etc.
 """
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Iterator, List, Optional, Pattern
+from re import Pattern
 
 from ..exceptions import GeneWebParseError
 
@@ -197,7 +198,7 @@ class LexicalParser:
     selon la spécification du format GeneWeb.
     """
 
-    def __init__(self, text: str, filename: Optional[str] = None):
+    def __init__(self, text: str, filename: str | None = None):
         """Initialise le parser lexical
 
         Args:
@@ -209,7 +210,7 @@ class LexicalParser:
         self.position = 0
         self.line_number = 1
         self.column = 1
-        self.tokens: List[Token] = []
+        self.tokens: list[Token] = []
 
         # Patterns de reconnaissance
         self._compile_patterns()
@@ -339,7 +340,7 @@ class LexicalParser:
             "moth": TokenType.MOTH,
         }
 
-    def tokenize(self) -> List[Token]:
+    def tokenize(self) -> list[Token]:
         """Tokenise le texte complet
 
         Returns:
@@ -405,7 +406,7 @@ class LexicalParser:
             self.column += 1
             self.position += 1
 
-    def _next_token(self) -> Optional[Token]:
+    def _next_token(self) -> Token | None:
         """Lit le prochain token
 
         Returns:
@@ -566,7 +567,7 @@ class LexicalParser:
             position=pos,
         )
 
-    def _parse_block_keyword(self, line: int, col: int, pos: int) -> Optional[Token]:
+    def _parse_block_keyword(self, line: int, col: int, pos: int) -> Token | None:
         """Parse un mot-clé de bloc en début de ligne (peut être composé)"""
         word = ""
         start_pos = pos
@@ -815,7 +816,7 @@ class LexicalParser:
                 self.column += 1
             self.position += 1
 
-    def get_tokens(self) -> List[Token]:
+    def get_tokens(self) -> list[Token]:
         """Retourne la liste des tokens"""
         return self.tokens
 

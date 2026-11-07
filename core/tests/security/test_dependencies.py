@@ -6,7 +6,6 @@ et que les versions sont appropriées.
 """
 
 from pathlib import Path
-from typing import Set
 
 import pytest
 
@@ -190,7 +189,7 @@ def test_secure_imports():
     import ast
 
     # Modules potentiellement dangereux (import / from … import)
-    dangerous_modules: Set[str] = {"pickle", "shelve", "marshal"}
+    dangerous_modules: set[str] = {"pickle", "shelve", "marshal"}
 
     package_root = _package_source_root()
     py_files = list(package_root.rglob("*.py"))

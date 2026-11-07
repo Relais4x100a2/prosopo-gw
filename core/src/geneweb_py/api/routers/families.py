@@ -2,7 +2,7 @@
 Router FastAPI pour la gestion des familles dans l'API geneweb-py.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -159,19 +159,19 @@ async def delete_family(
 async def list_families(
     page: int = Query(1, ge=1, description="Numéro de page"),
     size: int = Query(20, ge=1, le=100, description="Taille de la page"),
-    query: Optional[str] = Query(None, description="Recherche textuelle"),
-    husband_id: Optional[str] = Query(None, description="Filtrer par mari"),
-    wife_id: Optional[str] = Query(None, description="Filtrer par épouse"),
-    marriage_status: Optional[MarriageStatus] = Query(
+    query: str | None = Query(None, description="Recherche textuelle"),
+    husband_id: str | None = Query(None, description="Filtrer par mari"),
+    wife_id: str | None = Query(None, description="Filtrer par épouse"),
+    marriage_status: MarriageStatus | None = Query(
         None, description="Filtrer par statut de mariage"
     ),
-    has_children: Optional[bool] = Query(
+    has_children: bool | None = Query(
         None, description="Filtrer par présence d'enfants"
     ),
-    min_children: Optional[int] = Query(
+    min_children: int | None = Query(
         None, ge=0, description="Nombre minimum d'enfants"
     ),
-    max_children: Optional[int] = Query(
+    max_children: int | None = Query(
         None, ge=0, description="Nombre maximum d'enfants"
     ),
     service: GenealogyService = Depends(get_session_service),
@@ -258,12 +258,12 @@ async def get_family_children(
         )
 
     genealogy = service.genealogy
-    children_out: List[Dict[str, Any]] = []
+    children_out: list[dict[str, Any]] = []
     for ch in family.children:
         if isinstance(ch, str):
             pid: str = ch
-            sex_val: Optional[str] = None
-            last: Optional[str] = None
+            sex_val: str | None = None
+            last: str | None = None
         else:
             pid = ch.person_id
             sex_val = ch.sex.value if ch.sex else None

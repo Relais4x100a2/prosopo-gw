@@ -10,7 +10,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .date import Date
 from .place import ParsedPlace, parse_place
@@ -36,15 +36,15 @@ def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", ascii_text.lower()).strip("_")
 
 
-def _date_to_json(value: Optional[Date]) -> Optional[str]:
+def _date_to_json(value: Date | None) -> str | None:
     return value.display_text if value is not None else None
 
 
-def _date_from_json(value: Optional[str]) -> Optional[Date]:
+def _date_from_json(value: str | None) -> Date | None:
     return Date.parse_with_fallback(value) if value else None
 
 
-def _periods_inverted(start: Optional[Date], end: Optional[Date]) -> bool:
+def _periods_inverted(start: Date | None, end: Date | None) -> bool:
     """Vrai si les deux dates ont une année exploitable et ``start`` > ``end``."""
     if start is None or end is None:
         return False
@@ -61,25 +61,25 @@ class Organization:
     name: str
     type: OrganizationType = OrganizationType.OTHER
     # Type d'origine quand il n'est pas reconnu (type == OTHER)
-    type_raw: Optional[str] = None
-    aliases: List[str] = field(default_factory=list)
-    founding_date: Optional[Date] = None
-    dissolution_date: Optional[Date] = None
+    type_raw: str | None = None
+    aliases: list[str] = field(default_factory=list)
+    founding_date: Date | None = None
+    dissolution_date: Date | None = None
     # Lieu brut ``[complément]_-_lieu`` ; voir ``place_parts``
-    place: Optional[str] = None
-    url: Optional[str] = None
-    notes: List[str] = field(default_factory=list)
-    sources: List[str] = field(default_factory=list)
+    place: str | None = None
+    url: str | None = None
+    notes: list[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
     # Hiérarchie (faculté -> université)
-    parent_id: Optional[str] = None
+    parent_id: str | None = None
     # Confiance 0..1 quand l'organisation est déduite (LLM/règles)
-    confidence: Optional[float] = None
+    confidence: float | None = None
     needs_review: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
-        cls, name: str, place: Optional[str] = None, **kwargs: Any
+        cls, name: str, place: str | None = None, **kwargs: Any
     ) -> "Organization":
         """Crée une organisation avec un ``id`` stable dérivé du nom et du lieu."""
         slug = _slugify(name)
@@ -88,13 +88,13 @@ class Organization:
         return cls(id=slug, name=name, place=place, **kwargs)
 
     @property
-    def place_parts(self) -> Optional[ParsedPlace]:
+    def place_parts(self) -> ParsedPlace | None:
         """Lieu décomposé (complément / commune) ; ``place`` reste la chaîne brute"""
         return parse_place(self.place)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Retourne la liste des incohérences (vide si l'organisation est valide)."""
-        problems: List[str] = []
+        problems: list[str] = []
         if not self.name or not self.name.strip():
             problems.append(f"{self.id}: nom vide")
         if self.confidence is not None and not 0.0 <= self.confidence <= 1.0:
@@ -105,7 +105,7 @@ class Organization:
             problems.append(f"{self.id}: dates incohérentes (dissolution < fondation)")
         return problems
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'organisation en dictionnaire JSON-compatible"""
         return {
             "id": self.id,
@@ -126,7 +126,7 @@ class Organization:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Organization":
+    def from_dict(cls, data: dict[str, Any]) -> "Organization":
         """Reconstruit une organisation (type inconnu -> ``OTHER`` + ``type_raw``)"""
         raw_type = data.get("type")
         type_raw = data.get("type_raw")
@@ -163,17 +163,17 @@ class OrganizationLink:
     person_id: str
     organization_id: str
     # Rôle/titre/fonction libre : « Membre », « Directeur », « Apprenti »…
-    role: Optional[str] = None
-    start_date: Optional[Date] = None
-    end_date: Optional[Date] = None
+    role: str | None = None
+    start_date: Date | None = None
+    end_date: Date | None = None
     # Événement d'origine : identifiant et/ou tag (ex. ``Cours_peinture``)
-    source_event_id: Optional[str] = None
-    source_event_type: Optional[str] = None
-    notes: List[str] = field(default_factory=list)
+    source_event_id: str | None = None
+    source_event_type: str | None = None
+    notes: list[str] = field(default_factory=list)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Retourne la liste des incohérences (vide si le lien est valide)."""
-        problems: List[str] = []
+        problems: list[str] = []
         if _periods_inverted(self.start_date, self.end_date):
             problems.append(
                 f"{self.person_id}->{self.organization_id}: "
@@ -181,7 +181,7 @@ class OrganizationLink:
             )
         return problems
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit le lien en dictionnaire JSON-compatible"""
         return {
             "person_id": self.person_id,
@@ -195,7 +195,7 @@ class OrganizationLink:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OrganizationLink":
+    def from_dict(cls, data: dict[str, Any]) -> "OrganizationLink":
         """Reconstruit un lien depuis son dictionnaire"""
         return cls(
             person_id=data["person_id"],

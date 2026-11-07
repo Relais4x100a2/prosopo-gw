@@ -1,7 +1,7 @@
 """Export complet de la base : une archive zip (voir ``core/doc/exports_design.md``)."""
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Optional, Sequence, Tuple
 
 from ...core.genealogy import Genealogy
 from ...core.shared_experiences import SharedExperienceIndex
@@ -17,9 +17,9 @@ def build_export_bundle(
     index: CandidateIndex,
     shared: SharedExperienceIndex,
     ignored_words: Sequence[str],
-    source_name: Optional[str],
+    source_name: str | None,
     now: datetime,
-) -> Tuple[str, bytes]:
+) -> tuple[str, bytes]:
     """``(nom de l'archive, octets)`` : tables de la base et des organisations, compagnon."""
     tables = build_base_tables(genealogy) + build_organization_tables(
         genealogy, index, shared, ignored_words

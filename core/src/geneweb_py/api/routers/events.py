@@ -2,7 +2,8 @@
 Router FastAPI pour la gestion des événements dans l'API geneweb-py.
 """
 
-from typing import Any, Dict, Generator, Optional, Tuple
+from collections.abc import Generator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -44,7 +45,7 @@ def _family_events_index_for_response(family: object) -> int:
 
 def _unpack_event_context(
     service: GenealogyService, event: Event
-) -> Tuple[Optional[str], Optional[str], int]:
+) -> tuple[str | None, str | None, int]:
     """Décompacte le contexte d'événement si le service le fournit correctement."""
     ctx = service.get_event_context(event)
     if isinstance(ctx, tuple) and len(ctx) == 3:
@@ -58,7 +59,7 @@ def _unpack_event_context(
 
 def _iterate_search_events(
     service: GenealogyService, hits: object
-) -> Generator[Tuple[Event, Optional[str], Optional[str], int], None, None]:
+) -> Generator[tuple[Event, str | None, str | None, int], None, None]:
     """Parcourt ``search_events`` : ``EventSearchHit`` ou liste d'``Event``."""
     if not isinstance(hits, list):
         return
@@ -333,30 +334,28 @@ async def delete_event(
 async def list_events(
     page: int = Query(1, ge=1, description="Numéro de page"),
     size: int = Query(20, ge=1, le=100, description="Taille de la page"),
-    query: Optional[str] = Query(None, description="Recherche textuelle"),
-    event_type: Optional[str] = Query(
+    query: str | None = Query(None, description="Recherche textuelle"),
+    event_type: str | None = Query(
         None,
         description="Filtrer par type d'événement (plusieurs types séparés par des virgules)",
     ),
-    person_id: Optional[str] = Query(None, description="Filtrer par personne"),
-    related_to: Optional[str] = Query(
+    person_id: str | None = Query(None, description="Filtrer par personne"),
+    related_to: str | None = Query(
         None,
         description="Personne de référence : ne garde que les événements de ses liens, jusqu'à `degree`",
     ),
     degree: int = Query(1, ge=1, le=3, description="Degré de lien pour `related_to`"),
-    family_name: Optional[str] = Query(
+    family_name: str | None = Query(
         None, description="Nom de famille (personne ou époux), sans accents ni casse"
     ),
-    family_id: Optional[str] = Query(None, description="Filtrer par famille"),
-    year_from: Optional[int] = Query(
-        None, ge=1000, le=3000, description="Année minimum"
-    ),
-    year_to: Optional[int] = Query(None, ge=1000, le=3000, description="Année maximum"),
-    place: Optional[str] = Query(None, description="Filtrer par lieu"),
-    has_witnesses: Optional[bool] = Query(
+    family_id: str | None = Query(None, description="Filtrer par famille"),
+    year_from: int | None = Query(None, ge=1000, le=3000, description="Année minimum"),
+    year_to: int | None = Query(None, ge=1000, le=3000, description="Année maximum"),
+    place: str | None = Query(None, description="Filtrer par lieu"),
+    has_witnesses: bool | None = Query(
         None, description="Filtrer par présence de témoins"
     ),
-    has_sources: Optional[bool] = Query(
+    has_sources: bool | None = Query(
         None, description="Filtrer par présence de sources"
     ),
     service: GenealogyService = Depends(get_session_service),
@@ -386,7 +385,7 @@ async def list_events(
     """
     try:
         # Construction des paramètres de recherche
-        search_params: Dict[str, Any] = {
+        search_params: dict[str, Any] = {
             "page": page,
             "size": size,
             "query": query,

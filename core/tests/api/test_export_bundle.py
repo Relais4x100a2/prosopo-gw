@@ -6,7 +6,6 @@ import sqlite3
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
-from typing import List, Tuple
 
 from geneweb_py.api.services.export_bundle import build_export_bundle
 from geneweb_py.api.services.organization_candidates import build_candidate_index
@@ -58,7 +57,7 @@ end notes
 IGNORED = ("vacances",)
 
 
-def _bundle(genealogy: Genealogy, source: str = "ma_base.gw") -> Tuple[str, bytes]:
+def _bundle(genealogy: Genealogy, source: str = "ma_base.gw") -> tuple[str, bytes]:
     index = build_candidate_index(genealogy, IGNORED)
     shared = find_shared_experiences(genealogy, index.matched, set(IGNORED))
     return build_export_bundle(genealogy, index, shared, IGNORED, source, NOW)
@@ -72,7 +71,7 @@ def _zip(data: bytes) -> zipfile.ZipFile:
     return zipfile.ZipFile(io.BytesIO(data))
 
 
-def _tables(genealogy: Genealogy) -> List[Table]:
+def _tables(genealogy: Genealogy) -> list[Table]:
     index = build_candidate_index(genealogy, IGNORED)
     shared = find_shared_experiences(genealogy, index.matched, set(IGNORED))
     return build_base_tables(genealogy) + build_organization_tables(

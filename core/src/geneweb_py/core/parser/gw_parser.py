@@ -8,7 +8,7 @@ et syntaxique pour créer une représentation complète des données généalogi
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import chardet
 
@@ -116,8 +116,8 @@ _PEVT_DEDICATED_TOKENS = (TokenType.OCCU, TokenType.BURI, TokenType.CREM)
 
 
 def _tokens_line_text(
-    tokens: List[Token], start: int, source: Optional[str] = None
-) -> Tuple[str, int]:
+    tokens: list[Token], start: int, source: str | None = None
+) -> tuple[str, int]:
     """Texte d'une ligne, de ``tokens[start]`` à la fin de ligne.
 
     Avec ``source``, la ligne est relue telle quelle (guillemets, espaces multiples
@@ -142,7 +142,7 @@ def _tokens_line_text(
         ):
             i += 1
         return source[debut:fin].rstrip("\r")[:_TEXT_AGGREGATE_MAX_CHARS], i
-    parts: List[str] = []
+    parts: list[str] = []
     prev_end = -1
     i = start
     while i < len(tokens) and tokens[i].type not in (TokenType.NEWLINE, TokenType.EOF):
@@ -156,8 +156,8 @@ def _tokens_line_text(
 
 
 def _line_words(
-    tokens: List[Token], start: int, source: Optional[str] = None
-) -> Tuple[List[Tuple[str, int, bool]], int]:
+    tokens: list[Token], start: int, source: str | None = None
+) -> tuple[list[tuple[str, int, bool]], int]:
     """Mots bruts d'une ligne, de ``tokens[start]`` à la fin de ligne.
 
     Chaque mot vient avec l'index de son premier jeton et un drapeau « date » (le
@@ -168,7 +168,7 @@ def _line_words(
     Returns:
         (mots, index du premier jeton après la ligne)
     """
-    mots: List[Tuple[str, int, bool]] = []
+    mots: list[tuple[str, int, bool]] = []
     if source is not None and start < len(tokens):
         texte, fin_ligne = _tokens_line_text(tokens, start, source)
         debut = tokens[start].position
@@ -203,7 +203,7 @@ def _line_words(
     return mots, i
 
 
-def _apply_marriage_part(result: Dict[str, Any], part: MarriagePart) -> None:
+def _apply_marriage_part(result: dict[str, Any], part: MarriagePart) -> None:
     """Reporte la partie mariage lue mot à mot dans le résultat de la ligne fam.
 
     Les mots de lieu et de source restent bruts (``_`` compris), comme ailleurs.
@@ -237,7 +237,7 @@ def _apply_marriage_part(result: Dict[str, Any], part: MarriagePart) -> None:
         result["divorce_date"] = Date.parse_with_fallback(date_fin)
 
 
-def _content_lines(tokens: List[Token], with_end: bool = False) -> List[int]:
+def _content_lines(tokens: list[Token], with_end: bool = False) -> list[int]:
     """Numéros de ligne (triés) portant du contenu.
 
     Les fins de bloc (``end``, ``end pevt``...) sont exclues sauf ``with_end``.
@@ -255,7 +255,7 @@ def _content_lines(tokens: List[Token], with_end: bool = False) -> List[int]:
 
 def _node_line_span(
     node: SyntaxNode, with_end: bool = False
-) -> Tuple[Optional[int], Optional[int]]:
+) -> tuple[int | None, int | None]:
     """Première et dernière ligne source d'un nœud (enfants compris)."""
     lines = _content_lines(node.tokens, with_end)
     for child in node.children:
@@ -263,16 +263,14 @@ def _node_line_span(
     return (min(lines), max(lines)) if lines else (None, None)
 
 
-def _mark_person_defined(
-    person: Person, start: Optional[int], end: Optional[int]
-) -> None:
+def _mark_person_defined(person: Person, start: int | None, end: int | None) -> None:
     """Fixe la provenance d'une personne au premier bloc qui la définit."""
     if person.start_line is None:
         person.start_line = start
         person.end_line = end
 
 
-def _assign_event_end_lines(events: List[Any], tokens: List[Token]) -> None:
+def _assign_event_end_lines(events: list[Any], tokens: list[Token]) -> None:
     """Calcule ``end_line`` : dernière ligne de contenu avant l'événement suivant."""
     lines = _content_lines(tokens)
     started = [e for e in events if e.start_line is not None]
@@ -285,7 +283,7 @@ def _assign_event_end_lines(events: List[Any], tokens: List[Token]) -> None:
         event.end_line = max(inside) if inside else event.start_line
 
 
-def _attach_wnote(witnesses: List[Any], line_text: str) -> bool:
+def _attach_wnote(witnesses: list[Any], line_text: str) -> bool:
     """Rattache une ligne ``wnote …`` au dernier témoin ; faux s'il n'y en a pas."""
     if not witnesses:
         return False
@@ -299,13 +297,13 @@ def _is_bang(token: Token) -> bool:
     return token.type == TokenType.UNKNOWN and token.value == "!"
 
 
-def _read_file_header(content: str) -> Tuple[bool, Optional[str]]:
+def _read_file_header(content: str) -> tuple[bool, str | None]:
     """Lit l'en-tête du fichier : (``gwplus`` présent, valeur de ``encoding:``).
 
     L'en-tête est la suite de lignes qui précède le premier bloc.
     """
     gwplus = False
-    encoding: Optional[str] = None
+    encoding: str | None = None
     for ligne in content.split("\n", 20)[:20]:
         mot = ligne.strip()
         if not mot:
@@ -319,7 +317,7 @@ def _read_file_header(content: str) -> Tuple[bool, Optional[str]]:
     return gwplus, encoding
 
 
-def _is_line_start_note(tokens: List[Token], i: int) -> bool:
+def _is_line_start_note(tokens: list[Token], i: int) -> bool:
     """Vrai si tokens[i] est un mot ``note`` en début de ligne (hors ``#``)."""
     tok = tokens[i]
     return (
@@ -330,14 +328,14 @@ def _is_line_start_note(tokens: List[Token], i: int) -> bool:
 
 
 def _bounded_append_text_fragment(
-    parts: List[str],
+    parts: list[str],
     agg_len: int,
     fragment: str,
     inter_fragment_sep_len: int,
     max_fragments: int,
     max_aggregate_chars: int,
     log_context: str,
-) -> Tuple[int, bool]:
+) -> tuple[int, bool]:
     """Ajoute un fragment à une liste avec plafonds fragments / caractères.
 
     Utilisé pour éviter une croissance non bornée (entrée hostile) lors du
@@ -392,12 +390,12 @@ class GeneWebParser:
     - Parsing ligne par ligne au lieu de tout charger en mémoire
     """
 
-    _source: Optional[str] = None  # texte lu, pour les blocs à conserver tels quels
+    _source: str | None = None  # texte lu, pour les blocs à conserver tels quels
 
     def __init__(
         self,
         validate: bool = True,
-        stream_mode: Optional[bool] = None,
+        stream_mode: bool | None = None,
         streaming_threshold_mb: float = 10.0,
         strict: bool = True,
         use_multipass: bool = False,
@@ -420,19 +418,19 @@ class GeneWebParser:
         self.streaming_threshold_mb = streaming_threshold_mb
         self.strict = strict
         self.use_multipass = use_multipass
-        self.lexical_parser: Optional[LexicalParser] = None
+        self.lexical_parser: LexicalParser | None = None
         self.syntax_parser = SyntaxParser()
-        self.tokens: List[Token] = []
-        self.syntax_nodes: List[SyntaxNode] = []
+        self.tokens: list[Token] = []
+        self.syntax_nodes: list[SyntaxNode] = []
 
         # Collecteur d'erreurs pour parsing gracieux
         from ..exceptions import GeneWebErrorCollector
 
         self.error_collector = GeneWebErrorCollector(strict=strict)
         # Prochain rang libre des conjoints ``? ?`` par dictionnaire de personnes
-        self._anonymous_next: Dict[int, int] = {}
+        self._anonymous_next: dict[int, int] = {}
 
-    def parse_file(self, file_path: Union[str, Path]) -> Genealogy:
+    def parse_file(self, file_path: str | Path) -> Genealogy:
         """Parse un fichier .gw avec optimisation automatique
 
         Détecte automatiquement la taille du fichier et choisit le mode approprié :
@@ -529,8 +527,8 @@ class GeneWebParser:
     def parse_string(
         self,
         content: str,
-        filename: Optional[str] = None,
-        encoding: Optional[str] = None,
+        filename: str | None = None,
+        encoding: str | None = None,
     ) -> Genealogy:
         """Parse une chaîne de caractères contenant du .gw
 
@@ -729,7 +727,7 @@ class GeneWebParser:
         self,
         last_name: str,
         first_name: str,
-        occurrence_num: Optional[int],
+        occurrence_num: int | None,
         persons: dict,
         genealogy: Genealogy,
         gender: Gender = Gender.UNKNOWN,
@@ -791,7 +789,7 @@ class GeneWebParser:
         genealogy.add_or_update_person(person)
         return base_id
 
-    def _read_file_with_encoding(self, file_path: Path) -> Tuple[str, str]:
+    def _read_file_with_encoding(self, file_path: Path) -> tuple[str, str]:
         """Lit un fichier avec détection automatique d'encodage optimisée
 
         Optimisation: Essaye UTF-8 d'abord, utilise chardet seulement si nécessaire
@@ -845,7 +843,7 @@ class GeneWebParser:
                 f"Erreur lors de la lecture du fichier: {e}"
             ) from e  # noqa: E501
 
-    def get_memory_estimate(self, file_path: Union[str, Path]) -> dict:
+    def get_memory_estimate(self, file_path: str | Path) -> dict:
         """Estime l'utilisation mémoire pour parser un fichier
 
         Args:
@@ -889,7 +887,7 @@ class GeneWebParser:
 
     def _build_genealogy_incremental(
         self,
-        syntax_nodes: List[SyntaxNode],
+        syntax_nodes: list[SyntaxNode],
         second_cross_ref_pass: bool = False,
     ) -> Genealogy:
         """Construit Genealogy à partir d'une liste de nœuds syntaxiques.
@@ -905,8 +903,8 @@ class GeneWebParser:
         genealogy = Genealogy()
 
         # Dictionnaires pour stocker les entités pendant la construction
-        persons: Dict[str, Person] = {}  # ID -> Person
-        families: Dict[str, Family] = {}  # ID -> Family
+        persons: dict[str, Person] = {}  # ID -> Person
+        families: dict[str, Family] = {}  # ID -> Family
 
         # Contexte pour associer fevt et enfants à la famille précédente
         current_family = None  # Référence à la dernière famille créée
@@ -977,7 +975,7 @@ class GeneWebParser:
 
     def _parse_family_block(
         self, node: SyntaxNode, persons: dict, families: dict, genealogy: Genealogy
-    ) -> Optional[Family]:
+    ) -> Family | None:
         """Parse un bloc famille et construit les objets Person et Family
 
         Returns:
@@ -1173,7 +1171,7 @@ class GeneWebParser:
     def _apply_family_extra_tokens(
         self,
         family: Family,
-        tokens: List[Token],
+        tokens: list[Token],
         persons: dict,
         genealogy: Genealogy,
     ) -> None:
@@ -1351,7 +1349,7 @@ class GeneWebParser:
                 continue
             i += 1
 
-    def _parse_family_line(self, tokens: List[Token]) -> dict:
+    def _parse_family_line(self, tokens: list[Token]) -> dict:
         """Parse une ligne fam et extrait toutes les informations
 
         Format: fam LastName FirstName [infos perso] + LastName FirstName
@@ -1360,7 +1358,7 @@ class GeneWebParser:
         Returns:
             Dictionnaire avec toutes les informations extraites
         """
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "husband_name": None,
             "husband_anonymous": False,
             "husband_firstname": None,
@@ -1637,7 +1635,7 @@ class GeneWebParser:
             elif (
                 token.type == TokenType.PAREN_OPEN and result[f"{current_person}_name"]
             ):
-                parts: List[str] = []
+                parts: list[str] = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.PAREN_CLOSE:
                     parts.append(decode_word(tokens[i].value))
@@ -1734,7 +1732,7 @@ class GeneWebParser:
             # Occupation (#occu)
             elif token.type == TokenType.OCCU:
                 i += 1
-                occupation_parts: List[str] = []
+                occupation_parts: list[str] = []
                 occ_agg = 0
                 # La profession est un mot : jetons contigus de tout type (dates,
                 # tirets, parenthèses : ``Maire_(1850-1900)``)
@@ -1913,7 +1911,7 @@ class GeneWebParser:
             # On ne consomme que les UNKNOWN "," (virgules), pas "#" ni les autres.
             elif token.type == TokenType.MP:
                 i += 1
-                place_parts: List[str] = []
+                place_parts: list[str] = []
                 fin = place_run_end(tokens, i)
                 if fin > i:
                     place_parts.append(_join_tokens_text(tokens[i:fin]))
@@ -2094,7 +2092,7 @@ class GeneWebParser:
             # Ajouter l'enfant à la famille
             family.add_child(child_id, sex)
 
-    def _raw_notes_text(self, tokens: List[Token]) -> Optional[str]:
+    def _raw_notes_text(self, tokens: list[Token]) -> str | None:
         """Texte brut entre ``beg`` et ``end notes`` lu dans la source (None si absente)."""
         source = self._source
         if source is None:
@@ -2147,8 +2145,8 @@ class GeneWebParser:
                 return
 
             # Repli (source indisponible, mode streaming) : reconstruction par jetons
-            notes_content: List[str] = []
-            notes_tokens: List[Token] = []
+            notes_content: list[str] = []
+            notes_tokens: list[Token] = []
             notes_agg = 0
             notes_stop = False
             in_content = False
@@ -2184,7 +2182,7 @@ class GeneWebParser:
 
     def _parse_pevt_comment_line(
         self, comment_value: str, person_id: str
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Parse une ligne commentaire de bloc pevt en PersonalEvent.
 
         Format attendu : #eventtype [date] [#p place] [#s source]
@@ -2249,8 +2247,8 @@ class GeneWebParser:
         )
 
     def _parse_place_value(
-        self, tokens: List[Token], start_index: int
-    ) -> Tuple[Optional[str], int]:
+        self, tokens: list[Token], start_index: int
+    ) -> tuple[str | None, int]:
         """Parse une valeur de lieu (peut contenir plusieurs tokens séparés par virgules, etc.)
 
         Args:
@@ -2292,8 +2290,8 @@ class GeneWebParser:
         return None, start_index
 
     def _parse_short_place(
-        self, tokens: List[Token], start_index: int
-    ) -> Tuple[Optional[str], int]:
+        self, tokens: list[Token], start_index: int
+    ) -> tuple[str | None, int]:
         """Lieu d'un champ de ligne de personne : un seul lieu, crochets compris."""
         fin = place_run_end(tokens, start_index)
         if fin == start_index:
@@ -2301,8 +2299,8 @@ class GeneWebParser:
         return _lieu(_join_tokens_text(tokens[start_index:fin])), fin
 
     def _parse_short_source(
-        self, tokens: List[Token], start_index: int
-    ) -> Tuple[Optional[str], int]:
+        self, tokens: list[Token], start_index: int
+    ) -> tuple[str | None, int]:
         """Source d'un champ de ligne de personne (``#bs``…) : un seul mot."""
         if start_index < len(tokens) and tokens[start_index].type in MOT_DE_CHAMP:
             fin = mot_end(tokens, start_index)
@@ -2310,8 +2308,8 @@ class GeneWebParser:
         return None, start_index
 
     def _parse_source_value(
-        self, tokens: List[Token], start_index: int
-    ) -> Tuple[Optional[str], int]:
+        self, tokens: list[Token], start_index: int
+    ) -> tuple[str | None, int]:
         """Parse une valeur de source (peut contenir plusieurs tokens)
 
         Args:
@@ -2321,7 +2319,7 @@ class GeneWebParser:
         Returns:
             Tuple (valeur_de_la_source, nouvel_index)
         """
-        source_tokens: List[Token] = []
+        source_tokens: list[Token] = []
         i = start_index
 
         # Continuer à parser jusqu'à trouver un token spécial
@@ -2350,8 +2348,8 @@ class GeneWebParser:
         return None, start_index
 
     def _parse_title_bracket(
-        self, tokens: List[Token], start_index: int
-    ) -> Tuple[Optional[Title], int]:
+        self, tokens: list[Token], start_index: int
+    ) -> tuple[Title | None, int]:
         """Parse [TitleName:Type:Place:StartDate:EndDate:Nth] from BRACKET_OPEN.
 
         Args:
@@ -2366,7 +2364,7 @@ class GeneWebParser:
             return None, i
         i += 1  # consume BRACKET_OPEN
 
-        fields: List[List[str]] = [[]]
+        fields: list[list[str]] = [[]]
         while i < len(tokens) and tokens[i].type != TokenType.BRACKET_CLOSE:
             tok = tokens[i]
             if tok.type == TokenType.COLON:
@@ -2443,7 +2441,7 @@ class GeneWebParser:
             i = fin_prenom  # Passer pevt, nom, prénom, occurrence
             # Garder une référence au dernier événement construit pour y rattacher les témoins  # noqa: E501
             last_event = None
-            note_tail: Optional[Tuple[Any, int]] = (
+            note_tail: tuple[Any, int] | None = (
                 None  # (porteur, dernière ligne de note)
             )
             while i < len(tokens):
@@ -2655,11 +2653,11 @@ class GeneWebParser:
 
     def _parse_fevt_spouse_header(
         self,
-        tokens: List[Token],
+        tokens: list[Token],
         start_index: int,
-        persons: Dict[str, Person],
+        persons: dict[str, Person],
         genealogy: Genealogy,
-    ) -> Tuple[Optional[str], Optional[str], int]:
+    ) -> tuple[str | None, str | None, int]:
         """Lit l'en-tête époux après ``fevt``.
 
         S'arrête au premier jeton d'événement ou à la fin du bloc.
@@ -2669,12 +2667,12 @@ class GeneWebParser:
         """
         i = start_index
         current = "husband"
-        h_name: Optional[str] = None
-        h_fn: Optional[str] = None
-        h_occ: Optional[int] = None
-        w_name: Optional[str] = None
-        w_fn: Optional[str] = None
-        w_occ: Optional[int] = None
+        h_name: str | None = None
+        h_fn: str | None = None
+        h_occ: int | None = None
+        w_name: str | None = None
+        w_fn: str | None = None
+        w_occ: int | None = None
 
         while i < len(tokens):
             tok = tokens[i]
@@ -2727,8 +2725,8 @@ class GeneWebParser:
                         break
             i += 1
 
-        husband_id: Optional[str] = None
-        wife_id: Optional[str] = None
+        husband_id: str | None = None
+        wife_id: str | None = None
         if h_name and h_fn:
             husband_id = self._get_or_create_person(
                 h_name, h_fn, h_occ, persons, genealogy, Gender.MALE
@@ -2741,10 +2739,10 @@ class GeneWebParser:
 
     def _find_family_for_fevt_spouses(
         self,
-        families: Dict[str, Family],
-        husband_id: Optional[str],
-        wife_id: Optional[str],
-    ) -> Optional[Family]:
+        families: dict[str, Family],
+        husband_id: str | None,
+        wife_id: str | None,
+    ) -> Family | None:
         """Retrouve la famille dont les époux correspondent au bloc ``fevt``."""
         if husband_id and wife_id:
             for fam in families.values():
@@ -2763,7 +2761,7 @@ class GeneWebParser:
         return None
 
     def _consume_family_event_optional_fields(
-        self, tokens: List[Token], start_index: int, event: FamilyEvent
+        self, tokens: list[Token], start_index: int, event: FamilyEvent
     ) -> int:
         """Consomme date, lieu ``#p`` et source ``#s`` après le type d'événement."""
         i = start_index
@@ -2790,7 +2788,7 @@ class GeneWebParser:
 
     def _family_event_from_token(self, token_type: TokenType) -> FamilyEvent:
         """Construit un ``FamilyEvent`` à partir du jeton de type d'événement."""
-        mapping: Dict[TokenType, FamilyEventType] = {
+        mapping: dict[TokenType, FamilyEventType] = {
             TokenType.MARR: FamilyEventType.MARRIAGE,
             TokenType.DIV_EVENT: FamilyEventType.DIVORCE,
             TokenType.SEP_EVENT: FamilyEventType.SEPARATION,
@@ -2805,7 +2803,7 @@ class GeneWebParser:
         }[fet]
         return FamilyEvent(event_type=evt_type, family_event_type=fet)
 
-    def _family_event_from_comment(self, comment_value: str) -> Optional[FamilyEvent]:
+    def _family_event_from_comment(self, comment_value: str) -> FamilyEvent | None:
         """Événement familial d'une ligne ``#tag [date] [#p lieu] [#s source]``.
 
         Le lexeur rend en COMMENT toute ligne ``#tag`` qu'il ne connaît pas
@@ -2849,10 +2847,10 @@ class GeneWebParser:
     def _parse_family_events_block(
         self,
         node: SyntaxNode,
-        persons: Dict[str, Person],
-        families: Dict[str, Family],
+        persons: dict[str, Person],
+        families: dict[str, Family],
         genealogy: Genealogy,
-        current_family: Optional[Family],
+        current_family: Family | None,
     ) -> None:
         """Parse ``fevt`` et rattache les événements à ``Family.events``.
 
@@ -2864,21 +2862,21 @@ class GeneWebParser:
         ``_FEVT_MAX_EVENTS_PER_BLOCK`` et ``_FEVT_MAX_WITNESSES_PER_BLOCK``.
         """
         tokens = node.tokens
-        witness_persons: Dict[str, Person] = {}
+        witness_persons: dict[str, Person] = {}
 
-        husband_id: Optional[str]
-        wife_id: Optional[str]
+        husband_id: str | None
+        wife_id: str | None
         husband_id, wife_id, i = self._parse_fevt_spouse_header(
             tokens, 1, persons, genealogy
         )
 
         resolved = self._find_family_for_fevt_spouses(families, husband_id, wife_id)
         line_number = tokens[0].line_number if tokens else None
-        target_family: Optional[Family]
+        target_family: Family | None
         if resolved is not None:
             target_family = resolved
         elif husband_id is not None or wife_id is not None:
-            _hint_parts: List[str] = []
+            _hint_parts: list[str] = []
             if husband_id is not None:
                 _hint_parts.append(f"père={husband_id}")
             if wife_id is not None:
@@ -2901,8 +2899,8 @@ class GeneWebParser:
         else:
             target_family = current_family
 
-        parsed_events: List[FamilyEvent] = []
-        current_event: Optional[FamilyEvent] = None
+        parsed_events: list[FamilyEvent] = []
+        current_event: FamilyEvent | None = None
         fevt_event_count = 0
         fevt_witness_count = 0
         fevt_events_truncated = False
@@ -2963,7 +2961,7 @@ class GeneWebParser:
                     )
                     continue
                 fevt_event_count += 1
-                line_evt: Optional[FamilyEvent] = None
+                line_evt: FamilyEvent | None = None
                 next_i = i
                 if self._source is not None:
                     # Ligne brute : lieu et source gardés en entier (virgules,
@@ -3073,11 +3071,11 @@ class GeneWebParser:
                 witnesses.append(witness_dict)
         node.metadata["witnesses"] = witnesses
 
-    def get_tokens(self) -> List[Token]:
+    def get_tokens(self) -> list[Token]:
         """Retourne la liste des tokens du dernier parsing"""
         return self.tokens
 
-    def get_syntax_nodes(self) -> List[SyntaxNode]:
+    def get_syntax_nodes(self) -> list[SyntaxNode]:
         """Retourne la liste des nœuds syntaxiques du dernier parsing"""
         return self.syntax_nodes
 
@@ -3122,7 +3120,7 @@ class GeneWebParser:
 
     def _parse_relation_line(
         self, child_node: SyntaxNode, persons: dict, genealogy: Genealogy
-    ) -> Optional[Relation]:
+    ) -> Relation | None:
         """Parse une ligne de relation et crée la Person référencée"""
         tokens = child_node.tokens
 
@@ -3130,10 +3128,10 @@ class GeneWebParser:
             return None
 
         # Type de relation (adop, reco, cand, godp, fost)
-        relation_type: Optional[RelationType] = None
-        parent_role: Optional[ParentRole] = None
-        person_tokens: List[str] = []
-        occurrence: Optional[int] = None
+        relation_type: RelationType | None = None
+        parent_role: ParentRole | None = None
+        person_tokens: list[str] = []
+        occurrence: int | None = None
 
         i = 1  # Passer le tiret
 
@@ -3173,7 +3171,7 @@ class GeneWebParser:
         return Relation(relation_type, parent_role, target_id, ligne, ligne)
 
     @staticmethod
-    def _witness_kind_at(tokens: List[Token], index: int) -> Optional[WitnessKind]:
+    def _witness_kind_at(tokens: list[Token], index: int) -> WitnessKind | None:
         """Rôle de témoin du jeton à ``index`` (``#godp``, ``#offi``), sinon None."""
         if index >= len(tokens):
             return None
@@ -3183,7 +3181,7 @@ class GeneWebParser:
             return WitnessKind.OFFICER
         return None
 
-    def _skip_fevt_witness_person(self, tokens: List[Token], start_index: int) -> int:
+    def _skip_fevt_witness_person(self, tokens: list[Token], start_index: int) -> int:
         """Avance après un jeton ``wit`` sans créer de personne témoin.
 
         Utilisé lorsque le plafond de témoins par bloc ``fevt`` est atteint, pour
@@ -3221,8 +3219,8 @@ class GeneWebParser:
         return self._parse_inline_personal_info(tokens, i, dummy)
 
     def _parse_witness_person(
-        self, tokens: List[Token], start_index: int, persons: dict, genealogy: Genealogy
-    ) -> Tuple[int, Optional[str], Optional[str], Optional[WitnessKind]]:
+        self, tokens: list[Token], start_index: int, persons: dict, genealogy: Genealogy
+    ) -> tuple[int, str | None, str | None, WitnessKind | None]:
         """Parse un témoin avec toutes ses informations personnelles
 
         Format: wit [m|f]: [#godp|#offi] LastName FirstName [dates] [#bp place] ...
@@ -3245,7 +3243,7 @@ class GeneWebParser:
 
         # Type de témoin (m ou f) - optionnel
         witness_gender = Gender.UNKNOWN
-        witness_type: Optional[str] = None
+        witness_type: str | None = None
         if i < len(tokens) and tokens[i].type in [TokenType.H, TokenType.F]:
             witness_gender = (
                 Gender.MALE if tokens[i].type == TokenType.H else Gender.FEMALE
@@ -3301,7 +3299,7 @@ class GeneWebParser:
         return i, witness_id, witness_type, witness_kind
 
     def _parse_inline_personal_info(
-        self, tokens: List[Token], start_index: int, person: Person
+        self, tokens: list[Token], start_index: int, person: Person
     ) -> int:
         """Parse les informations personnelles inline (dates, lieux, occupation, etc.)
 
@@ -3458,7 +3456,7 @@ class GeneWebParser:
 
             # Nom public (PublicName)
             elif token.type == TokenType.PAREN_OPEN:
-                parts: List[str] = []
+                parts: list[str] = []
                 i += 1
                 while i < len(tokens) and tokens[i].type != TokenType.PAREN_CLOSE:
                     parts.append(decode_word(tokens[i].value))
@@ -3499,7 +3497,7 @@ class GeneWebParser:
             # Notes (#note)
             elif token.type == TokenType.NOTE:
                 i += 1
-                note_content: List[str] = []
+                note_content: list[str] = []
                 note_agg = 0
                 note_debut = i
                 while i < len(tokens) and tokens[i].type not in [
@@ -3556,7 +3554,7 @@ class GeneWebParser:
 
         return i
 
-    def _read_raw_word(self, tokens: List[Token], start: int) -> Tuple[str, int]:
+    def _read_raw_word(self, tokens: list[Token], start: int) -> tuple[str, int]:
         """Décode le mot brut qui commence à ``tokens[start]`` (un mot, comme gwc).
 
         Returns:
@@ -3569,7 +3567,7 @@ class GeneWebParser:
         return cut_space(decode_word(mots[0][0])), suivant
 
     def _find_person_info_start(
-        self, tokens: List[Token], last_name: str, first_name: str
+        self, tokens: list[Token], last_name: str, first_name: str
     ) -> int:
         """Trouve l'index où commencent les informations personnelles d'une personne
 
@@ -3626,7 +3624,7 @@ class GeneWebParser:
             texte = texte[:_TEXT_AGGREGATE_MAX_CHARS]  # garde-fou DoS
         else:
             # Mode streaming : reconstitution à partir des jetons
-            notes_content: List[str] = []
+            notes_content: list[str] = []
             notes_agg = 0
             in_content = False
             for token in tokens:
@@ -3687,7 +3685,7 @@ class GeneWebParser:
             )
 
             # Extraire le contenu de la page
-            page_content: List[str] = []
+            page_content: list[str] = []
             page_agg = 0
             in_content = False
 
@@ -3749,7 +3747,7 @@ class GeneWebParser:
             )
 
             # Extraire le contenu des notes de wizard
-            wizard_content: List[str] = []
+            wizard_content: list[str] = []
             wiz_agg = 0
             in_content = False
 

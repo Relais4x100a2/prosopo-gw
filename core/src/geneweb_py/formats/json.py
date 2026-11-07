@@ -8,7 +8,7 @@ et l'échange de données généalogiques.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import Any, TypeVar
 
 from ..core.date import CalendarType, Date, DeathType
 from ..core.event import Event, FamilyEvent, PersonalEvent
@@ -38,7 +38,7 @@ class JSONExporter(BaseExporter):
         self.indent = indent
         self.ensure_ascii = ensure_ascii
 
-    def export(self, genealogy: Genealogy, output_path: Union[str, Path]) -> None:
+    def export(self, genealogy: Genealogy, output_path: str | Path) -> None:
         """
         Exporte une généalogie vers un fichier JSON.
 
@@ -83,7 +83,7 @@ class JSONExporter(BaseExporter):
         except Exception as e:
             raise ConversionError(f"Erreur lors de la sérialisation JSON : {e}") from e
 
-    def _serialize_genealogy(self, genealogy: Genealogy) -> Dict[str, Any]:
+    def _serialize_genealogy(self, genealogy: Genealogy) -> dict[str, Any]:
         """Sérialise une généalogie en dictionnaire JSON."""
         return {
             "metadata": {
@@ -111,7 +111,7 @@ class JSONExporter(BaseExporter):
             ],
         }
 
-    def _serialize_person(self, person: Person) -> Dict[str, Any]:
+    def _serialize_person(self, person: Person) -> dict[str, Any]:
         """Sérialise une personne en dictionnaire JSON."""
         return {
             "id": id(person),  # ID unique temporaire
@@ -141,7 +141,7 @@ class JSONExporter(BaseExporter):
             "events": [self._serialize_event(event) for event in person.events],
         }
 
-    def _serialize_family(self, family: Family) -> Dict[str, Any]:
+    def _serialize_family(self, family: Family) -> dict[str, Any]:
         """Sérialise une famille en dictionnaire JSON."""
         return {
             "id": id(family),  # ID unique temporaire
@@ -161,7 +161,7 @@ class JSONExporter(BaseExporter):
             "comments": family.comments,
         }
 
-    def _serialize_event(self, event: Event) -> Dict[str, Any]:
+    def _serialize_event(self, event: Event) -> dict[str, Any]:
         """Sérialise un événement en dictionnaire JSON."""
         return {
             "event_type": event.event_type.value if event.event_type else None,
@@ -173,7 +173,7 @@ class JSONExporter(BaseExporter):
             "metadata": event.metadata,
         }
 
-    def _serialize_date(self, date: Optional[Date]) -> Optional[Dict[str, Any]]:
+    def _serialize_date(self, date: Date | None) -> dict[str, Any] | None:
         """Sérialise une date en dictionnaire JSON."""
         if not date:
             return None
@@ -206,10 +206,10 @@ class JSONImporter(BaseImporter):
             encoding: Encodage à utiliser (défaut: utf-8)
         """
         super().__init__(encoding)
-        self._person_map: Dict[int, Person] = {}
-        self._family_map: Dict[int, Family] = {}
+        self._person_map: dict[int, Person] = {}
+        self._family_map: dict[int, Family] = {}
 
-    def import_from_file(self, input_path: Union[str, Path]) -> Genealogy:
+    def import_from_file(self, input_path: str | Path) -> Genealogy:
         """
         Importe une généalogie depuis un fichier JSON.
 
@@ -286,7 +286,7 @@ class JSONImporter(BaseImporter):
         except Exception as e:
             raise ConversionError(f"Erreur lors du parsing JSON : {e}") from e
 
-    def _deserialize_person(self, data: Dict[str, Any]) -> Optional[Person]:
+    def _deserialize_person(self, data: dict[str, Any]) -> Person | None:
         """Désérialise une personne depuis un dictionnaire JSON."""
         try:
             from ..core.person import Gender
@@ -331,7 +331,7 @@ class JSONImporter(BaseImporter):
                 f"Erreur lors de la désérialisation de la personne : {e}"
             ) from e
 
-    def _deserialize_family(self, data: Dict[str, Any]) -> Optional[Family]:
+    def _deserialize_family(self, data: dict[str, Any]) -> Family | None:
         """Désérialise une famille depuis un dictionnaire JSON."""
         try:
             from ..core.family import Child, ChildSex
@@ -381,9 +381,9 @@ class JSONImporter(BaseImporter):
 
     def _deserialize_event(
         self,
-        data: Dict[str, Any],
-        event_cls: Type[_E] = Event,  # type: ignore[assignment]
-    ) -> Optional[_E]:
+        data: dict[str, Any],
+        event_cls: type[_E] = Event,  # type: ignore[assignment]
+    ) -> _E | None:
         """Désérialise un événement depuis un dictionnaire JSON."""
         try:
             from ..core.event import EventType
@@ -407,7 +407,7 @@ class JSONImporter(BaseImporter):
                 f"Erreur lors de la désérialisation de l'événement : {e}"
             ) from e
 
-    def _deserialize_date(self, data: Optional[Dict[str, Any]]) -> Optional[Date]:
+    def _deserialize_date(self, data: dict[str, Any] | None) -> Date | None:
         """Désérialise une date depuis un dictionnaire JSON."""
         if not data:
             return None

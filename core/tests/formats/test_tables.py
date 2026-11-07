@@ -4,7 +4,6 @@ Fixtures 100 % synthétiques.
 """
 
 from pathlib import Path
-from typing import Dict, List
 
 import pytest
 
@@ -25,16 +24,16 @@ def _parse() -> Genealogy:
     return GeneWebParser().parse_file(str(FIXTURE))
 
 
-def _tables(genealogy: Genealogy) -> Dict[str, Table]:
+def _tables(genealogy: Genealogy) -> dict[str, Table]:
     return {t.spec.name: t for t in build_base_tables(genealogy)}
 
 
 @pytest.fixture
-def tables() -> Dict[str, Table]:
+def tables() -> dict[str, Table]:
     return _tables(_parse())
 
 
-def _rows(tables: Dict[str, Table], name: str, **where: object) -> List[dict]:
+def _rows(tables: dict[str, Table], name: str, **where: object) -> list[dict]:
     return [r for r in tables[name].rows if all(r[k] == v for k, v in where.items())]
 
 
@@ -53,7 +52,7 @@ def test_table_order_and_columns() -> None:
             assert list(row) == table.spec.column_names
 
 
-def test_person_row(tables: Dict[str, Table]) -> None:
+def test_person_row(tables: dict[str, Table]) -> None:
     (row,) = _rows(tables, "personnes", personne_id="DUPONT_Jean_0")
     assert row["nom"] == "DUPONT"
     assert row["prenom"] == "Jean"
@@ -66,12 +65,12 @@ def test_person_row(tables: Dict[str, Table]) -> None:
     assert row["note"] is None
 
 
-def test_children_rank(tables: Dict[str, Table]) -> None:
+def test_children_rank(tables: dict[str, Table]) -> None:
     (row,) = tables["enfants"].rows
     assert row == {"famille_id": "FAM_001", "personne_id": "Louis_DUPONT_0", "rang": 1}
 
 
-def test_event_ids_and_labels(tables: Dict[str, Table]) -> None:
+def test_event_ids_and_labels(tables: dict[str, Table]) -> None:
     row = tables["evenements"].rows[0]
     assert row["evenement_id"] == event_ref("DUPONT_Jean_0", 0)
     assert row["personne_id"] == "DUPONT_Jean_0"
@@ -82,20 +81,20 @@ def test_event_ids_and_labels(tables: Dict[str, Table]) -> None:
     assert row["ville"] == "Lyon"
 
 
-def test_free_event_label(tables: Dict[str, Table]) -> None:
+def test_free_event_label(tables: dict[str, Table]) -> None:
     (row,) = _rows(tables, "evenements", evenement_id=event_ref("DUPONT_Jean_0", 2))
     assert row["type"] == "oth"
     assert row["type_libelle"] == "Autre"
     assert row["libelle"] == "Cours peinture"
 
 
-def test_event_note(tables: Dict[str, Table]) -> None:
+def test_event_note(tables: dict[str, Table]) -> None:
     (row,) = _rows(tables, "evenements", evenement_id=event_ref("DUPONT_Jean_0", 1))
     assert row["note"] == "Apprenti"
     assert row["complement"] == "Atelier Rose"
 
 
-def test_family_event(tables: Dict[str, Table]) -> None:
+def test_family_event(tables: dict[str, Table]) -> None:
     (row,) = _rows(tables, "evenements", evenement_id=family_event_ref("FAM_001", 0))
     assert family_event_ref("FAM_001", 0) == "fevt:FAM_001:0"
     assert row["personne_id"] is None
@@ -107,7 +106,7 @@ def test_family_event(tables: Dict[str, Table]) -> None:
     assert row["note"] == "Note de mariage"
 
 
-def test_witness_rows(tables: Dict[str, Table]) -> None:
+def test_witness_rows(tables: dict[str, Table]) -> None:
     family = _rows(tables, "temoins", famille_id="FAM_001")
     assert family and all(r["evenement_id"] is None for r in family)
     occu = _rows(tables, "temoins", evenement_id=event_ref("DUPONT_Jean_0", 1))
@@ -147,7 +146,7 @@ def test_missing_values_are_none() -> None:
     assert anne["sexe"] == "F"
 
 
-def test_references_resolve(tables: Dict[str, Table]) -> None:
+def test_references_resolve(tables: dict[str, Table]) -> None:
     persons = {r["personne_id"] for r in tables["personnes"].rows}
     families = {r["famille_id"] for r in tables["familles"].rows}
     events = {r["evenement_id"] for r in tables["evenements"].rows}

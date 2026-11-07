@@ -4,9 +4,10 @@ import csv
 import io
 import json
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any
 
 import pytest
 
@@ -38,7 +39,7 @@ SPEC = TableSpec(
 
 
 def _table(**override: Any) -> Table:
-    row: Dict[str, Any] = {
+    row: dict[str, Any] = {
         "essai_id": "e1",
         "personne_id": "DUPONT_Jean_0",
         "nom": "Atelier",
@@ -51,7 +52,7 @@ def _table(**override: Any) -> Table:
     return Table(SPEC, [row, second])
 
 
-def _csv_rows(text: str) -> List[List[str]]:
+def _csv_rows(text: str) -> list[list[str]]:
     assert text.startswith(BOM)
     return list(csv.reader(io.StringIO(text[len(BOM) :]), delimiter=";"))
 
@@ -62,7 +63,7 @@ def _sqlite(tables: Sequence[Table], tmp_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(str(path))
 
 
-def _base_tables() -> List[Table]:
+def _base_tables() -> list[Table]:
     return build_base_tables(GeneWebParser().parse_file(str(FIXTURE)))
 
 

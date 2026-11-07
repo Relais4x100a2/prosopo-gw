@@ -6,8 +6,8 @@ enfants et événements familiaux.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from enum import Enum, StrEnum
+from typing import TYPE_CHECKING, Any
 
 from .date import Date
 from .event import EventType, FamilyEvent, FamilyEventType, WitnessKind
@@ -36,7 +36,7 @@ class ChildSex(Enum):
     UNKNOWN = ""
 
 
-class FamilyQualifier(str, Enum):
+class FamilyQualifier(StrEnum):
     """Qualificateurs de la ligne fam GeneWeb."""
 
     NO_SEX_CHECK = "nsck"
@@ -55,7 +55,7 @@ class Child:
 
     person_id: str  # Référence vers la personne
     sex: ChildSex = ChildSex.UNKNOWN
-    last_name: Optional[str] = None  # Si différent du père
+    last_name: str | None = None  # Si différent du père
 
     def __str__(self) -> str:
         """Représentation string de l'enfant"""
@@ -89,52 +89,52 @@ class Family:
         return self.family_id
 
     # Époux et épouse (références vers les Person)
-    husband_id: Optional[str] = None
-    wife_id: Optional[str] = None
+    husband_id: str | None = None
+    wife_id: str | None = None
 
     # Informations sur le mariage/relation
-    marriage_date: Optional[Date] = None
-    marriage_place: Optional[str] = None
-    marriage_source: Optional[str] = None
+    marriage_date: Date | None = None
+    marriage_place: str | None = None
+    marriage_source: str | None = None
     marriage_status: MarriageStatus = MarriageStatus.MARRIED
 
     # Qualificateurs de relation/mariage
-    family_qualifiers: List["FamilyQualifier"] = field(default_factory=list)
+    family_qualifiers: list["FamilyQualifier"] = field(default_factory=list)
 
     # Divorce/séparation
-    divorce_date: Optional[Date] = None
+    divorce_date: Date | None = None
     is_separated: bool = False
 
     # Enfants
-    children: List[Child] = field(default_factory=list)
+    children: list[Child] = field(default_factory=list)
 
     # Témoins du mariage
-    witnesses: List[Dict[str, Any]] = field(default_factory=list)
+    witnesses: list[dict[str, Any]] = field(default_factory=list)
 
     # Informations sur les enfants
-    common_birth_place: Optional[str] = None  # #cbp
-    common_children_source: Optional[str] = None  # #csrc
+    common_birth_place: str | None = None  # #cbp
+    common_children_source: str | None = None  # #csrc
 
     # Événements familiaux (gwplus)
-    events: List[FamilyEvent] = field(default_factory=list)
+    events: list[FamilyEvent] = field(default_factory=list)
 
     # Sources et commentaires
-    family_source: Optional[str] = None
-    comments: List[str] = field(default_factory=list)
+    family_source: str | None = None
+    comments: list[str] = field(default_factory=list)
 
     # Métadonnées
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # Provenance : lignes du fichier .gw source (1-indexées, bornes incluses)
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
+    start_line: int | None = None
+    end_line: int | None = None
 
     # Ligne ``fam ? ? + ? ?`` : conjoints inconnus déclarés, pas une omission
     spouses_unknown: bool = False
 
     # Validation gracieuse
     is_valid: bool = field(default=True)
-    validation_errors: List[Any] = field(
+    validation_errors: list[Any] = field(
         default_factory=list
     )  # List[GeneWebError] mais évite import circulaire
 
@@ -167,7 +167,7 @@ class Family:
                     self.add_validation_error(error)
 
     @property
-    def spouse_ids(self) -> List[str]:
+    def spouse_ids(self) -> list[str]:
         """Retourne la liste des IDs des époux"""
         spouses = []
         if self.husband_id:
@@ -177,12 +177,12 @@ class Family:
         return spouses
 
     @property
-    def child_ids(self) -> List[str]:
+    def child_ids(self) -> list[str]:
         """Retourne la liste des IDs des enfants"""
         return [child.person_id for child in self.children]
 
     @property
-    def all_member_ids(self) -> List[str]:
+    def all_member_ids(self) -> list[str]:
         """Retourne tous les membres de la famille"""
         return self.spouse_ids + self.child_ids
 
@@ -205,7 +205,7 @@ class Family:
         self,
         person_id: str,
         sex: ChildSex = ChildSex.UNKNOWN,
-        last_name: Optional[str] = None,
+        last_name: str | None = None,
     ) -> None:
         """Ajoute un enfant à la famille
 
@@ -235,8 +235,8 @@ class Family:
     def add_witness(
         self,
         person_id: str,
-        witness_type: Optional[str] = None,
-        witness_kind: Optional[WitnessKind] = None,
+        witness_type: str | None = None,
+        witness_kind: WitnessKind | None = None,
     ) -> None:
         """Ajoute un témoin au mariage
 
@@ -262,8 +262,8 @@ class Family:
         self.comments.append(comment)
 
     def get_events_by_type(
-        self, event_type: Union[EventType, FamilyEventType]
-    ) -> List[FamilyEvent]:
+        self, event_type: EventType | FamilyEventType
+    ) -> list[FamilyEvent]:
         """Retourne tous les événements d'un type donné"""
         if isinstance(event_type, EventType):
             # Convertir EventType vers FamilyEventType si possible
@@ -288,7 +288,7 @@ class Family:
 
         return []
 
-    def spouse(self, person_id: str) -> Optional[str]:
+    def spouse(self, person_id: str) -> str | None:
         """Retourne l'ID du conjoint d'une personne donnée
 
         Args:
@@ -350,7 +350,7 @@ class Family:
         self.validation_errors.clear()
         self.is_valid = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit la famille en dictionnaire pour sérialisation"""
         return {
             "family_id": self.family_id,

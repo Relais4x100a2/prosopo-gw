@@ -178,7 +178,7 @@ def test_pyproject_aligns_with_documented_stack():
     """
     root = Path(__file__).resolve().parents[2]
     text = (root / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'requires-python = ">=3.8"' in text
+    assert 'requires-python = ">=3.11"' in text
 
     gh = "https://github.com/Relais4x100a2/geneweb-py"
     assert f'Homepage = "{gh}"' in text

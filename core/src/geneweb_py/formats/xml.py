@@ -8,7 +8,7 @@ et l'échange de données généalogiques.
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, cast
 
 from ..core.date import CalendarType, Date, DatePrefix, DeathType
 from ..core.event import Event, EventType, FamilyEvent, FamilyEventType, PersonalEvent
@@ -32,7 +32,7 @@ class XMLExporter(BaseExporter):
         super().__init__(encoding)
         self.pretty_print = pretty_print
 
-    def export(self, genealogy: Genealogy, output_path: Union[str, Path]) -> None:
+    def export(self, genealogy: Genealogy, output_path: str | Path) -> None:
         """
         Exporte une généalogie vers un fichier XML.
 
@@ -352,9 +352,9 @@ class XMLImporter(BaseImporter):
             encoding: Encodage à utiliser (défaut: utf-8)
         """
         super().__init__(encoding)
-        self._xml_attrib_id_to_unique_id: Dict[str, str] = {}
+        self._xml_attrib_id_to_unique_id: dict[str, str] = {}
 
-    def import_from_file(self, input_path: Union[str, Path]) -> Genealogy:
+    def import_from_file(self, input_path: str | Path) -> Genealogy:
         """
         Importe une généalogie depuis un fichier XML.
 
@@ -424,19 +424,19 @@ class XMLImporter(BaseImporter):
             raise ConversionError(f"Erreur lors du parsing XML : {e}") from e
 
     def _register_xml_person_id(
-        self, xml_attrib_id: Optional[str], person: Person
+        self, xml_attrib_id: str | None, person: Person
     ) -> None:
         """Associe l'attribut XML ``id`` d'une personne à son ``unique_id``."""
         if xml_attrib_id:
             self._xml_attrib_id_to_unique_id[xml_attrib_id] = person.unique_id
 
-    def _resolve_person_ref(self, ref: Optional[str]) -> Optional[str]:
+    def _resolve_person_ref(self, ref: str | None) -> str | None:
         """Résout une référence personne (attribut XML ou ``unique_id``)."""
         if ref is None or ref == "":
             return None
         return self._xml_attrib_id_to_unique_id.get(ref, ref)
 
-    def _deserialize_person(self, elem: ET.Element) -> Optional[Person]:
+    def _deserialize_person(self, elem: ET.Element) -> Person | None:
         """Désérialise une personne depuis un élément XML."""
         try:
             # Genre
@@ -547,7 +547,7 @@ class XMLImporter(BaseImporter):
                 f"Erreur lors de la désérialisation de la personne : {e}"
             ) from e
 
-    def _deserialize_family(self, elem: ET.Element) -> Optional[Family]:
+    def _deserialize_family(self, elem: ET.Element) -> Family | None:
         """Désérialise une famille depuis un élément XML."""
         try:
             raw_family_id = elem.get("id")
@@ -608,9 +608,9 @@ class XMLImporter(BaseImporter):
 
     def _deserialize_witness_dicts(
         self, witnesses_elem: ET.Element
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Construit la liste de témoins au format attendu par les modèles."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         for witness_elem in witnesses_elem.findall("witness"):
             attr_pid = witness_elem.get("person_id")
             text = (witness_elem.text or "").strip()
@@ -621,13 +621,13 @@ class XMLImporter(BaseImporter):
                 pid = self._resolve_person_ref(text) or text
             else:
                 continue
-            w: Dict[str, Any] = {"person_id": pid}
+            w: dict[str, Any] = {"person_id": pid}
             if wtype is not None and wtype != "":
                 w["type"] = wtype
             out.append(w)
         return out
 
-    def _deserialize_personal_event(self, elem: ET.Element) -> Optional[PersonalEvent]:
+    def _deserialize_personal_event(self, elem: ET.Element) -> PersonalEvent | None:
         """Désérialise un événement personnel depuis un élément XML."""
 
         event_type_str = (elem.get("type") or "").strip()
@@ -653,12 +653,12 @@ class XMLImporter(BaseImporter):
         if source_elem is not None and source_elem.text:
             source = source_elem.text.strip()
 
-        witnesses: List[Dict[str, Any]] = []
+        witnesses: list[dict[str, Any]] = []
         witnesses_elem = elem.find("witnesses")
         if witnesses_elem is not None:
             witnesses = self._deserialize_witness_dicts(witnesses_elem)
 
-        notes: List[str] = []
+        notes: list[str] = []
         notes_elem = elem.find("notes")
         if notes_elem is not None:
             notes = [
@@ -676,7 +676,7 @@ class XMLImporter(BaseImporter):
             notes=notes,
         )
 
-    def _deserialize_family_event(self, elem: ET.Element) -> Optional[FamilyEvent]:
+    def _deserialize_family_event(self, elem: ET.Element) -> FamilyEvent | None:
         """Désérialise un événement familial depuis un élément XML."""
 
         event_type_str = (elem.get("type") or "").strip()
@@ -704,12 +704,12 @@ class XMLImporter(BaseImporter):
         if source_elem is not None and source_elem.text:
             source = source_elem.text.strip()
 
-        witnesses: List[Dict[str, Any]] = []
+        witnesses: list[dict[str, Any]] = []
         witnesses_elem = elem.find("witnesses")
         if witnesses_elem is not None:
             witnesses = self._deserialize_witness_dicts(witnesses_elem)
 
-        notes: List[str] = []
+        notes: list[str] = []
         notes_elem = elem.find("notes")
         if notes_elem is not None:
             notes = [
@@ -742,7 +742,7 @@ class XMLImporter(BaseImporter):
         }
         return mapping.get(event_type, FamilyEventType.NO_MENTION)
 
-    def _deserialize_date(self, elem: ET.Element) -> Optional[Date]:
+    def _deserialize_date(self, elem: ET.Element) -> Date | None:
         """Désérialise une date depuis un élément XML."""
         try:
             year = elem.get("year")
@@ -754,7 +754,7 @@ class XMLImporter(BaseImporter):
 
             calendar = self._parse_calendar_token(elem.get("calendar"))
 
-            prefix: Optional[DatePrefix] = None
+            prefix: DatePrefix | None = None
             if elem.get("prefix"):
                 prefix = DatePrefix(elem.get("prefix"))
             elif elem.get("approximate", "").lower() in ("1", "true", "yes"):
@@ -785,7 +785,7 @@ class XMLImporter(BaseImporter):
                 f"Erreur lors de la désérialisation de la date : {e}"
             ) from e  # noqa: E501
 
-    def _parse_calendar_token(self, raw: Optional[str]) -> Optional[CalendarType]:
+    def _parse_calendar_token(self, raw: str | None) -> CalendarType | None:
         """Interprète l'attribut calendrier (valeurs enum ou alias courants)."""
         if raw is None or raw.strip() == "":
             return None

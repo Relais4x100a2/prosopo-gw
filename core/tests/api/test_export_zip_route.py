@@ -4,8 +4,8 @@ import csv
 import io
 import json
 import zipfile
+from collections.abc import Iterator
 from datetime import date, datetime
-from typing import Dict, Iterator, List
 
 import pytest
 from fastapi.testclient import TestClient
@@ -65,7 +65,7 @@ def _session(client: TestClient, gw: str = GW, filename: str = "base-test.gw") -
     return str(resp.json()["session_token"])
 
 
-def _h(token: str) -> Dict[str, str]:
+def _h(token: str) -> dict[str, str]:
     return {"X-Session-Token": token}
 
 
@@ -75,7 +75,7 @@ def _archive(client: TestClient, token: str) -> zipfile.ZipFile:
     return zipfile.ZipFile(io.BytesIO(resp.content))
 
 
-def _csv_rows(archive: zipfile.ZipFile, table: str) -> List[Dict[str, str]]:
+def _csv_rows(archive: zipfile.ZipFile, table: str) -> list[dict[str, str]]:
     (name,) = [n for n in archive.namelist() if n.endswith(f"/{table}.csv")]
     text = archive.read(name).decode("utf-8-sig")
     return list(csv.DictReader(io.StringIO(text), delimiter=";"))

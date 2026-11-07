@@ -1,7 +1,5 @@
 """Tables d'organisations de l'export (fixtures 100 % synthétiques)."""
 
-from typing import Dict, Set
-
 import pytest
 
 from geneweb_py.api.services import organization_candidates as oc
@@ -49,13 +47,13 @@ def _genealogy() -> Genealogy:
     return GeneWebParser(validate=False).parse_string(GW)
 
 
-def _build(genealogy: Genealogy) -> Dict[str, Table]:
+def _build(genealogy: Genealogy) -> dict[str, Table]:
     index = build_candidate_index(genealogy)
     shared = find_shared_experiences(genealogy, index.matched)
     return {t.spec.name: t for t in build_organization_tables(genealogy, index, shared)}
 
 
-def _event_ids(genealogy: Genealogy) -> Set[object]:
+def _event_ids(genealogy: Genealogy) -> set[object]:
     (events,) = [t for t in build_base_tables(genealogy) if t.spec.name == "evenements"]
     return {r["evenement_id"] for r in events.rows}
 

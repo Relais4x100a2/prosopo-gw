@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -35,12 +34,12 @@ class WizardLink:
 class FicheTags:
     """Balises de renvoi sur fiche individu GeneWeb. Last-write-wins sur duplicates."""
 
-    head: Optional[str] = None
-    occu: Optional[str] = None
-    death: Optional[str] = None
-    biblio: Optional[str] = None
-    bnote: Optional[str] = None
-    note: Optional[str] = None
+    head: str | None = None
+    occu: str | None = None
+    death: str | None = None
+    biblio: str | None = None
+    bnote: str | None = None
+    note: str | None = None
 
 
 @dataclass
@@ -48,9 +47,9 @@ class NoteContent:
     """Contenu structuré d'une note wikitext GeneWeb."""
 
     raw: str
-    person_links: List[PersonLink] = field(default_factory=list)
-    page_links: List[PageLink] = field(default_factory=list)
-    wizard_links: List[WizardLink] = field(default_factory=list)
+    person_links: list[PersonLink] = field(default_factory=list)
+    page_links: list[PageLink] = field(default_factory=list)
+    wizard_links: list[WizardLink] = field(default_factory=list)
     fiche_tags: FicheTags = field(default_factory=FicheTags)
 
 
@@ -92,7 +91,7 @@ class WikitextParser:
 
         # Collecter tous les matches avec positions, par priorité décroissante
         # (PAGE_LINK avant WIZARD_LINK avant PERSON_LINK)
-        candidates: List[Tuple[int, int, str, re.Match]] = []
+        candidates: list[tuple[int, int, str, re.Match]] = []
         for pattern, kind in [
             (self._PAGE_LINK, "page"),
             (self._WIZARD_LINK, "wizard"),

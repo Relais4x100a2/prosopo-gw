@@ -12,16 +12,10 @@ Sans hook, seules les règles s'appliquent. Le module n'importe aucun client LLM
 
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import (
     TYPE_CHECKING,
-    Dict,
-    FrozenSet,
-    List,
-    Mapping,
-    Optional,
-    Set,
-    Tuple,
 )
 
 from typing_extensions import Protocol
@@ -47,22 +41,22 @@ class OrganizationProposal:
 
     name: str
     type: OrganizationType = OrganizationType.OTHER
-    role: Optional[str] = None
-    place: Optional[str] = None
+    role: str | None = None
+    place: str | None = None
     confidence: float = _CONF_WEAK
     # ``None`` : déduit de ``confidence`` (< REVIEW_THRESHOLD => à revoir)
-    needs_review: Optional[bool] = None
-    aliases: List[str] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
+    needs_review: bool | None = None
+    aliases: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     # Source du nom : "tag", "place", "typed_event" ou "occupation_text"
-    named_from: Optional[str] = None
+    named_from: str | None = None
     # Mot (replié) d'établissement ou de relation qui a décidé du type
-    trigger: Optional[str] = None
+    trigger: str | None = None
     relation: bool = False
     # Nom pris faute de mieux (complément sans mot d'établissement, tag sans nom)
     to_determine: bool = False
     # Source écartée, recopiée dans ``Organization.metadata`` (``complement`` / ``tag``)
-    extra: Dict[str, str] = field(default_factory=dict)
+    extra: dict[str, str] = field(default_factory=dict)
 
     @property
     def review_required(self) -> bool:
@@ -77,16 +71,16 @@ class EventContext:
 
     person_id: str
     event_type_raw: str
-    date: Optional[str]
-    place: Optional[str]
-    notes: List[str]
-    heuristic: Optional[OrganizationProposal]
+    date: str | None
+    place: str | None
+    notes: list[str]
+    heuristic: OrganizationProposal | None
 
 
 class LLMExtractorProtocol(Protocol):
     """Hook d'enrichissement : renvoie une proposition, ou ``None`` si rien à dire"""
 
-    def __call__(self, context: EventContext) -> Optional[OrganizationProposal]: ...
+    def __call__(self, context: EventContext) -> OrganizationProposal | None: ...
 
 
 @dataclass(frozen=True)
@@ -100,7 +94,7 @@ class PrefixRule:
     remainder_is_name: bool = True
 
 
-DEFAULT_PREFIX_RULES: Dict[str, PrefixRule] = {
+DEFAULT_PREFIX_RULES: dict[str, PrefixRule] = {
     "membre": PrefixRule("Membre", OrganizationType.ASSOCIATION),
     "eleve": PrefixRule("Élève", OrganizationType.SCHOOL),
     "cours": PrefixRule("Élève", OrganizationType.SCHOOL, remainder_is_name=False),
@@ -120,8 +114,8 @@ def _fold(text: str) -> str:
 
 
 def _split_tag_ex(
-    tag: str, rules: Dict[str, PrefixRule]
-) -> Tuple[Optional[PrefixRule], Optional[str], Optional[str]]:
+    tag: str, rules: dict[str, PrefixRule]
+) -> tuple[PrefixRule | None, str | None, str | None]:
     """Sépare un tag en (règle de rôle, nom candidat, reste du tag).
 
     Le reste est le tag privé de son préfixe de rôle (le tag entier sans préfixe) ;
@@ -133,7 +127,7 @@ def _split_tag_ex(
         return None, None, None
     rule = rules.get(_fold(parts[0]))
     remainder_parts = parts[1:] if rule else parts
-    words: List[str] = []
+    words: list[str] = []
     for part in remainder_parts:
         if part.isdigit():
             continue
@@ -145,8 +139,8 @@ def _split_tag_ex(
 
 
 def _split_tag(
-    tag: str, rules: Dict[str, PrefixRule]
-) -> Tuple[Optional[PrefixRule], Optional[str]]:
+    tag: str, rules: dict[str, PrefixRule]
+) -> tuple[PrefixRule | None, str | None]:
     """Sépare un tag en (règle de rôle, nom d'organisation candidat)."""
     rule, name, _ = _split_tag_ex(tag, rules)
     return rule, name
@@ -154,7 +148,7 @@ def _split_tag(
 
 # Mots d'établissement (repliés par ``_fold``) -> type d'organisation.
 # « compagnie » vaut ``company``, sauf suivi d'un numéro (``_establishment_in``).
-ESTABLISHMENT_WORDS: Dict[str, OrganizationType] = {
+ESTABLISHMENT_WORDS: dict[str, OrganizationType] = {
     **dict.fromkeys(
         (
             "usine",
@@ -240,12 +234,12 @@ ESTABLISHMENT_WORDS: Dict[str, OrganizationType] = {
 }
 
 # Un tag qui en contient un désigne un cercle de relations, pas une institution
-RELATION_WORDS: FrozenSet[str] = frozenset(
+RELATION_WORDS: frozenset[str] = frozenset(
     {"amitie", "collaboration", "correspondance", "rencontre", "voisinage"}
 )
 
 # Prépositions qui séparent le métier de l'employeur (les plus longues d'abord)
-OCCUPATION_PREPOSITIONS: Tuple[str, ...] = (
+OCCUPATION_PREPOSITIONS: tuple[str, ...] = (
     "à la",
     "à l'",
     "de la",
@@ -266,10 +260,10 @@ class TypedEventRule:
 
     type: OrganizationType
     # ``None`` : rôle dérivé du texte du métier (``occu``)
-    role: Optional[str]
+    role: str | None
 
 
-TYPED_EVENT_RULES: Dict[EventType, TypedEventRule] = {
+TYPED_EVENT_RULES: dict[EventType, TypedEventRule] = {
     EventType.OCCUPATION: TypedEventRule(OrganizationType.COMPANY, None),
     EventType.EDUCATION: TypedEventRule(OrganizationType.SCHOOL, "élève"),
     EventType.GRADUATION: TypedEventRule(OrganizationType.SCHOOL, "diplômé"),
@@ -292,7 +286,7 @@ def event_ref(person_id: str, index: int) -> str:
     return f"pevt:{person_id}:{index}"
 
 
-def parse_event_ref(ref: Optional[str]) -> Optional[Tuple[str, int]]:
+def parse_event_ref(ref: str | None) -> tuple[str, int] | None:
     """Inverse de ``event_ref`` ; ``None`` si le format est inattendu."""
     if not ref:
         return None
@@ -303,10 +297,10 @@ def parse_event_ref(ref: Optional[str]) -> Optional[Tuple[str, int]]:
 
 
 # Formes juridiques reconnues telles qu'écrites (capitales, « Et. » avec son point)
-LEGAL_FORMS: FrozenSet[str] = frozenset({"SNC", "SARL", "SA", "SAS", "Et."})
+LEGAL_FORMS: frozenset[str] = frozenset({"SNC", "SARL", "SA", "SAS", "Et."})
 
 # Formes de société placées après le nom (« DUPONT et Cie », « DUPONT SA »)
-_COMPANY_SUFFIXES: FrozenSet[str] = frozenset(
+_COMPANY_SUFFIXES: frozenset[str] = frozenset(
     {"cie", "snc", "sarl", "sa", "sas", "et."}
 )
 
@@ -314,7 +308,7 @@ _COMPANY_SUFFIXES: FrozenSet[str] = frozenset(
 # même porté par une seule personne sans témoin (« Formation société X et Cie »).
 # Maison, bureau, atelier, magasin, boutique et étude, trop ambigus (« Achat
 # maison », « Bureau de vote »), gardent le seuil de deux personnes.
-COMPANY_NAME_TRIGGERS: FrozenSet[str] = _COMPANY_SUFFIXES | frozenset(
+COMPANY_NAME_TRIGGERS: frozenset[str] = _COMPANY_SUFFIXES | frozenset(
     {
         "societe",
         "commandite",
@@ -335,7 +329,7 @@ COMPANY_NAME_TRIGGERS: FrozenSet[str] = _COMPANY_SUFFIXES | frozenset(
 _QUOTES = '"«»“”„'
 
 
-def _company_name(tag_name: str, trigger: str) -> Optional[str]:
+def _company_name(tag_name: str, trigger: str) -> str | None:
     """Nom de l'entreprise lue dans un tag, ``None`` si le tag ne la nomme pas.
 
     Les mots qui précèdent le mot d'entreprise décrivent l'acte (« Formation »,
@@ -358,13 +352,13 @@ def _company_name(tag_name: str, trigger: str) -> Optional[str]:
 # Témoins d'un événement retenu comme organisation : membres ou acteurs de celle-ci
 WITNESS_ROLE = "Témoin"
 WITNESS_NOTE = "witness"
-WITNESS_KIND_ROLES: Dict[WitnessKind, str] = {
+WITNESS_KIND_ROLES: dict[WitnessKind, str] = {
     WitnessKind.GODPARENT: "Parrain ou marraine",
     WitnessKind.OFFICER: "Officier",
 }
 
 
-def _witness_ids(event: Event, genealogy: "Genealogy") -> Set[str]:
+def _witness_ids(event: Event, genealogy: "Genealogy") -> set[str]:
     """Témoins de l'événement présents dans la généalogie."""
     return {
         w["person_id"]
@@ -373,12 +367,12 @@ def _witness_ids(event: Event, genealogy: "Genealogy") -> Set[str]:
     }
 
 
-def _words(text: str) -> List[str]:
+def _words(text: str) -> list[str]:
     """Mots repliés (sans casse ni accents), séparés par ``_ - espace`` et apostrophes."""
     return [w for w in re.split(r"[_\-\s'’]+", _fold(text)) if w]
 
 
-def _establishment_in(text: str) -> Optional[Tuple[str, OrganizationType]]:
+def _establishment_in(text: str) -> tuple[str, OrganizationType] | None:
     """Premier mot d'établissement du texte : (mot replié, type)."""
     # Formes juridiques sensibles à la casse : « sa », « et » sont des mots courants
     for raw in re.split(r"[_\-\s'’]+", text):
@@ -395,7 +389,7 @@ def _establishment_in(text: str) -> Optional[Tuple[str, OrganizationType]]:
     return None
 
 
-CIVIL_STATUS_WORDS: FrozenSet[str] = frozenset(
+CIVIL_STATUS_WORDS: frozenset[str] = frozenset(
     {
         "naissance",
         "bapteme",
@@ -415,7 +409,7 @@ CIVIL_STATUS_WORDS: FrozenSet[str] = frozenset(
     }
 )
 
-STREET_WORDS: FrozenSet[str] = frozenset(
+STREET_WORDS: frozenset[str] = frozenset(
     {
         "rue",
         "passage",
@@ -433,7 +427,7 @@ STREET_WORDS: FrozenSet[str] = frozenset(
     }
 )
 
-MONTH_WORDS: FrozenSet[str] = frozenset(
+MONTH_WORDS: frozenset[str] = frozenset(
     {
         "janvier",
         "fevrier",
@@ -453,7 +447,7 @@ MONTH_WORDS: FrozenSet[str] = frozenset(
 _BIS_WORDS = frozenset({"bis", "ter", "quater"})
 
 
-def is_civil_status(tag: Optional[str]) -> bool:
+def is_civil_status(tag: str | None) -> bool:
     """Vrai si un mot du tag relève de l'état civil (``CIVIL_STATUS_WORDS``)."""
     return bool(tag) and any(w in CIVIL_STATUS_WORDS for w in _words(tag or ""))
 
@@ -462,7 +456,7 @@ def _is_number(word: str) -> bool:
     return word.isdigit() and len(word) <= 4
 
 
-def address_in(text: Optional[str]) -> bool:
+def address_in(text: str | None) -> bool:
     """Vrai si le texte est une adresse : mot de voie et numéro en tête ou en fin.
 
     Un nombre au milieu fait partie du nom de la voie (« rue du 14 Juillet »).
@@ -493,7 +487,7 @@ def address_in(text: Optional[str]) -> bool:
     return False
 
 
-def _relation_in(text: str) -> Optional[str]:
+def _relation_in(text: str) -> str | None:
     """Premier mot de relation du texte (replié), ``None`` sinon."""
     for word in _words(text):
         if word in RELATION_WORDS:
@@ -501,7 +495,7 @@ def _relation_in(text: str) -> Optional[str]:
     return None
 
 
-def _extra(key: str, value: Optional[str]) -> Dict[str, str]:
+def _extra(key: str, value: str | None) -> dict[str, str]:
     """Source écartée à recopier dans les métadonnées (vide si absente)."""
     return {key: value} if value else {}
 
@@ -520,7 +514,7 @@ _OCCUPATION_SPLIT_RE = _occupation_split_re()
 
 
 # Mots d'une profession militaire : « compagnie » y désigne une unité
-_MILITARY_OCCUPATION_WORDS: FrozenSet[str] = frozenset(
+_MILITARY_OCCUPATION_WORDS: frozenset[str] = frozenset(
     {
         "capitaine",
         "lieutenant",
@@ -539,14 +533,12 @@ _MILITARY_OCCUPATION_WORDS: FrozenSet[str] = frozenset(
     }
 )
 # Mots de liaison retirés en fin de fonction : « administrateur de la »
-_ROLE_TAIL_WORDS: FrozenSet[str] = frozenset(
+_ROLE_TAIL_WORDS: frozenset[str] = frozenset(
     {"de", "du", "des", "la", "le", "les", "l", "d", "a", "au", "aux", "chez", "pour"}
 )
 
 
-def _company_in_occupation(
-    text: str, place: Optional[str]
-) -> Optional[OrganizationProposal]:
+def _company_in_occupation(text: str, place: str | None) -> OrganizationProposal | None:
     """Entreprise nommée dans une profession, sans « à » ni « chez » (§ 3.7).
 
     Le mot d'entreprise doit être suivi d'un nom : « Employé de banque » ne
@@ -630,8 +622,8 @@ class EventToOrganizationMapper:
 
     def __init__(
         self,
-        llm: Optional[LLMExtractorProtocol] = None,
-        custom_rules: Optional[Dict[str, PrefixRule]] = None,
+        llm: LLMExtractorProtocol | None = None,
+        custom_rules: dict[str, PrefixRule] | None = None,
     ) -> None:
         """
         Args:
@@ -640,7 +632,7 @@ class EventToOrganizationMapper:
                 remplaçant ; clés insensibles à la casse et aux accents.
         """
         self.llm = llm
-        self.rules: Dict[str, PrefixRule] = dict(DEFAULT_PREFIX_RULES)
+        self.rules: dict[str, PrefixRule] = dict(DEFAULT_PREFIX_RULES)
         for prefix, rule in (custom_rules or {}).items():
             self.rules[_fold(prefix)] = rule
 
@@ -648,10 +640,10 @@ class EventToOrganizationMapper:
     def propose(
         self,
         event: Event,
-        tag_person_counts: Optional[Mapping[str, int]] = None,
-        person_occupation: Optional[str] = None,
-        tag_member_counts: Optional[Mapping[str, int]] = None,
-    ) -> Optional[OrganizationProposal]:
+        tag_person_counts: Mapping[str, int] | None = None,
+        person_occupation: str | None = None,
+        tag_member_counts: Mapping[str, int] | None = None,
+    ) -> OrganizationProposal | None:
         """Proposition déterministe pour un événement, ``None`` sans signal.
 
         Args:
@@ -811,10 +803,10 @@ class EventToOrganizationMapper:
         self,
         event: Event,
         typed: TypedEventRule,
-        complement: Optional[str],
-        city: Optional[str],
-        person_occupation: Optional[str],
-    ) -> Optional[OrganizationProposal]:
+        complement: str | None,
+        city: str | None,
+        person_occupation: str | None,
+    ) -> OrganizationProposal | None:
         """Événement typé : l'établissement est le complément de lieu (§ 3.6)."""
         if not complement:
             return None
@@ -837,8 +829,8 @@ class EventToOrganizationMapper:
         )
 
     def propose_from_occupation(
-        self, text: str, place: Optional[str] = None
-    ) -> Optional[OrganizationProposal]:
+        self, text: str, place: str | None = None
+    ) -> OrganizationProposal | None:
         """Employeur lu dans un texte de métier (§ 3.7).
 
         « métier à / chez X » d'abord, puis une entreprise nommée comme telle
@@ -861,9 +853,9 @@ class EventToOrganizationMapper:
     def _occupation_with_preposition(
         self,
         first: str,
-        match: "Optional[re.Match[str]]",
-        place: Optional[str],
-    ) -> Optional[OrganizationProposal]:
+        match: "re.Match[str] | None",
+        place: str | None,
+    ) -> OrganizationProposal | None:
         if match is None:
             return None
         role = first[: match.start()].strip()
@@ -897,8 +889,8 @@ class EventToOrganizationMapper:
         self,
         person_id: str,
         event: Event,
-        heuristic: Optional[OrganizationProposal],
-    ) -> Optional[OrganizationProposal]:
+        heuristic: OrganizationProposal | None,
+    ) -> OrganizationProposal | None:
         if self.llm is None:
             return heuristic
         uncertain = (heuristic is None and bool(event.notes)) or (
@@ -941,14 +933,14 @@ class EventToOrganizationMapper:
     # -- Application à une généalogie --------------------------------------
     def _tag_counts(
         self, genealogy: "Genealogy"
-    ) -> Tuple[Dict[str, int], Dict[str, int]]:
+    ) -> tuple[dict[str, int], dict[str, int]]:
         """Personnes distinctes par tag (replié) des événements « Autre ».
 
         Returns:
             (porteurs seuls, porteurs et témoins)
         """
-        holders: Dict[str, Set[str]] = {}
-        members: Dict[str, Set[str]] = {}
+        holders: dict[str, set[str]] = {}
+        members: dict[str, set[str]] = {}
         for person_id, person in genealogy.persons.items():
             for event in person.events:
                 if event.event_type is not EventType.OTHER or not event.event_type_raw:
@@ -965,7 +957,7 @@ class EventToOrganizationMapper:
             {key: len(ids) for key, ids in members.items()},
         )
 
-    def apply(self, genealogy: "Genealogy") -> Tuple[int, int]:
+    def apply(self, genealogy: "Genealogy") -> tuple[int, int]:
         """Ajoute organisations et liens.
 
         Returns:
@@ -973,9 +965,7 @@ class EventToOrganizationMapper:
         """
         created_orgs = 0
         created_links = 0
-        seen: Set[
-            Tuple[str, str, Optional[str], Optional[str], Optional[str], Optional[str]]
-        ] = {
+        seen: set[tuple[str, str, str | None, str | None, str | None, str | None]] = {
             (
                 link.person_id,
                 link.organization_id,
@@ -991,10 +981,10 @@ class EventToOrganizationMapper:
         def register(
             person_id: str,
             proposal: OrganizationProposal,
-            source_type: Optional[str],
-            source_id: Optional[str],
-            start: Optional[Date],
-            event: Optional[Event] = None,
+            source_type: str | None,
+            source_id: str | None,
+            start: Date | None,
+            event: Event | None = None,
         ) -> None:
             nonlocal created_orgs, created_links
             org = Organization.create(proposal.name, place=proposal.place)
@@ -1030,7 +1020,7 @@ class EventToOrganizationMapper:
                         existing.notes.append(note)
                 org = existing
 
-            def link(member_id: str, role: Optional[str], notes: List[str]) -> None:
+            def link(member_id: str, role: str | None, notes: list[str]) -> None:
                 nonlocal created_links
                 key = (
                     member_id,

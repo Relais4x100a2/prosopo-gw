@@ -12,9 +12,10 @@ import sqlite3
 import tempfile
 import unicodedata
 import zipfile
+from collections.abc import Sequence
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from .tables import Column, ColumnType, Table, TableSpec, Value
 
@@ -24,13 +25,13 @@ FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 EXPORT_FORMAT = "prosopo-gw/export"
 EXPORT_VERSION = 1
 
-_SQL_TYPES: Dict[ColumnType, str] = {
+_SQL_TYPES: dict[ColumnType, str] = {
     "text": "TEXT",
     "int": "INTEGER",
     "real": "REAL",
     "bool": "INTEGER",
 }
-_TYPE_LABELS: Dict[ColumnType, str] = {
+_TYPE_LABELS: dict[ColumnType, str] = {
     "text": "texte",
     "int": "entier",
     "real": "decimal",
@@ -98,7 +99,7 @@ def _quote(identifier: str) -> str:
 
 
 def _create_table(conn: sqlite3.Connection, spec: TableSpec) -> None:
-    columns: List[str] = []
+    columns: list[str] = []
     for c in spec.columns:
         definition = f"{_quote(c.name)} {_SQL_TYPES[c.type]}"
         if c.name == spec.primary_key:
@@ -182,7 +183,7 @@ gardent le texte exact.
 _LIGATURES = str.maketrans({"Œ": "OE", "œ": "oe", "Æ": "AE", "æ": "ae", "ß": "ss"})
 
 
-def base_stem(source_name: Optional[str]) -> str:
+def base_stem(source_name: str | None) -> str:
     """Nom court de la base : radical du fichier en ASCII sûr, ``base`` à défaut.
 
     Les accents sont retirés (« généalogie » → « genealogie ») : le nom finit dans
@@ -197,14 +198,14 @@ def base_stem(source_name: Optional[str]) -> str:
     return safe if safe.strip("-_") else "base"
 
 
-def archive_name(source_name: Optional[str], day: date) -> str:
+def archive_name(source_name: str | None, day: date) -> str:
     """``prosopo-<base>-<AAAA-MM-JJ>.zip``."""
     return f"prosopo-{base_stem(source_name)}-{day.isoformat()}.zip"
 
 
 def build_zip(
     tables: Sequence[Table],
-    companion: Dict[str, Any],
+    companion: dict[str, Any],
     base: str,
     generated_at: datetime,
 ) -> bytes:

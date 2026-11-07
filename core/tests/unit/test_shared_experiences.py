@@ -1,7 +1,6 @@
 """Tests du regroupement des expériences proches (fixtures synthétiques)."""
 
 import time
-from typing import List, Optional, Tuple
 
 import pytest
 
@@ -30,8 +29,8 @@ def _block(
     person: str,
     tag: str,
     date: str,
-    place: Optional[str] = None,
-    notes: Tuple[str, ...] = (),
+    place: str | None = None,
+    notes: tuple[str, ...] = (),
 ) -> str:
     line = f"#{tag} {date}"
     if place:
@@ -44,7 +43,7 @@ def _find(text: str, **kwargs: object) -> SharedExperienceIndex:
     return find_shared_experiences(_parse(text), **kwargs)  # type: ignore[arg-type]
 
 
-def _refs(exp: SharedExperience) -> List[Tuple[str, int]]:
+def _refs(exp: SharedExperience) -> list[tuple[str, int]]:
     return [(e.person_id, e.event_index) for e in exp.events]
 
 
@@ -98,7 +97,7 @@ def test_theme_of_none_and_fallback() -> None:
         ("0(vers la guerre)", None),
     ],
 )
-def test_event_period(raw: str, expected: Optional[Tuple[int, int]]) -> None:
+def test_event_period(raw: str, expected: tuple[int, int] | None) -> None:
     assert event_period(Date.parse(raw)) == expected
 
 
@@ -394,7 +393,7 @@ def test_order_independent() -> None:
     forward = _find("".join(blocks))
     backward = _find("".join(reversed(blocks)))
 
-    def summary(idx: SharedExperienceIndex) -> List[object]:
+    def summary(idx: SharedExperienceIndex) -> list[object]:
         return [(e.id, e.theme, e.label, _refs(e), e.reasons) for e in idx.items]
 
     assert summary(forward) == summary(backward)
@@ -446,7 +445,7 @@ def _root(parent: dict, k: int) -> int:
     return k
 
 
-def _reference_components(genealogy: Genealogy) -> List[Tuple[str, List[str]]]:
+def _reference_components(genealogy: Genealogy) -> list[tuple[str, list[str]]]:
     """Calcul naïf par paires (§ 4.1), pour vérifier le balayage du module."""
     from geneweb_py.core.place import place_city
 

@@ -2,14 +2,12 @@
 Construction des charges utiles Family pour les réponses API.
 """
 
-from typing import List, Optional
-
 from ..core.family import Family
 from .models.family import FamilyListSchema, FamilySchema
 from .serialization import child_to_schema, date_to_api_string, stable_event_id
 
 
-def _divorce_place_from_family(family: Family) -> Optional[str]:
+def _divorce_place_from_family(family: Family) -> str | None:
     """Lieu de divorce si stocké en métadonnées du parseur."""
     if not family.metadata:
         return None
@@ -22,11 +20,11 @@ def _divorce_place_from_family(family: Family) -> Optional[str]:
 
 def family_to_family_schema(family: Family) -> FamilySchema:
     """Convertit une famille domaine en schéma API complet."""
-    src_list: List[str] = []
+    src_list: list[str] = []
     if family.family_source and str(family.family_source).strip():
         src_list.append(str(family.family_source).strip())
 
-    event_ids: List[str] = []
+    event_ids: list[str] = []
     for idx, ev in enumerate(family.events):
         uid = getattr(ev, "unique_id", None)
         if uid is not None:

@@ -5,7 +5,7 @@ Router FastAPI pour la gestion de la généalogie dans l'API geneweb-py.
 import os
 import tempfile
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -69,7 +69,7 @@ def _export_with_cleanup(
     )
 
 
-def _download_headers(filename: str) -> Dict[str, str]:
+def _download_headers(filename: str) -> dict[str, str]:
     return {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "no-store",
@@ -320,7 +320,7 @@ async def search_genealogy(
     try:
         genealogy = service.genealogy
         query_lower = query.lower()
-        results: Dict[str, List[Any]] = {"persons": [], "families": [], "events": []}
+        results: dict[str, list[Any]] = {"persons": [], "families": [], "events": []}
 
         if search_type in ["all", "persons"]:
             for person in genealogy.persons.values():
@@ -385,7 +385,7 @@ async def search_genealogy(
 
         if search_type in ["all", "events"]:
 
-            def _event_notes_match(notes: List[str], q: str) -> bool:
+            def _event_notes_match(notes: list[str], q: str) -> bool:
                 return any(q in (n or "").lower() for n in notes)
 
             for person in genealogy.persons.values():
@@ -500,7 +500,7 @@ async def validate_genealogy(
 
 
 @router.get("/health")
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     """
     Vérification de l'état de santé du service de généalogie.
 

@@ -7,7 +7,6 @@ Ce module n'appartient pas à la bibliothèque : il vit côté tests uniquement.
 """
 
 import re
-from typing import Dict, List, Tuple
 
 from geneweb_py.core.person import Gender
 
@@ -28,7 +27,7 @@ class RegexPersonExtractor:
         # Regex pour les blocs fevt
         self.regex_fevt = re.compile(r"(?s)^fevt.*?^end\s+fevt", re.MULTILINE)
 
-    def extract_all_witnesses(self, content: str) -> List[Dict[str, str]]:
+    def extract_all_witnesses(self, content: str) -> list[dict[str, str]]:
         """Extrait TOUS les témoins du fichier avec regex
 
         Args:
@@ -65,7 +64,7 @@ class RegexPersonExtractor:
 
         return witnesses
 
-    def extract_pevt_blocks(self, content: str) -> List[Tuple[str, str, str]]:
+    def extract_pevt_blocks(self, content: str) -> list[tuple[str, str, str]]:
         """Extrait les blocs pevt avec regex
 
         Args:
@@ -93,7 +92,7 @@ class RegexPersonExtractor:
         return total
 
 
-def compare_extraction_methods(file_path: str) -> Dict[str, int]:
+def compare_extraction_methods(file_path: str) -> dict[str, int]:
     """Compare les méthodes d'extraction regex vs tokens
 
     Args:

@@ -2,7 +2,6 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 # "[Atelier Rose] - Lyon" (lieu décodé par le parser ; séparateur " - ", ou "_-_" brut)
 _COMPLEMENT_RE = re.compile(r"^(?P<complement>.+?)(?:_-_|\s+-\s+)(?P<name>.+)$")
@@ -16,7 +15,7 @@ class ParsedPlace:
 
     raw: str
     name: str
-    complement: Optional[str] = None
+    complement: str | None = None
 
     @property
     def city(self) -> str:
@@ -37,13 +36,13 @@ def _city_of(name: str) -> str:
     return name.replace("_", " ").strip(" ,")
 
 
-def place_city(raw: Optional[str]) -> Optional[str]:
+def place_city(raw: str | None) -> str | None:
     """Ville d'un lieu brut (complément ``[…]`` exclu), ``None`` si le lieu est vide."""
     parsed = parse_place(raw)
     return parsed.city if parsed is not None else None
 
 
-def parse_place(raw: Optional[str]) -> Optional[ParsedPlace]:
+def parse_place(raw: str | None) -> ParsedPlace | None:
     """Décompose un lieu en ``(complément, nom)`` sans altérer la chaîne brute.
 
     Args:

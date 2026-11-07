@@ -1,7 +1,6 @@
 """Lecture des jetons d'un lieu GeneWeb, crochets compris (``[complément]_-_lieu``)."""
 
 import re
-from typing import List, Optional
 
 from .lexical import Token, TokenType
 
@@ -11,14 +10,14 @@ def _fin_jeton(tok: Token) -> int:
     return tok.position + len(tok.value) + (2 if tok.type == TokenType.STRING else 0)
 
 
-def join_tokens_text(tokens: List[Token], par_ligne: bool = False) -> str:
+def join_tokens_text(tokens: list[Token], par_ligne: bool = False) -> str:
     """Recolle des jetons en un texte, avec un espace là où la source en avait un.
 
     Un espace est inséré quand deux jetons ne sont pas contigus (positions) ; les
     chaînes collées (URL, ``f°42v``, ``[a]_-_b``) restent donc intactes. Avec
     ``par_ligne``, un changement de ligne source donne un retour à la ligne.
     """
-    parts: List[str] = []
+    parts: list[str] = []
     prev_end = -1
     prev_line = None
     for tok in tokens:
@@ -32,7 +31,7 @@ def join_tokens_text(tokens: List[Token], par_ligne: bool = False) -> str:
     return "".join(parts)
 
 
-def place_run_end(tokens: List[Token], start: int) -> int:
+def place_run_end(tokens: list[Token], start: int) -> int:
     """Index après le lieu qui commence à ``start`` (``start`` si ce n'en est pas un).
 
     Un lieu est un identifiant ou un groupe ``[…]``, suivi d'identifiants collés
@@ -99,7 +98,7 @@ def est_code_sexe(token: Token) -> bool:
     )
 
 
-def death_marker(token: Token) -> Optional[str]:
+def death_marker(token: Token) -> str | None:
     """``"od"`` ou ``"mj"`` si le jeton est un marqueur de décès, sinon ``None``.
 
     Le format natif écrit ``od`` / ``mj`` nus après la date de naissance ; la
@@ -115,7 +114,7 @@ def death_marker(token: Token) -> Optional[str]:
     return None
 
 
-def mot_end(tokens: List[Token], start: int) -> int:
+def mot_end(tokens: list[Token], start: int) -> int:
     """Fin du mot qui commence à ``start`` : jetons contigus, de n'importe quel type.
 
     Un mot GeneWeb se termine à un espace ; le lexeur peut le découper (URL,
@@ -143,7 +142,7 @@ def mot_end(tokens: List[Token], start: int) -> int:
     return j
 
 
-def nom_end(tokens: List[Token], start: int) -> int:
+def nom_end(tokens: list[Token], start: int) -> int:
     """Fin d'un nom ou prénom qui commence à ``start``.
 
     Comme ``mot_end`` (jetons contigus : ``MARTIN*``, ``Aa/_KAHN``,
@@ -158,7 +157,7 @@ def nom_end(tokens: List[Token], start: int) -> int:
     return fin
 
 
-def nom_text(tokens: List[Token], start: int, end: int) -> str:
+def nom_text(tokens: list[Token], start: int, end: int) -> str:
     """Texte d'un nom lu par ``nom_end`` (les guillemets des chaînes sont rétablis)."""
     return "".join(
         f'"{t.value}"' if t.type == TokenType.STRING else t.value
@@ -166,7 +165,7 @@ def nom_text(tokens: List[Token], start: int, end: int) -> str:
     )
 
 
-def texte_libre(tokens: List[Token], limite: int) -> str:
+def texte_libre(tokens: list[Token], limite: int) -> str:
     """Texte d'une note : les ``limite`` premiers jetons utiles, à l'identique."""
     utiles = [
         t for t in tokens if t.type not in (TokenType.NEWLINE, TokenType.WHITESPACE)

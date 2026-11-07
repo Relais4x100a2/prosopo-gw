@@ -1,6 +1,6 @@
 """Test d'intégration du flux complet de session éphémère."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -48,9 +48,7 @@ class TestFullSessionFlow:
     def test_expired_token_returns_401(self, client):
         token = _create_session(client)
         store = client.app.state.session_store
-        store._store[token].expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=1
-        )
+        store._store[token].expires_at = datetime.now(UTC) - timedelta(seconds=1)
         resp = client.get("/api/v1/persons/", headers={"X-Session-Token": token})
         assert resp.status_code == 401
 

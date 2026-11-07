@@ -8,7 +8,6 @@ Un fichier > 1 Mo est généré sur disque pour exercer ``parse_file`` en
 
 import time
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -27,7 +26,7 @@ end
 
 def _write_large_gw_file(path: Path, min_bytes: int = 1_100_000) -> int:
     """Écrit un .gw d'au moins ``min_bytes`` octets. Retourne la taille réelle."""
-    parts: List[str] = []
+    parts: list[str] = []
     size = 0
     i = 0
     while size < min_bytes:

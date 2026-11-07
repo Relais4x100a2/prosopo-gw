@@ -8,7 +8,7 @@ personnes aient été fusionnées dans le conteneur ``Genealogy``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from ..models import Genealogy
 from .syntax import SyntaxNode
@@ -31,8 +31,8 @@ class MultiPassParser:
 
     def __init__(
         self,
-        content: Optional[str] = None,
-        gene_web_parser: Optional[GeneWebParser] = None,
+        content: str | None = None,
+        gene_web_parser: GeneWebParser | None = None,
     ) -> None:
         """Initialise le parser multi-passes.
 
@@ -43,7 +43,7 @@ class MultiPassParser:
         self.content = content
         self._gene_web_parser = gene_web_parser
 
-    def parse_syntax_nodes(self, syntax_nodes: List[SyntaxNode]) -> Genealogy:
+    def parse_syntax_nodes(self, syntax_nodes: list[SyntaxNode]) -> Genealogy:
         """Interprète les nœuds syntaxiques et retourne une généalogie complète.
 
         Args:

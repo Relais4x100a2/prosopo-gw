@@ -7,7 +7,7 @@ l'arbre syntaxique des blocs structurés GeneWeb.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from ..exceptions import GeneWebParseError
 from .lexical import Token, TokenType
@@ -45,9 +45,9 @@ class SyntaxNode:
     """Nœud de l'arbre syntaxique"""
 
     type: BlockType
-    tokens: List[Token] = field(default_factory=list)
-    children: List["SyntaxNode"] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tokens: list[Token] = field(default_factory=list)
+    children: list["SyntaxNode"] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_child(self, child: "SyntaxNode") -> None:
         """Ajoute un enfant au nœud"""
@@ -64,7 +64,7 @@ class BlockParser:
     def __init__(self, block_type: BlockType) -> None:
         self.block_type = block_type
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc et retourne le nœud et l'index suivant
 
         Args:
@@ -86,7 +86,7 @@ class FamilyBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.FAMILY)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc famille
 
         Format: fam HusbandName FirstName [+ WeddingDate]
@@ -135,7 +135,7 @@ class FamilyBlockParser(BlockParser):
         return node, i
 
     def _parse_husband(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les informations du mari"""
         i = start_index
@@ -159,7 +159,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_wife(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les informations de la femme"""
         i = start_index
@@ -183,7 +183,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_personal_info(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les informations personnelles (dates, lieux, occupation, etc.)
 
@@ -447,7 +447,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_marriage_modifiers(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les modificateurs de mariage (#mp, #nm, etc.)"""
         i = start_index
@@ -608,7 +608,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_additional_info(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les témoins, sources et commentaires supplémentaires"""
         i = start_index
@@ -726,7 +726,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_union_event_tokens(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Ajoute un événement d'union (#marr / #div / #sep / #enga).
 
@@ -747,7 +747,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_witnesses(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les témoins du mariage"""
         i = start_index
@@ -785,7 +785,7 @@ class FamilyBlockParser(BlockParser):
         return i
 
     def _parse_children(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le bloc des enfants (beg/end)"""
         i = start_index
@@ -869,7 +869,7 @@ class PersonEventsBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.PERSON_EVENTS)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc événements personnels
 
         Format: pevt LastName FirstName
@@ -911,7 +911,7 @@ class PersonEventsBlockParser(BlockParser):
         return node, i
 
     def _parse_events(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les événements personnels"""
         i = start_index
@@ -973,7 +973,7 @@ class PersonEventsBlockParser(BlockParser):
         return i
 
     def _parse_event_with_date(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse un événement avec sa date et son lieu"""
         i = start_index
@@ -998,7 +998,7 @@ class PersonEventsBlockParser(BlockParser):
         return i
 
     def _parse_witnesses(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les témoins d'un événement"""
         i = start_index
@@ -1031,7 +1031,7 @@ class FamilyEventsBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.FAMILY_EVENTS)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc événements familiaux
 
         Format: fevt
@@ -1061,7 +1061,7 @@ class FamilyEventsBlockParser(BlockParser):
         return node, i
 
     def _parse_events(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les événements familiaux"""
         i = start_index
@@ -1109,7 +1109,7 @@ class FamilyEventsBlockParser(BlockParser):
         return i
 
     def _parse_event_with_date(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse un événement avec sa date et son lieu"""
         i = start_index
@@ -1134,7 +1134,7 @@ class FamilyEventsBlockParser(BlockParser):
         return i
 
     def _parse_witnesses(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse les témoins d'un événement familial"""
         i = start_index
@@ -1167,7 +1167,7 @@ class NotesBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.NOTES)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc notes
 
         Format: notes LastName FirstName[.Number]
@@ -1209,7 +1209,7 @@ class NotesBlockParser(BlockParser):
         return node, i
 
     def _parse_notes_content(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le contenu des notes entre beg et end notes"""
         i = start_index
@@ -1238,7 +1238,7 @@ class RelationsBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.RELATIONS)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc relations
 
         Format: rel LastName FirstName[.Number]
@@ -1282,7 +1282,7 @@ class RelationsBlockParser(BlockParser):
         return node, i
 
     def _parse_relations_content(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le contenu des relations entre beg et end"""
         i = start_index
@@ -1311,7 +1311,7 @@ class RelationsBlockParser(BlockParser):
         return i
 
     def _parse_relation_line(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse une ligne de relation (- adop/reco/cand/godp/fost [fath/moth]: Person)"""  # noqa: E501
         i = start_index
@@ -1360,7 +1360,7 @@ class DatabaseNotesBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.DATABASE_NOTES)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc notes de base de données
 
         Format: notes-db
@@ -1387,7 +1387,7 @@ class DatabaseNotesBlockParser(BlockParser):
         return node, i
 
     def _parse_notes_content(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le contenu des notes entre notes-db et end notes-db"""
         i = start_index
@@ -1411,7 +1411,7 @@ class ExtendedPageBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.EXTENDED_PAGE)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc page étendue
 
         Format: page-ext LastName FirstName[.Number]
@@ -1453,7 +1453,7 @@ class ExtendedPageBlockParser(BlockParser):
         return node, i
 
     def _parse_page_content(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le contenu de la page entre page-ext et end page-ext"""
         i = start_index
@@ -1477,7 +1477,7 @@ class WizardNoteBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.WIZARD_NOTE)
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc note de wizard
 
         Format: wizard-note LastName FirstName[.Number]
@@ -1519,7 +1519,7 @@ class WizardNoteBlockParser(BlockParser):
         return node, i
 
     def _parse_wizard_content(
-        self, tokens: List[Token], start_index: int, node: SyntaxNode
+        self, tokens: list[Token], start_index: int, node: SyntaxNode
     ) -> int:
         """Parse le contenu des notes de wizard entre wizard-note et end wizard-note"""
         i = start_index
@@ -1543,7 +1543,7 @@ class ChildrenBlockParser(BlockParser):
     def __init__(self) -> None:
         super().__init__(BlockType.FAMILY)  # Les enfants font partie d'une famille
 
-    def parse(self, tokens: List[Token], start_index: int) -> Tuple[SyntaxNode, int]:
+    def parse(self, tokens: list[Token], start_index: int) -> tuple[SyntaxNode, int]:
         """Parse un bloc enfants (beg...end)
 
         Format:
@@ -1620,7 +1620,7 @@ class SyntaxParser:
             TokenType.WIZARD_NOTE: WizardNoteBlockParser(),
         }
 
-    def parse(self, tokens: List[Token]) -> List[SyntaxNode]:
+    def parse(self, tokens: list[Token]) -> list[SyntaxNode]:
         """Parse la liste complète des tokens
 
         Args:

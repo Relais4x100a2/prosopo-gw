@@ -5,8 +5,9 @@ leurs liens vivent à côté, référencés par identifiant de personne.
 """
 
 import json
+from collections.abc import Collection
 from pathlib import Path
-from typing import Any, Collection, Dict, Optional, Tuple, Union
+from typing import Any
 
 from ..core.exceptions import GeneWebValidationError
 from ..core.genealogy import Genealogy
@@ -14,7 +15,7 @@ from ..core.organization import Organization, OrganizationLink
 
 SIDECAR_VERSION = 1
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 
 def sidecar_path_for(gw_path: PathLike) -> Path:
@@ -23,8 +24,8 @@ def sidecar_path_for(gw_path: PathLike) -> Path:
 
 
 def sidecar_payload(
-    genealogy: Genealogy, organization_ids: Optional[Collection[str]] = None
-) -> Dict[str, Any]:
+    genealogy: Genealogy, organization_ids: Collection[str] | None = None
+) -> dict[str, Any]:
     """Contenu du fichier compagnon ; avec ``organization_ids``, seules ces organisations.
 
     Avec un filtre, ne sont gardés que les organisations listées et les liens qui les
@@ -56,7 +57,7 @@ def export_organizations(genealogy: Genealogy, path: PathLike) -> Path:
     return target
 
 
-def import_organizations(genealogy: Genealogy, path: PathLike) -> Tuple[int, int]:
+def import_organizations(genealogy: Genealogy, path: PathLike) -> tuple[int, int]:
     """Charge un fichier compagnon dans la généalogie.
 
     Un fichier absent est sans effet.
@@ -97,6 +98,6 @@ def import_organizations(genealogy: Genealogy, path: PathLike) -> Tuple[int, int
     return (len(organizations), len(links))
 
 
-def load_sidecar_for(genealogy: Genealogy, gw_path: PathLike) -> Tuple[int, int]:
+def load_sidecar_for(genealogy: Genealogy, gw_path: PathLike) -> tuple[int, int]:
     """Charge le compagnon d'un ``.gw`` s'il existe ; sinon ne fait rien."""
     return import_organizations(genealogy, sidecar_path_for(gw_path))

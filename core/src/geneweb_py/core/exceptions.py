@@ -6,7 +6,7 @@ pour une gestion d'erreur claire et spécifique au format GeneWeb.
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class ErrorSeverity(Enum):
@@ -23,8 +23,8 @@ class GeneWebError(Exception):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        context: Optional[str] = None,
+        line_number: int | None = None,
+        context: str | None = None,
         severity: ErrorSeverity = ErrorSeverity.ERROR,
         **kwargs,
     ) -> None:
@@ -60,7 +60,7 @@ class GeneWebError(Exception):
 
         return msg
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'erreur en dictionnaire pour sérialisation"""
         return {
             "type": self.__class__.__name__,
@@ -77,9 +77,9 @@ class GeneWebParseError(GeneWebError):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        token: Optional[str] = None,
-        expected: Optional[str] = None,
+        line_number: int | None = None,
+        token: str | None = None,
+        expected: str | None = None,
         severity: ErrorSeverity = ErrorSeverity.ERROR,
         **kwargs,
     ):
@@ -121,7 +121,7 @@ class GeneWebParseError(GeneWebError):
 
         return msg
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'erreur en dictionnaire pour sérialisation"""
         result = super().to_dict()
         result.update(
@@ -143,8 +143,8 @@ class ParseWarning(GeneWebError):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        context: Optional[str] = None,
+        line_number: int | None = None,
+        context: str | None = None,
         **kwargs,
     ):
         super().__init__(
@@ -166,10 +166,10 @@ class GeneWebValidationError(GeneWebError):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        field: Optional[str] = None,
-        value: Optional[Any] = None,
-        context: Optional[str] = None,
+        line_number: int | None = None,
+        field: str | None = None,
+        value: Any | None = None,
+        context: str | None = None,
         severity: ErrorSeverity = ErrorSeverity.ERROR,
         **kwargs,
     ):
@@ -231,7 +231,7 @@ class GeneWebValidationError(GeneWebError):
 
         return msg
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'erreur en dictionnaire pour sérialisation"""
         result = super().to_dict()
         result.update(
@@ -255,8 +255,8 @@ class GeneWebConversionError(GeneWebError):
     def __init__(
         self,
         message: str,
-        source_format: Optional[str] = None,
-        target_format: Optional[str] = None,
+        source_format: str | None = None,
+        target_format: str | None = None,
         severity: ErrorSeverity = ErrorSeverity.ERROR,
         **kwargs,
     ):
@@ -293,7 +293,7 @@ class GeneWebConversionError(GeneWebError):
 
         return msg
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'erreur en dictionnaire pour sérialisation"""
         result = super().to_dict()
         result.update(
@@ -311,11 +311,11 @@ class GeneWebEncodingError(GeneWebError):
     def __init__(
         self,
         message: str,
-        encoding: Optional[str] = None,
-        detected_encoding: Optional[str] = None,
-        attempted_encoding: Optional[str] = None,
-        byte_position: Optional[int] = None,
-        invalid_byte: Optional[bytes] = None,
+        encoding: str | None = None,
+        detected_encoding: str | None = None,
+        attempted_encoding: str | None = None,
+        byte_position: int | None = None,
+        invalid_byte: bytes | None = None,
         severity: ErrorSeverity = ErrorSeverity.ERROR,
         **kwargs,
     ):
@@ -365,7 +365,7 @@ class GeneWebEncodingError(GeneWebError):
 
         return msg
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit l'erreur en dictionnaire pour sérialisation"""
         result = super().to_dict()
         result.update(
@@ -393,7 +393,7 @@ class GeneWebErrorCollector:
         Args:
             strict: Si True, les erreurs ERROR ou CRITICAL lèvent une exception.
         """
-        self.errors: List[GeneWebError] = []
+        self.errors: list[GeneWebError] = []
         self.strict = strict
 
     def add_error(self, error: GeneWebError) -> None:
@@ -414,8 +414,8 @@ class GeneWebErrorCollector:
     def add_warning(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        context: Optional[str] = None,
+        line_number: int | None = None,
+        context: str | None = None,
         **kwargs,
     ) -> None:
         """Ajoute un avertissement (raccourci pratique)"""
@@ -423,7 +423,7 @@ class GeneWebErrorCollector:
             ParseWarning(message, line_number=line_number, context=context, **kwargs)
         )
 
-    def has_errors(self, severity: Optional[ErrorSeverity] = None) -> bool:
+    def has_errors(self, severity: ErrorSeverity | None = None) -> bool:
         """Retourne True si des erreurs ont été collectées
 
         Args:
@@ -443,9 +443,9 @@ class GeneWebErrorCollector:
 
     def get_errors(
         self,
-        error_type: Optional[type] = None,
-        severity: Optional[ErrorSeverity] = None,
-    ) -> List[GeneWebError]:
+        error_type: type | None = None,
+        severity: ErrorSeverity | None = None,
+    ) -> list[GeneWebError]:
         """Retourne les erreurs, optionnellement filtrées par type et/ou sévérité
 
         Args:
@@ -462,11 +462,11 @@ class GeneWebErrorCollector:
 
         return result
 
-    def get_warnings(self) -> List[GeneWebError]:
+    def get_warnings(self) -> list[GeneWebError]:
         """Retourne uniquement les avertissements"""
         return self.get_errors(severity=ErrorSeverity.WARNING)
 
-    def get_critical_errors(self) -> List[GeneWebError]:
+    def get_critical_errors(self) -> list[GeneWebError]:
         """Retourne uniquement les erreurs critiques"""
         return self.get_errors(severity=ErrorSeverity.CRITICAL)
 
@@ -474,7 +474,7 @@ class GeneWebErrorCollector:
         """Supprime toutes les erreurs"""
         self.errors.clear()
 
-    def error_count(self, severity: Optional[ErrorSeverity] = None) -> int:
+    def error_count(self, severity: ErrorSeverity | None = None) -> int:
         """Retourne le nombre d'erreurs
 
         Args:
@@ -531,7 +531,7 @@ class GeneWebErrorCollector:
 
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit le collecteur en dictionnaire pour sérialisation"""
         return {
             "error_count": len(self.errors),
@@ -573,8 +573,8 @@ class ValidationResult:
     """
 
     def __init__(self) -> None:
-        self.errors: List[GeneWebError] = []
-        self.warnings: List[GeneWebError] = []
+        self.errors: list[GeneWebError] = []
+        self.warnings: list[GeneWebError] = []
 
     def add_error(self, error: GeneWebError) -> None:
         """Ajoute une erreur ou un avertissement au résultat"""
@@ -600,19 +600,19 @@ class ValidationResult:
         """Retourne True si des avertissements ont été trouvés"""
         return len(self.warnings) > 0
 
-    def get_all_issues(self) -> List[GeneWebError]:
+    def get_all_issues(self) -> list[GeneWebError]:
         """Retourne toutes les erreurs et avertissements"""
         return self.errors + self.warnings
 
-    def get_error_messages(self) -> List[str]:
+    def get_error_messages(self) -> list[str]:
         """Retourne la liste des messages d'erreur"""
         return [str(error) for error in self.errors]
 
-    def get_warning_messages(self) -> List[str]:
+    def get_warning_messages(self) -> list[str]:
         """Retourne la liste des messages d'avertissement"""
         return [str(warning) for warning in self.warnings]
 
-    def get_all_messages(self) -> List[str]:
+    def get_all_messages(self) -> list[str]:
         """Retourne tous les messages (erreurs et avertissements)"""
         return self.get_error_messages() + self.get_warning_messages()
 
@@ -628,7 +628,7 @@ class ValidationResult:
                 parts.append(f"{len(self.warnings)} avertissement(s)")
             return f"Validation échouée: {', '.join(parts)}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit le résultat en dictionnaire pour sérialisation"""
         return {
             "is_valid": self.is_valid(),

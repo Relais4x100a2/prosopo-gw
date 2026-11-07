@@ -3,8 +3,8 @@
 import secrets
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Optional
 
 from ..core.genealogy import Genealogy
 from .limits import SESSION_MAX_SESSIONS, SESSION_TTL_SECONDS
@@ -21,13 +21,13 @@ class SessionFullError(Exception):
 class SessionEntry:
     genealogy: Genealogy
     expires_at: datetime
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     # Service de la session, créé à la première requête et conservé ensuite :
     # ses caches et réglages (candidates, mots ignorés…) valent pour toute la session.
     service: Optional["GenealogyService"] = None
     # Nom du fichier chargé (assaini), pour nommer l'archive d'export ; il n'est
     # pas recopié dans ``genealogy.metadata.source_file``, qui reste vide.
-    source_name: Optional[str] = None
+    source_name: str | None = None
 
 
 class SessionStore:
@@ -40,18 +40,18 @@ class SessionStore:
     ) -> None:
         self._max = max_sessions
         self._ttl = ttl_seconds
-        self._store: Dict[str, SessionEntry] = {}
+        self._store: dict[str, SessionEntry] = {}
         self._lock = threading.Lock()
 
     def _now(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def _new_expiry(self) -> datetime:
         return self._now() + timedelta(seconds=self._ttl)
 
     def create(
-        self, genealogy: Genealogy, source_name: Optional[str] = None
-    ) -> Tuple[str, datetime]:
+        self, genealogy: Genealogy, source_name: str | None = None
+    ) -> tuple[str, datetime]:
         """Crée une session, lève SessionFullError si le cap est atteint."""
         with self._lock:
             active = sum(1 for e in self._store.values() if e.expires_at > self._now())
@@ -65,7 +65,7 @@ class SessionStore:
             self._store[token] = entry
             return token, expires_at
 
-    def touch(self, token: str) -> Optional[Tuple[Genealogy, datetime]]:
+    def touch(self, token: str) -> tuple[Genealogy, datetime] | None:
         """Prolonge le TTL d'une session active ; retourne (Genealogy, nouvelle échéance)."""
         with self._lock:
             entry = self._store.get(token)
@@ -77,7 +77,7 @@ class SessionStore:
             entry.expires_at = self._new_expiry()
             return entry.genealogy, entry.expires_at
 
-    def service(self, token: str) -> Optional[Tuple["GenealogyService", datetime]]:
+    def service(self, token: str) -> tuple["GenealogyService", datetime] | None:
         """Comme `touch`, mais retourne le service de la session (créé une seule fois)."""
         from .services.genealogy_service import GenealogyService
 
@@ -95,7 +95,7 @@ class SessionStore:
                 )
             return entry.service, entry.expires_at
 
-    def get(self, token: str) -> Optional[Genealogy]:
+    def get(self, token: str) -> Genealogy | None:
         """Retourne la Genealogy si active, None sinon. Prolonge le TTL."""
         touched = self.touch(token)
         return touched[0] if touched else None

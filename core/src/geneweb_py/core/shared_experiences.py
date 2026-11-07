@@ -14,16 +14,8 @@ import hashlib
 import heapq
 import re
 from collections import Counter
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
-from typing import (
-    AbstractSet,
-    Dict,
-    FrozenSet,
-    List,
-    Optional,
-    Set,
-    Tuple,
-)
 
 from .date import Date, DatePrefix
 from .event import EventType
@@ -36,7 +28,7 @@ MIN_NOTE_WORD_LEN = 4
 MAX_REASON_WORDS = 3
 
 # Mots outils (forme repliée) ; seuls ceux d'au moins MIN_NOTE_WORD_LEN lettres comptent.
-STOPWORDS: FrozenSet[str] = frozenset(
+STOPWORDS: frozenset[str] = frozenset(
     {
         # articles, déterminants, pronoms
         "cette",
@@ -142,10 +134,10 @@ class Theme:
     key: str
     label: str
     window: int
-    prefix: Optional[str]
+    prefix: str | None
 
 
-SHARED_EXPERIENCE_THEMES: Tuple[Theme, ...] = (
+SHARED_EXPERIENCE_THEMES: tuple[Theme, ...] = (
     Theme("deportation", "Déportation", 0, "deport"),
     Theme("internement", "Internement", 0, "intern"),
     Theme("resistance", "Résistance", 0, "resist"),
@@ -163,8 +155,8 @@ class SharedReason:
     """Raison d'un lien : même ville (``same_place``) ou mots rares communs (``rare_word``)."""
 
     kind: str
-    place: Optional[str] = None
-    words: Tuple[str, ...] = ()
+    place: str | None = None
+    words: tuple[str, ...] = ()
 
 
 @dataclass
@@ -176,8 +168,8 @@ class SharedExperienceEvent:
     event_type_raw: str
     year_start: int
     year_end: int
-    place: Optional[str]
-    city: Optional[str]
+    place: str | None
+    city: str | None
 
 
 @dataclass
@@ -189,9 +181,9 @@ class SharedExperience:
     label: str
     year_min: int
     year_max: int
-    places: List[str]
-    reasons: List[SharedReason]
-    events: List[SharedExperienceEvent]
+    places: list[str]
+    reasons: list[SharedReason]
+    events: list[SharedExperienceEvent]
     person_count: int
     event_count: int
 
@@ -200,7 +192,7 @@ class SharedExperience:
 class SharedExperienceIndex:
     """Expériences proches triées (thème, année de début, id) et nombre d'événements non datés."""
 
-    items: List[SharedExperience]
+    items: list[SharedExperience]
     undated_total: int
 
 
@@ -211,10 +203,10 @@ class _Entry:
     event: SharedExperienceEvent
     theme: Theme
     city_key: str
-    words: FrozenSet[str]
+    words: frozenset[str]
 
 
-def theme_of(tag: str) -> Optional[Theme]:
+def theme_of(tag: str) -> Theme | None:
     """Thème d'un tag « Autre » ; ``None`` pour l'état civil ou un tag sans lettre.
 
     Premier thème nommé dont un mot du tag commence par le préfixe, puis « relation »
@@ -236,7 +228,7 @@ def theme_of(tag: str) -> Optional[Theme]:
     return Theme(key=key, label=label, window=DEFAULT_WINDOW, prefix=None)
 
 
-def event_period(date: Optional[Date]) -> Optional[Tuple[int, int]]:
+def event_period(date: Date | None) -> tuple[int, int] | None:
     """Période ``(début, fin)`` en années ; ``None`` si non datée.
 
     Sont non datées : date absente, inconnue, textuelle, ou bornée par avant / après.
@@ -251,7 +243,7 @@ def event_period(date: Optional[Date]) -> Optional[Tuple[int, int]]:
     return min(years), max(years)
 
 
-def period_gap(a: Tuple[int, int], b: Tuple[int, int]) -> int:
+def period_gap(a: tuple[int, int], b: tuple[int, int]) -> int:
     """Écart en années entre deux périodes ; 0 dès qu'elles se chevauchent."""
     return max(0, max(a[0], b[0]) - min(a[1], b[1]))
 
@@ -263,9 +255,9 @@ def singularize(word: str) -> str:
     return word
 
 
-def note_words(text: str) -> FrozenSet[str]:
+def note_words(text: str) -> frozenset[str]:
     """Mots d'un texte : repliés, alphabétiques, d'au moins 4 lettres, hors mots outils, au singulier."""
-    result: Set[str] = set()
+    result: set[str] = set()
     for word in _LETTERS_RE.findall(_fold(text or "")):
         if len(word) < MIN_NOTE_WORD_LEN or word in STOPWORDS:
             continue
@@ -275,7 +267,7 @@ def note_words(text: str) -> FrozenSet[str]:
     return frozenset(result)
 
 
-def _city_key(city: Optional[str]) -> str:
+def _city_key(city: str | None) -> str:
     """Ville repliée comparable ; chaîne vide si la ville est absente ou inconnue (``?``)."""
     key = re.sub(r"[-_\s]+", " ", _fold(city or "")).strip()
     return "" if key == "?" else key
@@ -302,11 +294,11 @@ class _UnionFind:
 
 def _collect_entries(
     genealogy: Genealogy,
-    exclude: AbstractSet[Tuple[str, int]],
+    exclude: AbstractSet[tuple[str, int]],
     ignored: AbstractSet[str],
-) -> Tuple[List[_Entry], int]:
+) -> tuple[list[_Entry], int]:
     """Événements retenus et nombre d'événements non datés ; une seule passe sur la base."""
-    raw_words: Dict[Tuple[str, int], FrozenSet[str]] = {}
+    raw_words: dict[tuple[str, int], frozenset[str]] = {}
     df: Counter[str] = Counter()
     for person_id, person in genealogy.persons.items():
         for index, event in enumerate(person.events):
@@ -314,7 +306,7 @@ def _collect_entries(
             raw_words[(person_id, index)] = words
             df.update(words)
 
-    entries: List[_Entry] = []
+    entries: list[_Entry] = []
     undated = 0
     for person_id, person in genealogy.persons.items():
         for index, event in enumerate(person.events):
@@ -361,16 +353,16 @@ def _collect_entries(
     return entries, undated
 
 
-def _sort_key(entry: _Entry) -> Tuple[int, int, str, int]:
+def _sort_key(entry: _Entry) -> tuple[int, int, str, int]:
     ev = entry.event
     return ev.year_start, ev.year_end, ev.person_id, ev.event_index
 
 
-def _slices(entries: List[_Entry], window: int) -> List[List[_Entry]]:
+def _slices(entries: list[_Entry], window: int) -> list[list[_Entry]]:
     """Tranches chronologiques d'étendue ``max(1, 2 × fenêtre)`` (§ 4.1, point 2)."""
     span = max(1, 2 * window)
     placed = [False] * len(entries)
-    result: List[List[_Entry]] = []
+    result: list[list[_Entry]] = []
     for i, first in enumerate(entries):
         if placed[i]:
             continue
@@ -400,11 +392,11 @@ def _close(a: _Entry, b: _Entry, window: int) -> bool:
 
 
 def _link_same_place(
-    chunk: List[_Entry],
-    members: List[int],
+    chunk: list[_Entry],
+    members: list[int],
     window: int,
     uf: "_UnionFind",
-    reasons: List[Tuple[int, SharedReason]],
+    reasons: list[tuple[int, SharedReason]],
 ) -> None:
     """Liens « même lieu » d'une ville, par balayage, sans comparer toutes les paires.
 
@@ -416,8 +408,8 @@ def _link_same_place(
     du calcul par paires.
     """
     place = SharedReason(kind="same_place", place=chunk[members[0]].event.city)
-    heap: List[Tuple[int, int]] = []
-    active: Dict[str, List[int]] = {}
+    heap: list[tuple[int, int]] = []
+    active: dict[str, list[int]] = {}
     for j in members:
         ev = chunk[j].event
         while heap and heap[0][0] < ev.year_start - window:
@@ -440,23 +432,23 @@ def _link_same_place(
 
 
 def _link_chunk(
-    chunk: List[_Entry], window: int, uf: "_UnionFind"
-) -> List[Tuple[int, SharedReason]]:
+    chunk: list[_Entry], window: int, uf: "_UnionFind"
+) -> list[tuple[int, SharedReason]]:
     """Relie les événements d'une tranche ; renvoie les raisons (événement, raison)."""
-    cities: Dict[str, List[int]] = {}
-    words: Dict[str, List[int]] = {}
+    cities: dict[str, list[int]] = {}
+    words: dict[str, list[int]] = {}
     for i, entry in enumerate(chunk):
         if entry.city_key:
             cities.setdefault(entry.city_key, []).append(i)
         for word in entry.words:
             words.setdefault(word, []).append(i)
 
-    reasons: List[Tuple[int, SharedReason]] = []
+    reasons: list[tuple[int, SharedReason]] = []
     for key in sorted(cities):
         _link_same_place(chunk, cities[key], window, uf, reasons)
 
     # Mots rares : au plus RARE_WORD_MAX_NOTES événements par mot, paires peu nombreuses.
-    pairs: Set[Tuple[int, int]] = set()
+    pairs: set[tuple[int, int]] = set()
     for members in words.values():
         for x, i in enumerate(members):
             for j in members[x + 1 :]:
@@ -471,9 +463,9 @@ def _link_chunk(
     return reasons
 
 
-def _distinct_places(chunk: List[_Entry], members: List[int]) -> List[str]:
+def _distinct_places(chunk: list[_Entry], members: list[int]) -> list[str]:
     """Villes distinctes (par clé repliée), première graphie rencontrée, triées."""
-    seen: Dict[str, str] = {}
+    seen: dict[str, str] = {}
     for i in members:
         entry = chunk[i]
         if entry.event.city and entry.city_key and entry.city_key not in seen:
@@ -481,19 +473,19 @@ def _distinct_places(chunk: List[_Entry], members: List[int]) -> List[str]:
     return sorted(seen.values())
 
 
-def _experiences_of_chunk(chunk: List[_Entry]) -> List[SharedExperience]:
+def _experiences_of_chunk(chunk: list[_Entry]) -> list[SharedExperience]:
     window = chunk[0].theme.window
     uf = _UnionFind(len(chunk))
     reasons_by_event = _link_chunk(chunk, window, uf)
 
-    components: Dict[int, List[int]] = {}
+    components: dict[int, list[int]] = {}
     for i in range(len(chunk)):
         components.setdefault(uf.find(i), []).append(i)
-    component_reasons: Dict[int, Set[SharedReason]] = {}
+    component_reasons: dict[int, set[SharedReason]] = {}
     for i, reason in reasons_by_event:
         component_reasons.setdefault(uf.find(i), set()).add(reason)
 
-    result: List[SharedExperience] = []
+    result: list[SharedExperience] = []
     for root, members in components.items():
         events = [chunk[i].event for i in members]
         persons = {ev.person_id for ev in events}
@@ -524,7 +516,7 @@ def _experiences_of_chunk(chunk: List[_Entry]) -> List[SharedExperience]:
 
 def find_shared_experiences(
     genealogy: Genealogy,
-    exclude: AbstractSet[Tuple[str, int]] = frozenset(),
+    exclude: AbstractSet[tuple[str, int]] = frozenset(),
     ignored_words: AbstractSet[str] = frozenset(),
 ) -> SharedExperienceIndex:
     """Regroupe les événements « Autre » personnels en expériences proches (§ 4.1).
@@ -541,11 +533,11 @@ def find_shared_experiences(
     ignored = frozenset(_fold(w).strip() for w in ignored_words) - {""}
     entries, undated = _collect_entries(genealogy, exclude, ignored)
 
-    by_theme: Dict[str, List[_Entry]] = {}
+    by_theme: dict[str, list[_Entry]] = {}
     for entry in entries:
         by_theme.setdefault(entry.theme.key, []).append(entry)
 
-    items: List[SharedExperience] = []
+    items: list[SharedExperience] = []
     for key in sorted(by_theme):
         themed = sorted(by_theme[key], key=_sort_key)
         window = themed[0].theme.window

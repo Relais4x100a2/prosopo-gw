@@ -6,7 +6,7 @@ gracieuse, en collectant toutes les erreurs au lieu de s'arrêter à la premièr
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from .exceptions import (
     ErrorSeverity,
@@ -52,7 +52,7 @@ class ValidationContext:
         """Retourne True si des erreurs ont été collectées"""
         return self.error_collector.has_errors()
 
-    def get_errors(self) -> List[Exception]:
+    def get_errors(self) -> list[Exception]:
         """Retourne la liste des erreurs collectées"""
         return list(self.error_collector.get_errors())
 
@@ -64,7 +64,7 @@ class ValidationContext:
 
 
 def validate_person_basic(
-    person: "Person", context: Optional[ValidationContext] = None
+    person: "Person", context: ValidationContext | None = None
 ) -> ValidationResult:
     """Valide les informations de base d'une personne
 
@@ -147,7 +147,7 @@ def validate_person_basic(
 def validate_person_relationships(
     person: "Person",
     genealogy: "Genealogy",
-    context: Optional[ValidationContext] = None,
+    context: ValidationContext | None = None,
 ) -> ValidationResult:
     """Valide les relations familiales d'une personne
 
@@ -191,7 +191,7 @@ def validate_person_relationships(
 
 
 def validate_family_basic(
-    family: "Family", context: Optional[ValidationContext] = None
+    family: "Family", context: ValidationContext | None = None
 ) -> ValidationResult:
     """Valide les informations de base d'une famille
 
@@ -243,7 +243,7 @@ def validate_family_basic(
 def validate_family_members(
     family: "Family",
     genealogy: "Genealogy",
-    context: Optional[ValidationContext] = None,
+    context: ValidationContext | None = None,
 ) -> ValidationResult:
     """Valide que tous les membres d'une famille existent dans la généalogie
 
@@ -298,7 +298,7 @@ def validate_family_members(
 
 
 def validate_genealogy_consistency(
-    genealogy: "Genealogy", context: Optional[ValidationContext] = None
+    genealogy: "Genealogy", context: ValidationContext | None = None
 ) -> ValidationResult:
     """Valide la cohérence globale d'une généalogie
 
@@ -332,7 +332,7 @@ def validate_genealogy_consistency(
 
 
 def validate_bidirectional_references(
-    genealogy: "Genealogy", context: Optional[ValidationContext] = None
+    genealogy: "Genealogy", context: ValidationContext | None = None
 ) -> ValidationResult:
     """Valide que les références entre personnes et familles sont bidirectionnelles
 
@@ -380,7 +380,7 @@ def create_partial_person(
     last_name: str,
     first_name: str,
     occurrence: int = 0,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
 ) -> "Person":
     """Crée une personne partielle en cas d'erreur de parsing
 
@@ -420,9 +420,7 @@ def create_partial_person(
     return person
 
 
-def create_partial_family(
-    family_id: str, error_message: Optional[str] = None
-) -> "Family":
+def create_partial_family(family_id: str, error_message: str | None = None) -> "Family":
     """Crée une famille partielle en cas d'erreur de parsing
 
     Args:

@@ -7,8 +7,8 @@ mot à mot évite de recoller les jetons du lexeur, qui découpe les mots conten
 """
 
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Sequence, Tuple
 
 _MOT = re.compile(r"[^ \t]+")
 
@@ -28,19 +28,19 @@ RELATIONS_AVEC_CODE = (
 _CHAMPS = {"#mp": "place", "#mn": "note", "#ms": "source"}
 
 
-def split_words(line: str) -> List[str]:
+def split_words(line: str) -> list[str]:
     """Mots bruts d'une ligne (séparateurs : espaces et tabulations, répétés ou non)."""
     return _MOT.findall(line)
 
 
-def word_spans(line: str) -> List[Tuple[str, int]]:
+def word_spans(line: str) -> list[tuple[str, int]]:
     """Mots bruts d'une ligne, chacun avec sa position de début dans ``line``."""
     return [(m.group(), m.start()) for m in _MOT.finditer(line)]
 
 
 def decode_word(word: str) -> str:
     """Valeur d'un mot (``copy_decode`` de gwc) : ``_`` → espace, ``\\x`` → ``x``."""
-    out: List[str] = []
+    out: list[str] = []
     i = 0
     n = len(word)
     while i < n:
@@ -77,16 +77,16 @@ class MarriagePart:
     brut (``mf``…) de la dernière relation qui en avait un.
     """
 
-    date: Optional[str] = None
-    relations: List[str] = field(default_factory=list)
-    sexes: Optional[str] = None
-    place: Optional[str] = None
-    note: Optional[str] = None
-    source: Optional[str] = None
+    date: str | None = None
+    relations: list[str] = field(default_factory=list)
+    sexes: str | None = None
+    place: str | None = None
+    note: str | None = None
+    source: str | None = None
     divorced: bool = False
-    divorce_date: Optional[str] = None
+    divorce_date: str | None = None
     separated: bool = False
-    separation_date: Optional[str] = None
+    separation_date: str | None = None
 
 
 def _jamais(_: int) -> bool:
@@ -97,7 +97,7 @@ def read_marriage_part(
     words: Sequence[str],
     start: int = 0,
     is_date: Callable[[int], bool] = _jamais,
-) -> Tuple[MarriagePart, int]:
+) -> tuple[MarriagePart, int]:
     """Lit la partie mariage qui commence au mot ``+[date]`` d'index ``start``.
 
     Grammaire de ``get_mar_date`` (gwc) : ``+[date]``, relation et code de sexe,
@@ -122,7 +122,7 @@ def read_marriage_part(
         part.date = words[k]
         k += 1
 
-    def date_detachee(k_: int) -> Tuple[Optional[str], int]:
+    def date_detachee(k_: int) -> tuple[str | None, int]:
         if k_ < n and is_date(k_):
             return words[k_], k_ + 1
         return None, k_
@@ -151,7 +151,7 @@ def read_marriage_part(
                 part.divorce_date, k = date_detachee(k)
         elif mot in ("#sep", "#div"):
             k += 1
-            date: Optional[str] = None
+            date: str | None = None
             if k < n and words[k] == "-":
                 k += 1
             else:

@@ -1,6 +1,6 @@
 """Tests unitaires pour SessionStore."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -19,7 +19,7 @@ class TestSessionStoreCreate:
         token, expires_at = store.create(g)
         assert len(token) > 20
         assert isinstance(expires_at, datetime)
-        assert expires_at > datetime.now(timezone.utc)
+        assert expires_at > datetime.now(UTC)
 
     def test_create_stores_genealogy(self):
         store = SessionStore(max_sessions=5, ttl_seconds=3600)
@@ -57,17 +57,13 @@ class TestSessionStoreGet:
     def test_get_expired_returns_none(self):
         store = SessionStore(max_sessions=5, ttl_seconds=3600)
         token, _ = store.create(_make_genealogy())
-        store._store[token].expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=1
-        )
+        store._store[token].expires_at = datetime.now(UTC) - timedelta(seconds=1)
         assert store.get(token) is None
 
     def test_get_removes_expired_entry(self):
         store = SessionStore(max_sessions=5, ttl_seconds=3600)
         token, _ = store.create(_make_genealogy())
-        store._store[token].expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=1
-        )
+        store._store[token].expires_at = datetime.now(UTC) - timedelta(seconds=1)
         store.get(token)
         assert token not in store._store
 
@@ -88,9 +84,7 @@ class TestSessionStoreCleanup:
     def test_cleanup_removes_expired(self):
         store = SessionStore(max_sessions=5, ttl_seconds=3600)
         token, _ = store.create(_make_genealogy())
-        store._store[token].expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=1
-        )
+        store._store[token].expires_at = datetime.now(UTC) - timedelta(seconds=1)
         count = store.cleanup_expired()
         assert count == 1
         assert token not in store._store
@@ -120,7 +114,5 @@ class TestSessionStoreCountAndFull:
     def test_expired_not_counted(self):
         store = SessionStore(max_sessions=5, ttl_seconds=3600)
         token, _ = store.create(_make_genealogy())
-        store._store[token].expires_at = datetime.now(timezone.utc) - timedelta(
-            seconds=1
-        )
+        store._store[token].expires_at = datetime.now(UTC) - timedelta(seconds=1)
         assert store.count_active() == 0

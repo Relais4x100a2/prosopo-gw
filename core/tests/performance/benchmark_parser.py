@@ -9,7 +9,7 @@ import sys
 import time
 import tracemalloc
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # Imports du projet doivent être après manipulation de sys.path
 # Ajouter le chemin du projet (structure src/)
@@ -56,7 +56,7 @@ end
 
 def benchmark_parsing(
     content: str, mode: str = "normal", validate: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Benchmark le parsing d'un contenu
 
     Args:

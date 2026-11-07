@@ -6,8 +6,9 @@ lors du traitement de gros fichiers .gw (>10MB).
 """
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Optional, TextIO, Union
+from typing import TextIO
 
 import chardet
 
@@ -42,7 +43,7 @@ class StreamingLexicalParser:
     def __init__(
         self,
         file_handle: TextIO,
-        filename: Optional[str] = None,
+        filename: str | None = None,
         buffer_size: int = 8192,
     ):
         """Initialise le parser streaming
@@ -58,13 +59,13 @@ class StreamingLexicalParser:
         self.line_number = 0
         # Texte lu, morceau par morceau : les lecteurs de ligne brute du parser
         # le relisent via les positions (globales) des jetons
-        self.source_parts: List[str] = []
+        self.source_parts: list[str] = []
         self.buffer = ""
         self.eof_reached = False
 
         # Réutiliser le parser lexical existant pour la logique de tokenisation
         # mais en mode lazy
-        self.lexical_parser: Optional[LexicalParser] = None
+        self.lexical_parser: LexicalParser | None = None
 
     def tokenize_lazy(self) -> Iterator[Token]:
         """Générateur lazy de tokens
@@ -208,9 +209,9 @@ class StreamingGeneWebParser:
         """
         self.validate = validate
         self.buffer_size = buffer_size
-        self.source_text: Optional[str] = None  # texte lu, une fois le flux épuisé
+        self.source_text: str | None = None  # texte lu, une fois le flux épuisé
 
-    def parse_file_streaming(self, file_path: Union[str, Path]):
+    def parse_file_streaming(self, file_path: str | Path):
         """Parse un fichier .gw en mode streaming
 
         Args:
@@ -277,9 +278,7 @@ class StreamingGeneWebParser:
             ) from e  # noqa: E501
 
 
-def should_use_streaming(
-    file_path: Union[str, Path], threshold_mb: float = 10.0
-) -> bool:
+def should_use_streaming(file_path: str | Path, threshold_mb: float = 10.0) -> bool:
     """Détermine si le parsing streaming doit être utilisé
 
     Args:
@@ -298,7 +297,7 @@ def should_use_streaming(
         return False
 
 
-def estimate_memory_usage(file_path: Union[str, Path]) -> dict:
+def estimate_memory_usage(file_path: str | Path) -> dict:
     """Estime l'utilisation mémoire pour parser un fichier
 
     Args:

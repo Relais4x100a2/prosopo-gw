@@ -1,6 +1,7 @@
 """Table ``pistes`` tirée des notes (fixtures 100 % synthétiques)."""
 
-from typing import AbstractSet, Iterable, List, Mapping, Optional
+from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 
 from geneweb_py.core.family import Family
 from geneweb_py.core.genealogy import Genealogy
@@ -57,9 +58,9 @@ def _genealogy() -> Genealogy:
 
 def _rows(
     genealogy: Genealogy,
-    linked: Optional[Mapping[str, AbstractSet[str]]] = None,
+    linked: Mapping[str, AbstractSet[str]] | None = None,
     ignored_words: Iterable[str] = (),
-) -> List[Row]:
+) -> list[Row]:
     return build_leads_table(genealogy, linked or {}, ignored_words).rows
 
 

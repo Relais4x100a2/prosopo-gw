@@ -7,7 +7,7 @@ personnelles, événements et relations familiales.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .date import Date
 from .event import PersonalEvent
@@ -54,12 +54,12 @@ class Relation:
     """
 
     relation_type: RelationType
-    parent_role: Optional[ParentRole]
+    parent_role: ParentRole | None
     target_person_key: str
     # Provenance : ligne du ``.gw`` (1-indexée). Hors comparaison : deux relations
     # identiques écrites à des endroits différents restent égales.
-    start_line: Optional[int] = field(default=None, compare=False)
-    end_line: Optional[int] = field(default=None, compare=False)
+    start_line: int | None = field(default=None, compare=False)
+    end_line: int | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -69,8 +69,8 @@ class Title:
     name: str
     title_type: str = ""
     place: str = ""
-    start_date: Optional[Date] = None
-    end_date: Optional[Date] = None
+    start_date: Date | None = None
+    end_date: Date | None = None
     number: int = 0
     is_main: bool = False  # Marqué avec * dans le format .gw
 
@@ -108,77 +108,77 @@ class Person:
     occurrence_number: int = 0  # Pour distinguer les homonymes
 
     # Noms alternatifs
-    public_name: Optional[str] = None  # (PublicName)
-    nickname: Optional[str] = None  # #nick
-    first_name_alias: Optional[str] = None  # {FirstNameAlias}
-    surname_alias: Optional[str] = None  # #salias
-    general_alias: Optional[str] = None  # #alias
+    public_name: str | None = None  # (PublicName)
+    nickname: str | None = None  # #nick
+    first_name_alias: str | None = None  # {FirstNameAlias}
+    surname_alias: str | None = None  # #salias
+    general_alias: str | None = None  # #alias
 
     # Titres
-    titles: List[Title] = field(default_factory=list)
+    titles: list[Title] = field(default_factory=list)
 
     # Informations personnelles
     gender: Gender = Gender.UNKNOWN
-    occupation: Optional[str] = None
-    image_path: Optional[str] = None
+    occupation: str | None = None
+    image_path: str | None = None
 
     # Dates importantes
-    birth_date: Optional[Date] = None
-    death_date: Optional[Date] = None
-    baptism_date: Optional[Date] = None
+    birth_date: Date | None = None
+    death_date: Date | None = None
+    baptism_date: Date | None = None
 
     # Lieux
-    birth_place: Optional[str] = None
-    death_place: Optional[str] = None
-    baptism_place: Optional[str] = None
-    burial_place: Optional[str] = None
+    birth_place: str | None = None
+    death_place: str | None = None
+    baptism_place: str | None = None
+    burial_place: str | None = None
 
     # Sources
-    birth_source: Optional[str] = None
-    death_source: Optional[str] = None
-    baptism_source: Optional[str] = None
-    burial_source: Optional[str] = None
-    person_source: Optional[str] = None
+    birth_source: str | None = None
+    death_source: str | None = None
+    baptism_source: str | None = None
+    burial_source: str | None = None
+    person_source: str | None = None
 
     # Événements personnels (gwplus)
-    events: List[PersonalEvent] = field(default_factory=list)
+    events: list[PersonalEvent] = field(default_factory=list)
 
     # Informations de décès
-    is_deceased: Optional[bool] = None  # ? pour inconnu
+    is_deceased: bool | None = None  # ? pour inconnu
     is_obviously_dead: bool = False  # #od tag
     is_young_death: bool = False  # #mj tag
     is_anonymous: bool = False  # conjoint ``? ?`` : personne créée, identité inconnue
-    burial_type: Optional[str] = None  # #buri ou #crem
+    burial_type: str | None = None  # #buri ou #crem
 
     # Contrôle d'accès
     access_level: AccessLevel = AccessLevel.DEFAULT
 
     # Relations familiales (références)
-    families_as_child: List[str] = field(
+    families_as_child: list[str] = field(
         default_factory=list
     )  # IDs des familles où cette personne est enfant
-    families_as_spouse: List[str] = field(
+    families_as_spouse: list[str] = field(
         default_factory=list
     )  # IDs des familles où cette personne est époux(se)
 
     # Notes personnelles
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
     # Relations spéciales (adoption, parrainage, etc.)
-    relations: Dict[str, List[str]] = field(default_factory=dict)
+    relations: dict[str, list[str]] = field(default_factory=dict)
     # Relations typées (bloc rel) ; ``relations`` en garde la vue par type
-    relation_links: List[Relation] = field(default_factory=list)
+    relation_links: list[Relation] = field(default_factory=list)
 
     # Métadonnées personnalisées
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # Provenance : lignes du fichier .gw source (1-indexées, bornes incluses)
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
+    start_line: int | None = None
+    end_line: int | None = None
 
     # Validation gracieuse
     is_valid: bool = field(default=True)
-    validation_errors: List[Any] = field(
+    validation_errors: list[Any] = field(
         default_factory=list
     )  # List[GeneWebError] mais évite import circulaire
 
@@ -227,7 +227,7 @@ class Person:
         return f"{self.last_name}_{self.first_name}_{self.occurrence_number}"
 
     @property
-    def age_at_death(self) -> Optional[int]:
+    def age_at_death(self) -> int | None:
         """Calcule l'âge au décès si possible"""
         if not self.birth_date or not self.death_date:
             return None
@@ -275,7 +275,7 @@ class Person:
         """Ajoute une note personnelle"""
         self.notes.append(note)
 
-    def get_notes_structured(self) -> "List[Any]":
+    def get_notes_structured(self) -> "list[Any]":
         """Retourne les notes parsées (wikitext extrait), calculé on-demand.
 
         Returns:
@@ -297,11 +297,11 @@ class Person:
             self.relations[relation_type] = []
         self.relations[relation_type].append(person_id)
 
-    def get_events_by_type(self, event_type: str) -> List[PersonalEvent]:
+    def get_events_by_type(self, event_type: str) -> list[PersonalEvent]:
         """Retourne tous les événements d'un type donné"""
         return [event for event in self.events if event.event_type.value == event_type]
 
-    def get_families(self) -> List[str]:
+    def get_families(self) -> list[str]:
         """Retourne toutes les familles liées à cette personne"""
         return self.families_as_child + self.families_as_spouse
 
@@ -319,7 +319,7 @@ class Person:
         self.validation_errors.clear()
         self.is_valid = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit la personne en dictionnaire pour sérialisation"""
         return {
             "unique_id": self.unique_id,

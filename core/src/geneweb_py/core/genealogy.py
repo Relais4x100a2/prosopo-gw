@@ -7,7 +7,7 @@ familles et métadonnées d'une base généalogique GeneWeb.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 from .date import Date
 from .exceptions import GeneWebError, GeneWebValidationError
@@ -24,23 +24,23 @@ class GenealogyMetadata:
     """Métadonnées de la base généalogique"""
 
     # Informations sur le fichier source
-    source_file: Optional[str] = None
+    source_file: str | None = None
     encoding: str = "iso-8859-1"
     is_gwplus: bool = False
 
     # Informations de création
-    created_date: Optional[datetime] = None
-    modified_date: Optional[datetime] = None
-    geneweb_version: Optional[str] = None
+    created_date: datetime | None = None
+    modified_date: datetime | None = None
+    geneweb_version: str | None = None
 
     # Notes de base de données
-    database_notes: List[str] = field(default_factory=list)
+    database_notes: list[str] = field(default_factory=list)
 
     # Pages étendues
-    extended_pages: Dict[str, str] = field(default_factory=dict)
+    extended_pages: dict[str, str] = field(default_factory=dict)
 
     # Notes de wizard
-    wizard_notes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    wizard_notes: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -52,22 +52,22 @@ class Genealogy:
     """
 
     # Collections principales
-    persons: Dict[str, Person] = field(default_factory=dict)
-    families: Dict[str, Family] = field(default_factory=dict)
+    persons: dict[str, Person] = field(default_factory=dict)
+    families: dict[str, Family] = field(default_factory=dict)
 
     # Métadonnées
     metadata: GenealogyMetadata = field(default_factory=GenealogyMetadata)
 
     # Validation gracieuse
     is_valid: bool = field(default=True)
-    validation_errors: List[GeneWebError] = field(default_factory=list)
+    validation_errors: list[GeneWebError] = field(default_factory=list)
 
     # Organisations (entreprises, écoles, associations…) et leurs liens aux personnes
-    organizations: Dict[str, Organization] = field(default_factory=dict)
-    organization_links: List[OrganizationLink] = field(default_factory=list)
+    organizations: dict[str, Organization] = field(default_factory=dict)
+    organization_links: list[OrganizationLink] = field(default_factory=list)
 
     # Statistiques (calculées automatiquement)
-    _stats_cache: Dict[str, Any] = field(default_factory=dict, init=False)
+    _stats_cache: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self):
         """Validation et initialisation après création"""
@@ -193,7 +193,7 @@ class Genealogy:
 
     def find_person(
         self, last_name: str, first_name: str, occurrence: int = 0
-    ) -> Optional[Person]:
+    ) -> Person | None:
         """Recherche une personne par nom
 
         Args:
@@ -207,7 +207,7 @@ class Genealogy:
         person_id = f"{last_name}_{first_name}_{occurrence}"
         return self.persons.get(person_id)
 
-    def find_person_by_id(self, person_id: str) -> Optional[Person]:
+    def find_person_by_id(self, person_id: str) -> Person | None:
         """Recherche une personne par ID unique
 
         Args:
@@ -218,7 +218,7 @@ class Genealogy:
         """
         return self.persons.get(person_id)
 
-    def find_family(self, family_id: str) -> Optional[Family]:
+    def find_family(self, family_id: str) -> Family | None:
         """Recherche une famille par ID
 
         Args:
@@ -229,7 +229,7 @@ class Genealogy:
         """
         return self.families.get(family_id)
 
-    def get_families_for_person(self, person_id: str) -> List[Family]:
+    def get_families_for_person(self, person_id: str) -> list[Family]:
         """Retourne toutes les familles d'une personne
 
         Args:
@@ -246,7 +246,7 @@ class Genealogy:
 
         return families
 
-    def get_children(self, person_id: str) -> List[Person]:
+    def get_children(self, person_id: str) -> list[Person]:
         """Retourne tous les enfants d'une personne
 
         Args:
@@ -266,7 +266,7 @@ class Genealogy:
 
         return children
 
-    def get_parents(self, person_id: str) -> List[Person]:
+    def get_parents(self, person_id: str) -> list[Person]:
         """Retourne les parents d'une personne
 
         Args:
@@ -287,7 +287,7 @@ class Genealogy:
 
         return parents
 
-    def get_siblings(self, person_id: str) -> List[Person]:
+    def get_siblings(self, person_id: str) -> list[Person]:
         """Retourne les frères et sœurs d'une personne
 
         Args:
@@ -309,7 +309,7 @@ class Genealogy:
 
         return siblings
 
-    def get_spouses(self, person_id: str) -> List[Person]:
+    def get_spouses(self, person_id: str) -> list[Person]:
         """Retourne tous les conjoints d'une personne
 
         Args:
@@ -330,7 +330,7 @@ class Genealogy:
 
         return spouses
 
-    def validate_consistency(self, strict: bool = True) -> List[GeneWebValidationError]:
+    def validate_consistency(self, strict: bool = True) -> list[GeneWebValidationError]:
         """Valide la cohérence des données généalogiques
 
         Args:
@@ -435,7 +435,7 @@ class Genealogy:
 
         return f"Généalogie avec erreurs: {', '.join(parts)}"
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Retourne les statistiques de la généalogie
 
         Returns:
@@ -448,7 +448,7 @@ class Genealogy:
 
     def _calculate_stats(self) -> None:
         """Calcule et met en cache les statistiques"""
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "total_persons": len(self.persons),
             "total_families": len(self.families),
             "living_persons": sum(1 for p in self.persons.values() if p.is_alive),
@@ -535,7 +535,7 @@ class Genealogy:
             )
         self.organizations[organization.id] = organization
 
-    def get_organization(self, organization_id: str) -> Optional[Organization]:
+    def get_organization(self, organization_id: str) -> Organization | None:
         """Retourne l'organisation d'identifiant donné, ou ``None``"""
         return self.organizations.get(organization_id)
 
@@ -543,12 +543,12 @@ class Genealogy:
         self,
         person_id: str,
         organization_id: str,
-        role: Optional[str] = None,
-        start_date: Optional[Date] = None,
-        end_date: Optional[Date] = None,
-        source_event_id: Optional[str] = None,
-        source_event_type: Optional[str] = None,
-        notes: Optional[List[str]] = None,
+        role: str | None = None,
+        start_date: Date | None = None,
+        end_date: Date | None = None,
+        source_event_id: str | None = None,
+        source_event_type: str | None = None,
+        notes: list[str] | None = None,
     ) -> OrganizationLink:
         """Relie une personne à une organisation (les deux doivent exister)"""
         if person_id not in self.persons:
@@ -577,8 +577,8 @@ class Genealogy:
         return link
 
     def infer_organizations(
-        self, mapper: "Optional[EventToOrganizationMapper]" = None
-    ) -> Tuple[int, int]:
+        self, mapper: "EventToOrganizationMapper | None" = None
+    ) -> tuple[int, int]:
         """Déduit organisations et liens depuis les événements personnalisés.
 
         Sans ``mapper``, seules les règles déterministes s'appliquent.
@@ -592,9 +592,9 @@ class Genealogy:
 
     def get_organization_links(
         self,
-        person_id: Optional[str] = None,
-        organization_id: Optional[str] = None,
-    ) -> List[OrganizationLink]:
+        person_id: str | None = None,
+        organization_id: str | None = None,
+    ) -> list[OrganizationLink]:
         """Liens filtrés par personne et/ou organisation"""
         return [
             link
@@ -603,27 +603,27 @@ class Genealogy:
             and (organization_id is None or link.organization_id == organization_id)
         ]
 
-    def get_person_organizations(self, person_id: str) -> List[Organization]:
+    def get_person_organizations(self, person_id: str) -> list[Organization]:
         """Organisations d'une personne, sans doublon, dans l'ordre des liens"""
-        seen: Dict[str, Organization] = {}
+        seen: dict[str, Organization] = {}
         for link in self.get_organization_links(person_id=person_id):
             org = self.organizations.get(link.organization_id)
             if org is not None:
                 seen.setdefault(org.id, org)
         return list(seen.values())
 
-    def get_organization_members(self, organization_id: str) -> List[Person]:
+    def get_organization_members(self, organization_id: str) -> list[Person]:
         """Membres d'une organisation, sans doublon, dans l'ordre des liens"""
-        seen: Dict[str, Person] = {}
+        seen: dict[str, Person] = {}
         for link in self.get_organization_links(organization_id=organization_id):
             person = self.persons.get(link.person_id)
             if person is not None:
                 seen.setdefault(link.person_id, person)
         return list(seen.values())
 
-    def validate_organizations(self) -> List[str]:
+    def validate_organizations(self) -> list[str]:
         """Contrôle les organisations : champs, parents existants, cycles, liens"""
-        problems: List[str] = []
+        problems: list[str] = []
         for org in self.organizations.values():
             problems.extend(org.validate())
             if org.parent_id and org.parent_id not in self.organizations:
@@ -631,8 +631,8 @@ class Genealogy:
 
         reported: set = set()
         for org in self.organizations.values():
-            chain: List[str] = []
-            current: Optional[str] = org.id
+            chain: list[str] = []
+            current: str | None = org.id
             while current is not None and current in self.organizations:
                 if current in chain:
                     cycle = frozenset(chain[chain.index(current) :])
@@ -655,9 +655,9 @@ class Genealogy:
                 )
         return problems
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convertit la généalogie en dictionnaire pour sérialisation"""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "metadata": {
                 "source_file": self.metadata.source_file,
                 "encoding": self.metadata.encoding,

@@ -6,10 +6,9 @@ pour l'adaptation au déploiement.
 """
 
 import os
-from typing import List
 
 # Origines autorisées en développement / test local (frontends sur le port 3000).
-DEFAULT_DEV_CORS_ORIGINS: List[str] = [
+DEFAULT_DEV_CORS_ORIGINS: list[str] = [
     "http://127.0.0.1:3000",
     "http://localhost:3000",
 ]
@@ -26,7 +25,7 @@ def _parse_int_env(name: str, default: int) -> int:
         return default
 
 
-def _split_csv_origins(raw: str) -> List[str]:
+def _split_csv_origins(raw: str) -> list[str]:
     """Découpe une chaîne d'origines séparées par des virgules."""
     return [item.strip() for item in raw.split(",") if item.strip()]
 
@@ -37,7 +36,7 @@ def _get_api_env() -> str:
     return raw.strip().lower() or "dev"
 
 
-def get_cors_allow_origins() -> List[str]:
+def get_cors_allow_origins() -> list[str]:
     """
     Retourne la liste des origines CORS autorisées selon l'environnement.
 
@@ -56,7 +55,7 @@ def get_cors_allow_origins() -> List[str]:
         Liste d'URL d'origine sans slash final parasite.
     """
     api_env = _get_api_env()
-    origins: List[str]
+    origins: list[str]
 
     if "ALLOWED_ORIGINS" in os.environ:
         raw = os.environ["ALLOWED_ORIGINS"]
