@@ -47,7 +47,7 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from geneweb_py.formats.table_writers import base_stem
 from geneweb_py.formats.tables import EVENT_TYPE_LABELS, Table
@@ -79,6 +79,11 @@ _LOCAL_ORIGIN = re.compile(r"^http://(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$")
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _PLACE = "place:"
+_PAGE_CSP = (
+    "default-src 'self'; img-src 'self' data:; object-src 'none'; "
+    "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+)
+"""The page loads only its own files: no inline script, nothing remote."""
 _IMPORT_PATH = "/api/registry/import"
 
 _FIXED_KINDS = {
@@ -86,17 +91,6 @@ _FIXED_KINDS = {
     "deces": ("death", "Décès"),
     "mariage": ("marriage", "Mariage"),
 }
-
-_INDEX_HTML = """<!doctype html>
-<html lang="fr">
-<head><meta charset="utf-8"><title>Atelier prosopo-gw</title></head>
-<body>
-<h1>Atelier prosopo-gw</h1>
-<p>Le serveur de l'atelier fonctionne. L'interface de validation des lieux
-arrive bientôt ; en attendant, l'API répond sous <code>/api/</code>.</p>
-</body>
-</html>
-"""
 
 RefKind = Literal["registry", "project"]
 
@@ -474,7 +468,12 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                         {"detail": "Fichier trop volumineux (50 Mo au plus)."},
                         status_code=413,
                     )
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            # Revalidate the page and its files (ETag) so that an upgraded
+            # package is picked up without a forced reload.
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
 
     # Added last, so outermost: the host is checked before anything else.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
@@ -504,9 +503,13 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
 
     # -- page ---------------------------------------------------------------
 
-    @app.get("/", response_class=HTMLResponse)
-    def index() -> str:
-        return _INDEX_HTML
+    @app.get("/", response_class=FileResponse)
+    def index() -> FileResponse:
+        return FileResponse(
+            _STATIC_DIR / "index.html",
+            media_type="text/html",
+            headers={"Content-Security-Policy": _PAGE_CSP},
+        )
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

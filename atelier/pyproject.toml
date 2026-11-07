@@ -57,7 +57,7 @@ include = ["prosopo_gw_atelier*"]
     "store/schema.sql",
     "export/LISEZMOI.txt",
     "web/static/*",
-    "web/static/.gitkeep",
+    "web/static/vendor/*",
 ]
 
 [tool.mypy]

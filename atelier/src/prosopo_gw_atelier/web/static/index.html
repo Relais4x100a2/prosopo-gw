@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier prosopo-gw · Lieux</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Atelier prosopo-gw · Lieux</h1>
+  <span id="gw-name" class="muted"></span>
+  <span id="counter" class="counter" aria-live="polite"></span>
+  <div class="progress" aria-hidden="true"><i id="progress"></i></div>
+  <button type="button" id="undo-button" title="Annuler la dernière action (Ctrl+Z)">↶ Annuler</button>
+</header>
+
+<div id="gw-changed" class="warning" role="alert" hidden>
+  <span>Le fichier <code id="gw-changed-name"></code> a changé depuis la dernière lecture.
+  Rechargez-le : toutes les décisions déjà prises sont conservées.</span>
+  <button type="button" id="reload-button">Recharger le fichier</button>
+</div>
+
+<div id="message" class="message" role="status" aria-live="polite" hidden>
+  <span id="message-text"></span>
+  <button type="button" id="message-close" class="link" aria-label="Fermer le message">×</button>
+</div>
+
+<main class="layout">
+  <aside class="queue" aria-label="File des lieux">
+    <div id="filters" class="filters" role="toolbar" aria-label="Filtrer par état"></div>
+    <ul id="queue-list" class="queue-list"></ul>
+  </aside>
+  <section id="detail" class="detail" aria-label="Lieu ouvert">
+    <p class="empty">Chargement…</p>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
