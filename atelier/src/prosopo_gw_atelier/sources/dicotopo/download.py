@@ -62,6 +62,17 @@ def _check_department(department: str, covered: Sequence[str] | None = None) -> 
     return code
 
 
+def cached_coverage(cache: Path) -> list[str]:
+    """The cached coverage list, without any network access (``[]`` if none)."""
+    try:
+        data = json.loads(
+            (_directory(cache) / _COVERAGE_FILE).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return []
+    return [str(d) for d in data] if isinstance(data, list) else []
+
+
 def coverage(
     cache: Path, *, refresh: bool = False, opener: Opener | None = None
 ) -> list[str]:

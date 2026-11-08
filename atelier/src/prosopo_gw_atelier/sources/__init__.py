@@ -7,6 +7,8 @@ le ``Worker`` qui exécute les tâches (téléchargement, indexation, appariemen
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +30,8 @@ from prosopo_gw_atelier.sources.queue import (
 from prosopo_gw_atelier.store.config import LocalConfig, load_config, save_config
 
 DICOTOPO = dicotopo_download.DICOTOPO
+COVERAGE_FAILED = "coverage.failed"
+COVERAGE_RETRY_SECONDS = 3600
 
 
 @dataclass
@@ -120,11 +124,43 @@ class SourceRuntime:
         self.sources = {**self.sources, DICOTOPO: self._dicotopo()}
 
     def coverage(self) -> list[str]:
-        return dicotopo_download.coverage(self.cache, opener=self.opener)
+        """Cached coverage only: never touches the network."""
+        return dicotopo_download.cached_coverage(self.cache)
+
+    def refresh_coverage(self) -> bool:
+        """Fetch the coverage in a daemon thread unless it is cached or a fetch
+        failed less than an hour ago (``coverage.failed`` holds the failure time).
+        Returns whether a refresh was started."""
+        directory = self.cache / DICOTOPO
+        failed = directory / COVERAGE_FAILED
+        if self.coverage():
+            return False
+        try:
+            if time.time() - float(failed.read_text()) < COVERAGE_RETRY_SECONDS:
+                return False
+        except (OSError, ValueError):
+            pass
+
+        def run() -> None:
+            found = dicotopo_download.coverage(
+                self.cache, refresh=True, opener=self.opener
+            )
+            if not found:
+                try:
+                    directory.mkdir(parents=True, exist_ok=True)
+                    failed.write_text(str(time.time()))
+                except OSError:
+                    pass
+            else:
+                failed.unlink(missing_ok=True)
+
+        threading.Thread(target=run, daemon=True).start()
+        return True
 
     def start(self) -> None:
         self.queue.resume()
         self.worker.start()
+        self.refresh_coverage()
 
     def stop(self) -> None:
         self.worker.stop()

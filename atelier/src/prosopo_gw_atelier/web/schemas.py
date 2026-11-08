@@ -298,6 +298,7 @@ class DicoTopoDepartment(BaseModel):
 
 class DicoTopoStatus(BaseModel):
     coverage: list[str]
+    coverage_known: bool
     departments: list[DicoTopoDepartment]
     api_enabled: bool
 
@@ -327,6 +328,10 @@ class DownloadIn(BaseModel):
 
 class DownloadOut(BaseModel):
     queued: list[str]
+
+
+class CoverageRefreshOut(BaseModel):
+    started: bool
 
 
 class ApiToggleIn(BaseModel):

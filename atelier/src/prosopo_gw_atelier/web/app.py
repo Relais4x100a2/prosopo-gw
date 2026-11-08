@@ -1016,10 +1016,11 @@ def create_app(
     @app.get("/api/sources")
     def get_sources() -> schemas.SourcesOut:
         runtime = _runtime()
-        covered = runtime.coverage()  # may read the network once, then cached
+        covered = runtime.coverage()  # cache only, never the network
         return schemas.SourcesOut(
             dicotopo=schemas.DicoTopoStatus(
                 coverage=covered,
+                coverage_known=bool(covered),
                 departments=[
                     schemas.DicoTopoDepartment(
                         code=code,
@@ -1039,22 +1040,31 @@ def create_app(
     @app.post("/api/sources/dicotopo/download")
     def download_dicotopo(body: schemas.DownloadIn) -> schemas.DownloadOut:
         runtime = _runtime()
+        if not body.departments:
+            raise _error(400, "Indiquez au moins un département à télécharger.")
+        codes = list(dict.fromkeys(d.strip().upper() for d in body.departments))
         try:
-            request_download(
-                runtime.queue, body.departments, covered=runtime.coverage()
-            )
+            request_download(runtime.queue, codes, covered=runtime.coverage())
         except SourceError as exc:
             raise _error(400, str(exc)) from None
-        return schemas.DownloadOut(queued=[d.strip().upper() for d in body.departments])
+        return schemas.DownloadOut(queued=codes)
+
+    @app.post("/api/sources/dicotopo/coverage/refresh")
+    def refresh_dicotopo_coverage() -> schemas.CoverageRefreshOut:
+        return schemas.CoverageRefreshOut(started=_runtime().refresh_coverage())
 
     @app.delete("/api/sources/dicotopo/departments/{code}")
     def delete_dicotopo_department(code: str) -> schemas.SourcesOut:
         runtime = _runtime()
-        try:
-            remove_department(runtime.cache, runtime.index, code, queue=runtime.queue)
-        except SourceError as exc:
-            raise _error(400, str(exc)) from None
-        runtime.queue.clear_results(DICOTOPO, code.strip().upper())
+        with state.lock:
+            try:
+                remove_department(
+                    runtime.cache, runtime.index, code, queue=runtime.queue
+                )
+            except SourceError as exc:
+                raise _error(400, str(exc)) from None
+            runtime.queue.clear_results(DICOTOPO, code.strip().upper())
+            project.attach_sources(runtime.queue, runtime.sources)
         return get_sources()
 
     @app.put("/api/sources/dicotopo/api")
@@ -1104,6 +1114,13 @@ def create_app(
         )
         if not level.name:
             raise _error(400, "Le niveau proposé n'a pas de nom.")
+        known_sources = set(sources.sources) if sources is not None else {DICOTOPO}
+        if level.origin not in known_sources or level.identifier is None:
+            raise _error(
+                400,
+                "Ce niveau ne vient pas d'une source "
+                "(origine ou identifiant manquant).",
+            )
         with state.lock:
             try:
                 entry = registry.add_level(place_id, level, project.project_id)

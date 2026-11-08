@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -25,8 +26,11 @@ HAMLET = "Fictimont, Hesdin-la-Forêt"
 
 
 class FakeServer:
+    calls = 0
+
     def __call__(self, request: urllib.request.Request, timeout: float) -> BinaryIO:
         url = request.full_url
+        FakeServer.calls += 1
         if url == dl.CONTENTS_URL:
             entries = [{"name": f"DT{d}", "type": "dir"} for d in ("62", "59")]
             return io.BytesIO(json.dumps(entries).encode())  # type: ignore[return-value]
@@ -99,10 +103,16 @@ def index_dicotopo(client: TestClient, runtime: SourceRuntime) -> None:
 def test_sources_status(client: TestClient, runtime: SourceRuntime) -> None:
     body = client.get("/api/sources").json()
     assert body["dicotopo"] == {
-        "coverage": ["59", "62"],
+        "coverage": [],
+        "coverage_known": False,
         "departments": [],
         "api_enabled": False,
     }
+    assert FakeServer.calls == 0  # the status never reads the network
+    dl.coverage(runtime.cache, opener=FakeServer())
+    body = client.get("/api/sources").json()
+    assert body["dicotopo"]["coverage"] == ["59", "62"]
+    assert body["dicotopo"]["coverage_known"] is True
     assert body["queue"]["errors"] == []
     assert any("CC BY-NC-ND" in text for text in body["attributions"])
     index_dicotopo(client, runtime)
@@ -284,3 +294,61 @@ def test_sources_unavailable_without_runtime(
     project = Project.open(gw, registry, ref, tmp_path / "data" / "projets")
     plain = TestClient(create_app(project, registry, ref), base_url="http://127.0.0.1")
     assert plain.get("/api/sources").status_code == 503
+
+
+def test_coverage_refresh_is_background_and_negative_cached(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    def failing(request: urllib.request.Request, timeout: float) -> BinaryIO:
+        raise urllib.error.URLError("offline")
+
+    runtime.opener = failing
+    assert runtime.refresh_coverage() is True
+    for _ in range(100):
+        if (runtime.cache / DICOTOPO / "coverage.failed").exists():
+            break
+        time.sleep(0.05)
+    assert (runtime.cache / DICOTOPO / "coverage.failed").exists()
+    assert runtime.refresh_coverage() is False  # not retried within the hour
+    assert client.post("/api/sources/dicotopo/coverage/refresh").json() == {
+        "started": False
+    }
+
+
+def test_delete_department_forgets_its_proposals(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    data = proposed_detail(client, runtime)
+    assert client.delete("/api/sources/dicotopo/departments/62").status_code == 200
+    after = cluster(client, data["id"])
+    assert all(lv["origin"] != "dicotopo" for lv in after["levels"])
+
+
+def test_download_validation(client: TestClient) -> None:
+    assert (
+        client.post(
+            "/api/sources/dicotopo/download", json={"departments": []}
+        ).status_code
+        == 400
+    )
+    twice = client.post(
+        "/api/sources/dicotopo/download", json={"departments": ["62", " 62"]}
+    )
+    assert twice.json() == {"queued": ["62"]}
+
+
+def test_accept_requires_a_source_level(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    level = {"rank": 0, "name": "X", "origin": "manual", "identifier": "P1"}
+    response = client.post(
+        "/api/places/any/source-proposals/accept", json={"level": level}
+    )
+    assert response.status_code == 400
+    level = {"rank": 0, "name": "X", "origin": "dicotopo"}
+    assert (
+        client.post(
+            "/api/places/any/source-proposals/accept", json={"level": level}
+        ).status_code
+        == 400
+    )
