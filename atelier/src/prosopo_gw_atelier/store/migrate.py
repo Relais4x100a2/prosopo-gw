@@ -1,12 +1,15 @@
 """Migration of a version 1 registry (fixed fields) to level chains (version 2).
 
 Backup first
-    ``migrate_v1`` copies the whole file to ``backup_path`` (``<stem>.v1-<UTC
-    timestamp>.sqlite``, next to it) with ``sqlite3.Connection.backup`` before
-    any write. If the backup fails, nothing is changed and the error goes up.
+    ``migrate_v1`` takes the write lock (``BEGIN IMMEDIATE``), checks that the
+    file is still in version 1 (else it returns: another process migrated it),
+    then copies it to ``backup_path`` (``<stem>.v1-<UTC timestamp>.sqlite``,
+    next to it) with ``sqlite3.Connection.backup`` before any write. If the
+    backup fails, the transaction is rolled back, the partial copy removed and
+    the error goes up.
 
 One transaction
-    Then, in one ``BEGIN IMMEDIATE`` transaction: ``place_levels`` and
+    Then, in the same transaction: ``place_levels`` and
     ``place_attributes`` are created, ``journal`` is rebuilt to admit the
     ``migrate`` action (entries and ids kept), every place is converted,
     ``place_fields`` is dropped and ``user_version`` becomes 2. If a converted
@@ -14,8 +17,7 @@ One transaction
     and a ``ValueError`` names the place. A place left without validated level
     is named after its first validated writing (sorted), one untyped validated
     level of origin ``written``; a place with no level and no writing at all
-    keeps no level (counted as ``empty``). A file already migrated by another
-    process meanwhile is left alone (the redundant backup is removed).
+    keeps no level (counted as ``empty``).
 
 Conversion of a place (``levels_from_v1``)
     ``commune`` (``insee_code`` as identifier; the COG name when only the code
@@ -113,6 +115,8 @@ def levels_from_v1(
     source = f"COG {ref.cog_vintage}"
     levels: list[Level] = []
     insee = fields.get("insee_code")
+    if insee:
+        _origin(origins, "insee_code")  # checked even when the commune name wins
     commune: Level | None = None
     name = fields.get("commune")
     if name or insee:
@@ -165,6 +169,7 @@ def levels_from_v1(
     former_name = fields.get("former_name")
     proposal: Level | None = None
     if former_name:
+        _origin(origins, "former_name")  # checked; the proposal has its own
         place_insee = insee.strip().upper() if insee else None
         former = next(
             (
@@ -203,7 +208,12 @@ def levels_from_v1(
 
 
 def _find(levels: Sequence[Level], key: str) -> int | None:
-    """Index of the first level whose name (or written form) normalizes to ``key``."""
+    """Index of the first level whose name (or written form) normalizes to ``key``.
+
+    ``None`` for an empty key (a segment such as ``_``), which matches nothing.
+    """
+    if not key:
+        return None
     for index, level in enumerate(levels):
         if key in (normalize(level.name), normalize(level.written or "")):
             return index
@@ -341,28 +351,42 @@ def migrate_v1(conn: sqlite3.Connection, path: Path, ref: RefData) -> None:
     """Back ``path`` up, then migrate it from version 1 to 2 (module docstring).
 
     ``conn`` is an open connection to ``path`` in autocommit mode
-    (``isolation_level=None``).
+    (``isolation_level=None``). The write lock is taken first: the backup and
+    the conversion see the same state, and a file another process migrated
+    meanwhile is left alone, without a backup.
     """
-    backup = backup_path(path, datetime.now(UTC))
-    try:
-        target = sqlite3.connect(backup)
-        try:
-            conn.backup(target)
-        finally:
-            target.close()
-    except BaseException:
-        backup.unlink(missing_ok=True)
-        raise
     conn.execute("BEGIN IMMEDIATE")
     try:
         if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
-            # Migrated by another process since the caller read the version.
             conn.execute("ROLLBACK")
-            backup.unlink(missing_ok=True)
             return
+        backup = backup_path(path, datetime.now(UTC))
+        try:
+            _backup(path, backup)
+        except BaseException:
+            backup.unlink(missing_ok=True)
+            raise
         _convert(conn, ref, backup.name)
     except BaseException:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
         raise
     conn.execute("COMMIT")
+
+
+def _backup(path: Path, backup: Path) -> None:
+    """Copy ``path`` to ``backup`` through a reading connection.
+
+    The migrating connection holds the write lock, and SQLite refuses a backup
+    from a connection that is writing: a second connection reads the file,
+    which nothing can change until the migration ends.
+    """
+    source = sqlite3.connect(path)
+    try:
+        target = sqlite3.connect(backup)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    finally:
+        source.close()

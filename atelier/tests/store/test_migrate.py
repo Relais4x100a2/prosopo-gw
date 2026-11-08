@@ -343,3 +343,62 @@ def test_levels_from_v1_origin_errors_are_value_errors(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         levels_from_v1({"commune": "Lille", "postal_code": "59000"}, origins, ref)
+
+
+def test_levels_from_v1_checks_unused_origins(ref: RefData) -> None:
+    fields = {"commune": "Lille", "insee_code": "59350", "former_name": "Lomme"}
+    with pytest.raises(ValueError, match="insee_code"):
+        levels_from_v1(fields, {"commune": "rule", "former_name": "rule"}, ref)
+    with pytest.raises(ValueError, match="former_name"):
+        levels_from_v1(
+            fields,
+            {"commune": "rule", "insee_code": "rule", "former_name": "oracle"},
+            ref,
+        )
+
+
+def test_levels_from_v1_llm_postal_code_becomes_rule(ref: RefData) -> None:
+    _, postal, origin = levels_from_v1(
+        {"commune": "Lille", "postal_code": "59000"},
+        {"commune": "llm", "postal_code": "llm"},
+        ref,
+    )
+    assert (postal, origin) == ("59000", "rule")
+
+
+def test_empty_written_segment_does_not_place_a_proposal(
+    tmp_path: Path, ref: RefData
+) -> None:
+    _v1_registry(
+        tmp_path / "r.sqlite",
+        f"INSERT INTO places VALUES ('p-w2', {AT});"
+        "INSERT INTO place_fields VALUES ('p-w2','commune','Winnipeg','rule'),"
+        " ('p-w2','country','Canada','rule');"
+        "INSERT INTO writings VALUES ('Winnipeg, Canada, _, Amérique', 'p-w2',"
+        f" 'validated', 'p1', {AT});",
+    )
+    with PlaceRegistry(tmp_path / "r.sqlite", ref) as registry:
+        place = registry.place("p-w2")
+    assert [(lv.name, lv.status) for lv in place.levels] == [
+        ("Winnipeg", "validated"),
+        ("Canada", "validated"),
+        ("Amérique", "proposed"),
+    ]
+
+
+def test_migrated_file_is_left_alone_without_backup(
+    tmp_path: Path, ref: RefData
+) -> None:
+    path = tmp_path / "r.sqlite"
+    _v1_registry(path)
+    PlaceRegistry(path, ref).close()
+    conn = sqlite3.connect(path, isolation_level=None)
+    try:
+        migrate.migrate_v1(conn, path, ref)  # as a second opener would, too late
+        assert not conn.in_transaction
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        actions = [r[0] for r in conn.execute("SELECT action FROM journal")]
+    finally:
+        conn.close()
+    assert actions == ["migrate"]
+    assert len(list(tmp_path.glob("r.v1-*.sqlite"))) == 1
