@@ -262,3 +262,33 @@ def test_transient_failure_still_backs_off(queue: SourceQueue, clock: Clock) -> 
     assert Worker(queue, {("s", "download"): flaky}).run_once()
     assert queue.counts()["s"]["failed"] == 0
     assert queue.counts()["s"]["pending"] == 1
+
+
+def test_clear_keeps_pending_and_running_downloads_and_indexing(
+    queue: SourceQueue,
+) -> None:
+    queue.enqueue("s", "download", "DT01", {}, 9)
+    queue.enqueue("s", "index", "DT02", {}, 0)
+    queue.enqueue("s", "match", "a", {}, 1)
+    running = queue.next_job()  # the highest priority: the download
+    assert running is not None and running.kind == "download"
+    queue.enqueue("s", "download", "DT03", {}, 0)
+    queue.store_result("s", "k", [])
+    queue.clear("s")
+    assert queue.result("s", "k") is None
+    counts = queue.counts()["s"]
+    assert counts["running"] == 1
+    assert counts["pending"] == 2  # the index and the second download
+    assert queue.failed_keys("s", "match") == set()
+    kinds = {queue.next_job().kind, queue.next_job().kind}  # type: ignore[union-attr]
+    assert kinds == {"index", "download"}
+
+
+def test_clear_drops_finished_and_failed_downloads(queue: SourceQueue) -> None:
+    queue.enqueue("s", "download", "DT01", {}, 0)
+    job = queue.next_job()
+    assert job is not None
+    queue.finish(job.id)
+    assert "s" not in queue.counts() or queue.counts()["s"].get("pending", 0) == 0
+    queue.clear("s")
+    assert "s" not in queue.counts()

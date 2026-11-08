@@ -342,8 +342,14 @@ class SourceQueue:
         return None if row is None else _decode(row["candidates"])
 
     def clear(self, source: str) -> None:
+        """Forget the match jobs and results of ``source``; downloads and indexing
+        that are pending or running are kept (they are the user's own requests)."""
         with self._db() as db:
-            db.execute("DELETE FROM jobs WHERE source=?", (source,))
+            db.execute(
+                "DELETE FROM jobs WHERE source=? AND NOT"
+                " (kind IN ('download','index') AND state IN ('pending','running'))",
+                (source,),
+            )
             db.execute("DELETE FROM results WHERE source=?", (source,))
             db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'reset'")
 
