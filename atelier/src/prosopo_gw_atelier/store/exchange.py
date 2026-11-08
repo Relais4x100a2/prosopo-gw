@@ -5,11 +5,16 @@ only by ``exported_at`` and diff cleanly under version control)::
 
     {
       "format": "prosopo-gw-atelier/lieux",
-      "version": 1,
+      "version": 2,
       "exported_at": "2026-11-07T10:00:00+00:00",
       "places": [
         {"place_id": "<uuid>",
-         "fields": {"commune": {"value": "Roubaix", "origin": "rule"}, …}}
+         "postal_code": {"value": "59000", "origin": "written"},
+         "levels": [
+           {"rank": 0, "name": "Lille", "written": null, "type": "commune",
+            "identifier": "59350", "source": "COG 2026", "start": null,
+            "end": null, "latitude": null, "longitude": null, "nature": null,
+            "origin": "insee", "status": "validated"}, …]}
       ],
       "writings": [
         {"writing": "ROUBAIX", "status": "validated",
@@ -19,22 +24,40 @@ only by ``exported_at`` and diff cleanly under version control)::
       ]
     }
 
-Places are sorted by ``place_id``, their fields by kind, writings by text.
-Creation and decision timestamps are not exported (imported rows get the
-import time).
+Places are sorted by ``place_id``, their levels by rank (validated and
+proposed levels together, ranks as stored), writings by text. ``postal_code``
+is ``null`` without postal code. Creation and decision timestamps are not
+exported (imported rows get the import time). Level origins are the internal
+ones (``written``, ``rule``, ``manual``, ``insee``…) and statuses
+``validated`` / ``proposed``.
+
+Versions
+    Version 2 is read as is. Version 1 (fixed ``fields`` per place) is still
+    accepted: each place is converted by ``migrate.levels_from_v1`` with the
+    ``ref`` given to :func:`import_registry` (``None``: nothing is looked up,
+    see that function; a ``former_name`` becomes an untyped proposed level). A
+    version 1 place left without validated level is named after its first
+    validated writing of the document (sorted), one untyped validated level of
+    origin ``written``; with no such writing it keeps no level. Any other
+    version is refused.
 
 Import
     The whole document is validated first (:class:`RegistryFormatError`,
-    nothing written). Then, per writing: absent locally → applied; same status
-    and same ``place_id`` → nothing to do (the project does not matter);
-    otherwise → a :class:`Conflict`, the local decision is left unchanged.
-    A place whose id is unknown locally is created with its fields and
-    origins, unless only conflicting writings need it: it then travels in
+    nothing written), including the chain of every place with ``check_chain``
+    (contiguous integer ranks from 0, non-empty names, valid type, origin,
+    status and nature): a gap, a string rank or a missing name is a format
+    error naming the place. Then, per writing: absent locally → applied; same
+    status and same ``place_id`` → nothing to do (the project does not
+    matter); otherwise → a :class:`Conflict`, the local decision is left
+    unchanged.
+    A place whose id is unknown locally is created with its levels and postal
+    code, unless only conflicting writings need it: it then travels in
     ``Conflict.incoming_place`` and is created only if the conflict is
     resolved with the incoming decision. A place whose id is already known
-    keeps its local fields; differing fields are neither overwritten nor
-    reported (only writings conflict). Everything applied goes into one
-    undoable ``import`` journal entry; nothing is journaled if nothing changes.
+    keeps its local levels and postal code; differing ones are neither
+    overwritten nor reported (only writings conflict). Everything applied goes
+    into one undoable ``import`` journal entry; nothing is journaled if
+    nothing changes.
     "Absent locally" is checked again inside the write transaction: a writing
     another process decided in the meantime becomes a conflict too.
 """
@@ -42,19 +65,56 @@ Import
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, cast, get_args
 
+from ..places.levels import (
+    HistoricalNature,
+    Level,
+    LevelOrigin,
+    LevelStatus,
+    check_chain,
+)
 from ..places.model import ElementKind
-from .registry import Decision, Origin, Place, PlaceRegistry, RowChange, Status
+from ..refdata import RefData
+from .migrate import levels_from_v1
+from .registry import (
+    Decision,
+    Origin,
+    Place,
+    PlaceRegistry,
+    PostalOrigin,
+    RowChange,
+    Status,
+)
 
 FORMAT = "prosopo-gw-atelier/lieux"
-VERSION = 1
+VERSION = 2
+_READABLE_VERSIONS = (1, 2)
 
 _KINDS = frozenset(get_args(ElementKind))
 _ORIGINS = frozenset(get_args(Origin))
 _STATUSES = frozenset(get_args(Status))
+_LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
+_LEVEL_STATUSES = frozenset(get_args(LevelStatus))
+_NATURES = frozenset(get_args(HistoricalNature))
+_POSTAL_ORIGINS = frozenset(get_args(PostalOrigin))
+_LEVEL_FIELDS = (
+    "rank",
+    "name",
+    "written",
+    "type",
+    "identifier",
+    "source",
+    "start",
+    "end",
+    "latitude",
+    "longitude",
+    "nature",
+    "origin",
+    "status",
+)
 
 
 class RegistryFormatError(ValueError):
@@ -85,7 +145,7 @@ def _now() -> str:
 
 
 def export_registry(registry: PlaceRegistry) -> dict[str, Any]:
-    """The whole registry as a JSON-serializable document."""
+    """The whole registry as a JSON-serializable document (version 2)."""
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -93,10 +153,13 @@ def export_registry(registry: PlaceRegistry) -> dict[str, Any]:
         "places": [
             {
                 "place_id": place.place_id,
-                "fields": {
-                    kind: {"value": place.fields[kind], "origin": place.origins[kind]}
-                    for kind in sorted(place.fields)
-                },
+                "postal_code": None
+                if place.postal_code is None
+                else {"value": place.postal_code, "origin": place.postal_origin},
+                "levels": [
+                    {field: getattr(level, field) for field in _LEVEL_FIELDS}
+                    for level in place.levels
+                ],
             }
             for place in registry.places()
         ],
@@ -134,7 +197,100 @@ def _text(value: Any, where: str, *, optional: bool = False) -> Any:
     return value
 
 
-def _parse_place(index: int, raw: Any) -> Place:
+def _choice(value: Any, allowed: frozenset[str], where: str) -> Any:
+    if not isinstance(value, str) or value not in allowed:
+        raise _fail(
+            f"{where}: unknown value {value!r} (expected one of {sorted(allowed)})"
+        )
+    return value
+
+
+def _parse_level(where: str, raw: Any) -> Level:
+    if not isinstance(raw, Mapping):
+        raise _fail(f"{where} must be an object")
+    rank = _get(raw, "rank", where)
+    if type(rank) is not int:
+        raise _fail(f"{where}.rank must be an integer, not {rank!r}")
+    name = _get(raw, "name", where)
+    if not isinstance(name, str):
+        raise _fail(f"{where}.name must be a string, not {name!r}")
+    texts: dict[str, str | None] = {}
+    for key in ("written", "type", "identifier", "source", "start", "end"):
+        value = raw.get(key)
+        if value is not None and not isinstance(value, str):
+            raise _fail(f"{where}.{key} must be a string or null, not {value!r}")
+        texts[key] = value
+    coords: dict[str, float | None] = {}
+    for key in ("latitude", "longitude"):
+        number = raw.get(key)
+        if number is not None and (
+            isinstance(number, bool) or not isinstance(number, int | float)
+        ):
+            raise _fail(f"{where}.{key} must be a number or null, not {number!r}")
+        coords[key] = None if number is None else float(number)
+    nature = raw.get("nature")
+    if nature is not None:
+        _choice(nature, _NATURES, f"{where}.nature")
+    origin = _choice(_get(raw, "origin", where), _LEVEL_ORIGINS, f"{where}.origin")
+    status = _choice(_get(raw, "status", where), _LEVEL_STATUSES, f"{where}.status")
+    return Level(
+        rank,
+        name,
+        written=texts["written"],
+        type=texts["type"],
+        identifier=texts["identifier"],
+        source=texts["source"],
+        start=texts["start"],
+        end=texts["end"],
+        latitude=coords["latitude"],
+        longitude=coords["longitude"],
+        nature=cast(HistoricalNature | None, nature),
+        origin=cast(LevelOrigin, origin),
+        status=cast(LevelStatus, status),
+    )
+
+
+def _check_place_chain(place_id: str, levels: tuple[Level, ...]) -> None:
+    if not levels:
+        return
+    try:
+        check_chain(levels)
+    except ValueError as exc:
+        raise RegistryFormatError(
+            f"Export de référentiel invalide : le lieu {place_id} a une chaîne "
+            f"de niveaux incorrecte. {exc}"
+        ) from exc
+
+
+def _parse_place_v2(index: int, raw: Any) -> Place:
+    where = f"places[{index}]"
+    if not isinstance(raw, Mapping):
+        raise _fail(f"{where} must be an object")
+    place_id = _text(_get(raw, "place_id", where), f"{where}.place_id")
+    raw_levels = _get(raw, "levels", where)
+    if not isinstance(raw_levels, list):
+        raise _fail(f"{where}.levels must be a list")
+    levels = tuple(
+        _parse_level(f"{where}.levels[{i}]", item) for i, item in enumerate(raw_levels)
+    )
+    postal = raw.get("postal_code")
+    postal_code: str | None = None
+    postal_origin: LevelOrigin | None = None
+    if postal is not None:
+        at = f"{where}.postal_code"
+        if not isinstance(postal, Mapping):
+            raise _fail(f"{at} must be an object with 'value' and 'origin', or null")
+        postal_code = _text(_get(postal, "value", at), f"{at}.value")
+        postal_origin = _choice(
+            _get(postal, "origin", at), _POSTAL_ORIGINS, f"{at}.origin"
+        )
+    _check_place_chain(place_id, levels)
+    return Place(place_id, levels, postal_code, postal_origin)
+
+
+def _parse_place_v1(
+    index: int, raw: Any, attached: list[str], ref: RefData | None
+) -> Place:
     where = f"places[{index}]"
     if not isinstance(raw, Mapping):
         raise _fail(f"{where} must be an object")
@@ -142,8 +298,8 @@ def _parse_place(index: int, raw: Any) -> Place:
     raw_fields = _get(raw, "fields", where)
     if not isinstance(raw_fields, Mapping):
         raise _fail(f"{where}.fields must be an object")
-    fields: dict[ElementKind, str] = {}
-    origins: dict[ElementKind, Origin] = {}
+    fields: dict[str, str] = {}
+    origins: dict[str, str] = {}
     for kind, field in raw_fields.items():
         at = f"{where}.fields.{kind}"
         if not isinstance(kind, str) or kind not in _KINDS:
@@ -161,9 +317,21 @@ def _parse_place(index: int, raw: Any) -> Place:
                 f"{at}.origin: unknown origin {origin!r} "
                 f"(expected one of {sorted(_ORIGINS)})"
             )
-        fields[cast(ElementKind, kind)] = value
-        origins[cast(ElementKind, kind)] = cast(Origin, origin)
-    return Place(place_id, fields, origins)
+        fields[kind] = value
+        origins[kind] = origin
+    try:
+        levels, postal_code, postal_origin = levels_from_v1(fields, origins, ref)
+    except ValueError as exc:
+        raise RegistryFormatError(
+            f"Export de référentiel invalide : le lieu {place_id} ne se convertit "
+            f"pas en niveaux. {exc}"
+        ) from exc
+    if not any(level.status == "validated" for level in levels) and attached:
+        # Same rule as the schema migration: a place with no level to keep is
+        # named after its first validated writing.
+        levels = (*levels, Level(len(levels), min(attached), origin="written"))
+    _check_place_chain(place_id, levels)
+    return Place(place_id, levels, postal_code, postal_origin)
 
 
 def _parse_writing(index: int, raw: Any) -> Decision:
@@ -187,7 +355,7 @@ def _parse_writing(index: int, raw: Any) -> Decision:
 
 
 def _parse(
-    data: object, local_places: set[str]
+    data: object, local_places: set[str], ref: RefData | None
 ) -> tuple[str, dict[str, Place], list[Decision]]:
     if not isinstance(data, Mapping):
         raise _fail("the document must be a JSON object")
@@ -195,7 +363,7 @@ def _parse(
     if not isinstance(fmt, str) or fmt != FORMAT:
         raise _fail(f"format {fmt!r} is not {FORMAT!r}")
     version = _get(data, "version", "document")
-    if type(version) is not int or version != VERSION:
+    if type(version) is not int or version not in _READABLE_VERSIONS:
         raise _fail(
             f"version {version!r} is not supported (this atelier reads "
             f"version {VERSION}); upgrade the atelier"
@@ -209,26 +377,34 @@ def _parse(
     raw_writings = _get(data, "writings", "document")
     if not isinstance(raw_writings, list):
         raise _fail("writings must be a list")
-    places: dict[str, Place] = {}
-    for index, raw in enumerate(raw_places):
-        place = _parse_place(index, raw)
-        if place.place_id in places:
-            raise _fail(f"places[{index}]: duplicate place_id {place.place_id!r}")
-        places[place.place_id] = place
     writings: list[Decision] = []
     seen: set[str] = set()
+    attached: dict[str, list[str]] = {}
     for index, raw in enumerate(raw_writings):
         decision = _parse_writing(index, raw)
         if decision.writing in seen:
             raise _fail(f"writings[{index}]: duplicate writing {decision.writing!r}")
         seen.add(decision.writing)
+        if decision.place_id is not None:
+            attached.setdefault(decision.place_id, []).append(decision.writing)
+        writings.append(decision)
+    places: dict[str, Place] = {}
+    for index, raw in enumerate(raw_places):
+        if version == 1:
+            pid = raw.get("place_id") if isinstance(raw, Mapping) else None
+            place = _parse_place_v1(index, raw, attached.get(pid, []), ref)  # type: ignore[arg-type]
+        else:
+            place = _parse_place_v2(index, raw)
+        if place.place_id in places:
+            raise _fail(f"places[{index}]: duplicate place_id {place.place_id!r}")
+        places[place.place_id] = place
+    for index, decision in enumerate(writings):
         pid = decision.place_id
         if pid is not None and pid not in places and pid not in local_places:
             raise _fail(
                 f"writings[{index}]: place_id {pid!r} is neither in the document "
                 "nor in the registry"
             )
-        writings.append(decision)
     return exported_at, places, writings
 
 
@@ -237,12 +413,19 @@ def _parse(
 
 def _place_changes(place: Place, now: str) -> list[RowChange]:
     changes = [RowChange("places", {"place_id": place.place_id}, {"created_at": now})]
-    for kind, value in place.fields.items():
+    for level in place.levels:
+        state = {k: v for k, v in asdict(level).items() if k != "rank"}
         changes.append(
             RowChange(
-                "place_fields",
-                {"place_id": place.place_id, "kind": kind},
-                {"value": value, "origin": place.origins[kind]},
+                "place_levels", {"place_id": place.place_id, "rank": level.rank}, state
+            )
+        )
+    if place.postal_code is not None:
+        changes.append(
+            RowChange(
+                "place_attributes",
+                {"place_id": place.place_id, "name": "postal_code"},
+                {"value": place.postal_code, "origin": place.postal_origin},
             )
         )
     return changes
@@ -270,12 +453,15 @@ class ImportResult:
     entry_id: int | None
 
 
-def import_registry(registry: PlaceRegistry, data: object) -> ImportResult:
+def import_registry(
+    registry: PlaceRegistry, data: object, ref: RefData | None = None
+) -> ImportResult:
     """Apply everything in ``data`` that does not conflict.
 
     ``data`` is untrusted (typically ``json.load`` output), hence typed
     ``object``: any mapping is accepted, anything else is a format error.
-    See the module docstring. ``RegistryFormatError`` (nothing written) if
+    ``ref`` (reference data) only serves to convert a version 1 document; see
+    the module docstring. ``RegistryFormatError`` (nothing written) if
     ``data`` is not a valid export.
 
     The import is planned from a read of the registry, then applied in one
@@ -288,7 +474,7 @@ def import_registry(registry: PlaceRegistry, data: object) -> ImportResult:
     """
     for _ in range(_IMPORT_ATTEMPTS):
         try:
-            return _import_once(registry, data)
+            return _import_once(registry, data, ref)
         except _PlanOutdated:
             continue
     raise RuntimeError(
@@ -303,9 +489,11 @@ class _PlanOutdated(Exception):
     """The registry changed between planning an import and applying it."""
 
 
-def _import_once(registry: PlaceRegistry, data: object) -> ImportResult:
+def _import_once(
+    registry: PlaceRegistry, data: object, ref: RefData | None
+) -> ImportResult:
     local_places = {place.place_id for place in registry.places()}
-    exported_at, places, incoming = _parse(data, local_places)
+    exported_at, places, incoming = _parse(data, local_places, ref)
     local = registry.decisions(d.writing for d in incoming)
 
     applied: list[Decision] = []

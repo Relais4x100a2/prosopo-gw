@@ -402,3 +402,35 @@ def test_migrated_file_is_left_alone_without_backup(
         conn.close()
     assert actions == ["migrate"]
     assert len(list(tmp_path.glob("r.v1-*.sqlite"))) == 1
+
+
+def test_levels_from_v1_without_refdata_names_by_code_and_proposes_former_name() -> (
+    None
+):
+    levels, postal, origin = levels_from_v1(
+        {
+            "insee_code": "59350",
+            "department": "59",
+            "country": "France",
+            "former_name": "Lomme",
+            "postal_code": "59000",
+        },
+        {
+            "insee_code": "reference",
+            "department": "manual",
+            "country": "rule",
+            "former_name": "rule",
+            "postal_code": "rule",
+        },
+        None,
+    )
+    assert [
+        (lv.rank, lv.name, lv.type, lv.identifier, lv.source, lv.status, lv.origin)
+        for lv in levels
+    ] == [
+        (0, "Lomme", None, None, None, "proposed", "written"),
+        (1, "59350", "commune", "59350", None, "validated", "insee"),
+        (2, "59", "departement", "59", None, "validated", "manual"),
+        (3, "France", "pays", None, None, "validated", "rule"),
+    ]
+    assert (postal, origin) == ("59000", "rule")

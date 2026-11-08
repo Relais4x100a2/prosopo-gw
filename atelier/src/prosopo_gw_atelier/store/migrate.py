@@ -48,6 +48,7 @@ Decisions and journal
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -88,6 +89,9 @@ def backup_path(path: Path, at: datetime) -> Path:
     return path.with_name(f"{path.stem}.v1-{at:%Y%m%dT%H%M%S}.sqlite")
 
 
+_DEPARTMENT_CODE = re.compile(r"\s*(\d{2,3}|2[abAB])\s*\Z")
+
+
 def _origin(
     origins: Mapping[str, str],
     kind: str,
@@ -103,7 +107,7 @@ def _origin(
 
 
 def levels_from_v1(
-    fields: Mapping[str, str], origins: Mapping[str, str], ref: RefData
+    fields: Mapping[str, str], origins: Mapping[str, str], ref: RefData | None
 ) -> tuple[tuple[Level, ...], str | None, LevelOrigin | None]:
     """Chain, postal code and its origin of one version 1 place.
 
@@ -111,8 +115,14 @@ def levels_from_v1(
     ``insee_code``…), origins in v1 values (``reference``…). The chain may
     hold a proposed level built from ``former_name``. A missing or unknown
     origin raises ``ValueError`` (French message).
+
+    Without ``ref`` (``None``, registry import with no reference data) nothing
+    is looked up: a commune known by its INSEE code only is named by the code,
+    a department is named as written (its code, when it looks like one, is
+    the identifier), no level has a ``source``, and ``former_name`` is never
+    recognised: it becomes an untyped proposed level at rank 0.
     """
-    source = f"COG {ref.cog_vintage}"
+    source = f"COG {ref.cog_vintage}" if ref is not None else None
     levels: list[Level] = []
     insee = fields.get("insee_code")
     if insee:
@@ -122,7 +132,7 @@ def levels_from_v1(
     if name or insee:
         origin = _origin(origins, "commune" if name else "insee_code")
         if not name and insee:
-            known = ref.commune_by_insee(insee)
+            known = ref.commune_by_insee(insee) if ref is not None else None
             name = known.name if known is not None else insee
         commune = Level(
             0,
@@ -134,12 +144,20 @@ def levels_from_v1(
         )
     department = fields.get("department")
     if department:
-        code = ref.department(department)
+        if ref is not None:
+            code = ref.department(department)
+        else:
+            code = (
+                department.strip().upper()
+                if _DEPARTMENT_CODE.match(department)
+                else None
+            )
         origin = _origin(origins, "department")
         levels.append(
             Level(
                 0,
-                (ref.department_name(code) if code else None) or department,
+                (ref.department_name(code) if ref is not None and code else None)
+                or department,
                 type="departement",
                 identifier=code,
                 source=source if origin == "insee" else None,
@@ -148,7 +166,7 @@ def levels_from_v1(
         )
     region = fields.get("region")
     if region:
-        known_region = ref.region(region)
+        known_region = ref.region(region) if ref is not None else None
         origin = _origin(origins, "region")
         old = known_region is not None and known_region[1]
         levels.append(
@@ -174,7 +192,9 @@ def levels_from_v1(
         former = next(
             (
                 match.former
-                for match in ref.communes_by_name(former_name)
+                for match in (
+                    ref.communes_by_name(former_name) if ref is not None else ()
+                )
                 if match.former is not None and match.commune.insee == place_insee
             ),
             None,
