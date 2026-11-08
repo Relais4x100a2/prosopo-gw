@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from prosopo_gw_atelier.export.archive import build_archive
+from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.project import Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.store.registry import PlaceRegistry
@@ -41,8 +42,9 @@ def project(tmp_path: Path, registry: PlaceRegistry, ref: RefData) -> Project:
 def lyon(registry: PlaceRegistry) -> str:
     return registry.validate(
         ["Lyon"],
-        {"commune": "Lyon", "insee_code": "69123"},
-        {"commune": "rule", "insee_code": "rule"},
+        [Level(0, "Lyon", type="commune", identifier="69123", origin="rule")],
+        None,
+        None,
         project="p",
     ).place_id
 
@@ -65,6 +67,7 @@ def test_exact_file_list(
         "temoins.csv",
         "sources.csv",
         "lieux.csv",
+        "niveaux_lieux.csv",
         "ecritures_lieux.csv",
         "lieux_varies.json",
         "lieux_varies.sqlite",
@@ -82,9 +85,18 @@ def test_readme(project: Project, registry: PlaceRegistry, ref: RefData) -> None
     assert "lieux_varies.gw" in readme
     assert "2026-11-07" in readme
     assert "personnes vivantes" in readme
-    assert "regle" in readme and "manuel" in readme and "referentiel" in readme
+    assert "regle" in readme and "manuel" in readme and "insee" in readme
     assert "rejete" in readme and "valide" in readme
     assert "{" not in readme
+
+
+def test_readme_mentions_levels(
+    project: Project, registry: PlaceRegistry, ref: RefData
+) -> None:
+    archive = open_zip(build_archive(project, registry, ref, GENERATED_AT))
+    readme = archive.read("LISEZMOI.txt").decode("utf-8")
+    assert "niveaux_lieux" in readme
+    assert "ecrit" in readme
 
 
 def test_contents(

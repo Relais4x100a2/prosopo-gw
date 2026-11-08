@@ -19,17 +19,29 @@ Lieux
   pour chaque écriture : valide (rattachée à un lieu) ou rejete (pas un lieu
   exploitable).
 
+Niveaux
+  Chaque lieu est une chaîne de niveaux, du plus précis au plus large. La table
+  niveaux_lieux a une ligne par niveau validé : lieu_id, rang (0 = le plus
+  précis), nom, type (commune, departement, commune_historique…), nature (fusion,
+  associee ou deleguee pour une ancienne commune), identifiant (code INSEE…),
+  source, debut, fin, coordonnées et origine. La table lieux en donne la vue
+  française (commune, département, région, pays, ancienne commune) et le libelle,
+  les noms des niveaux séparés par une virgule. Les niveaux seulement proposés,
+  non validés, ne sont pas exportés.
+
 Origine des valeurs
-  Dans la table lieux, chaque colonne <champ>_origine dit d'où vient la valeur :
+  Dans la table lieux, chaque colonne <champ>_origine, et dans niveaux_lieux la
+  colonne origine, dit d'où vient la valeur : ecrit (écrite dans la base),
   regle (proposée par les règles de l'atelier, puis validée), manuel (saisie à
-  la main), referentiel (référentiel externe), llm (proposée par un modèle de
-  langue, puis validée).
+  la main), insee (référentiel de l'INSEE), paris, dicotopo, geonames
+  (référentiels externes), llm (proposée par un modèle de langue, puis validée).
 
 Référentiels
   Code officiel géographique (COG) de l'INSEE, millésime {cog}.
   Base officielle des codes postaux de La Poste, millésime {postal}.
   Source : INSEE et La Poste, données publiées sur data.gouv.fr sous
-  Licence Ouverte 2.0 (Etalab).
+  Licence Ouverte 2.0 (Etalab). Les anciennes communes (fusions, associations,
+  délégations) viennent du COG.
 
 Les identifiants (personne_id, famille_id, evenement_id…) ne valent que pour ce
 fichier .gw. Les lieu_id sont ceux de votre référentiel personnel, stables d'un
