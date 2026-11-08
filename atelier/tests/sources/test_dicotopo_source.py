@@ -252,3 +252,40 @@ def test_api_error_is_recorded(
     with pytest.raises(SourceError):
         source.search(LevelQuery("Fictiville", department="05"))
     assert len(api.urls) == 2  # nothing cached: the second call retries
+
+
+def test_written_without_article_matches_inverted_headword(
+    source: DicoTopoSource, ref: RefData
+) -> None:
+    for writing in ("Fictibois, Nord", "Le Fictibois, Nord"):
+        chain, alternatives = run(source, ref, writing)
+        assert chain[0].identifier == "P90000011" and alternatives == ()
+        assert chain[0].name == writing.split(",")[0]
+
+
+def test_mixed_single_and_ambiguous_targets_leave_chain_whole(
+    source: DicoTopoSource, ref: RefData
+) -> None:
+    writing = "Fictimont, Le Quesnoy-Fictif, Pas-de-Calais"
+    chain, alternatives = run(source, ref, writing)
+    assert chain == ()
+    assert len(alternatives) == 2
+
+
+def test_lieu_dit_named_like_its_commune_is_not_a_commune() -> None:
+    from prosopo_gw_atelier.sources.dicotopo.source import _api_article
+
+    attributes = {
+        "place-id": "P90000050",
+        "place-label": "Fictiville",
+        "commune-label": "Fictiville",
+        "localization-insee-code": "05061",
+        "dpt": 5,
+        "place-feature-types": ["lieu-dit"],
+    }
+    entry = {"type": "place", "id": "P90000050", "attributes": attributes}
+    article = _api_article(entry)
+    assert article is not None and article.insee is None and article.department == "05"
+    attributes["place-feature-types"] = ["commune"]
+    article = _api_article(entry)
+    assert article is not None and article.insee == "05061"

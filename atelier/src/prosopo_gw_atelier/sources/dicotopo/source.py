@@ -24,12 +24,12 @@ API (checked on 2026-11-08, JSON:API, no key): ``https://dicotopo.cths.fr/api/1.
 from __future__ import annotations
 
 import html
+import logging
 import re
 import urllib.parse
 from collections.abc import Sequence
 from dataclasses import replace
 
-from ...places.cluster import name_key
 from ...places.levels import Level, renumber
 from ...places.model import Decomposition
 from ...refdata import Commune, Former, RefData
@@ -37,10 +37,11 @@ from ..base import LevelQuery, SourceCandidate, SourceError
 from ..fetch import Opener, get_json
 from ..queue import RateLimiter
 from .download import DICOTOPO
-from .index import Article, DicoTopoIndex, form_key, form_keys, fronted
+from .index import Article, DicoTopoIndex, form_key, form_keys, fronted, plain
 
 API_URL = "https://dicotopo.cths.fr/api/1.0/"
 LINK_URL = "https://dicotopo.cths.fr/places/"
+logger = logging.getLogger(__name__)
 _ID = re.compile(r"\AP\d{1,12}\Z")
 _DFN = re.compile(r"<dfn>(.*?)</dfn>", re.DOTALL)
 _TAG = re.compile(r"<[^>]+>")
@@ -70,6 +71,12 @@ def _plain(text: str) -> str:
 
 def _str(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _dept(value: object) -> str:
+    """Department code normalised: stripped, upper case, 1-digit zero-padded."""
+    text = str(value).strip().upper() if isinstance(value, (str, int)) else ""
+    return f"0{text}" if len(text) == 1 and text.isdigit() else text
 
 
 class DicoTopoSource:
@@ -129,7 +136,7 @@ class DicoTopoSource:
 
     def _department(self, query: LevelQuery) -> str | None:
         if query.department:
-            return query.department.strip().upper()
+            return _dept(query.department)
         if query.insee:
             commune = self._ref.commune_by_insee(query.insee)
             if commune is not None:
@@ -137,13 +144,17 @@ class DicoTopoSource:
         return None
 
     def _candidate(self, article: Article, key: str | None) -> SourceCandidate:
-        """Candidate of an article; ``name`` is the form that matched ``key``."""
+        """Candidate of an article.
+
+        ``name`` is the form that matched ``key``, as written in DicoTopo (an inverted
+        headword stays ``Quesnoy-Fictif (Le)``): ``form_keys(name)`` holds the key.
+        """
         headword = fronted(article.headword)
         name = headword
         if key is not None:
             for text in (article.headword, *article.forms):
                 if key in form_keys(text):
-                    name = fronted(text)
+                    name = plain(text)
                     break
         code = article.insee or article.commune_insee
         parents: tuple[Level, ...] = ()
@@ -206,12 +217,16 @@ class DicoTopoSource:
         entries = data.get("data")
         if not isinstance(entries, list):
             raise SourceError("Requête impossible : réponse non valide (data absent)")
+        meta = data.get("meta")
+        total = meta.get("total-count") if isinstance(meta, dict) else None
+        if isinstance(total, int) and total > len(entries):
+            logger.debug("DicoTopo: %d results, only %d read", total, len(entries))
         found: dict[str, Article] = {}
         for entry in entries:
             if not isinstance(entry, dict) or entry.get("type") != "place":
                 continue
             article = _api_article(entry)
-            if article is None or article.department != department:
+            if article is None or _dept(article.department) != department:
                 continue
             if any(key in form_keys(t) for t in (article.headword, *article.forms)):
                 found.setdefault(article.id, article)
@@ -221,6 +236,13 @@ class DicoTopoSource:
         data = self._get(f"{API_URL}places/{identifier}")
         entry = data.get("data")
         return _api_article(entry) if isinstance(entry, dict) else None
+
+
+def _is_commune_type(terms: object) -> bool:
+    """True when no feature type is given, or when one of them is ``commune``."""
+    if not isinstance(terms, list) or not terms:
+        return True
+    return any(isinstance(t, str) and t.strip().casefold() == "commune" for t in terms)
 
 
 def _api_article(entry: dict[str, object]) -> Article | None:
@@ -233,7 +255,14 @@ def _api_article(entry: dict[str, object]) -> Article | None:
     if not _ID.match(identifier) or not label or not code:
         return None
     commune_label = _plain(_str(attributes.get("commune-label")))
-    own = code if commune_label and form_key(label) == form_key(commune_label) else None
+    same = bool(commune_label) and form_key(label) == form_key(commune_label)
+    # A label equal to the commune label means a commune, unless the entry says that
+    # it is another kind of place (a lieu-dit named like its commune).
+    own = (
+        code
+        if same and _is_commune_type(attributes.get("place-feature-types"))
+        else None
+    )
     old = attributes.get("old-labels")
     forms: list[str] = []
     for text in old if isinstance(old, list) else []:
@@ -242,7 +271,7 @@ def _api_article(entry: dict[str, object]) -> Article | None:
         if form:
             forms.append(form)
     return Article(
-        identifier, _str(attributes.get("dpt")), label, own, code, None, tuple(forms)
+        identifier, _dept(attributes.get("dpt")), label, own, code, None, tuple(forms)
     )
 
 
@@ -310,10 +339,15 @@ def queries_for(
 
 
 def _reading(
-    chain: Sequence[Level], target: Level, candidate: SourceCandidate
+    chain: Sequence[Level],
+    target: Level,
+    candidate: SourceCandidate,
+    commune: Level | None,
 ) -> tuple[Level, ...] | None:
-    """The chain with ``target`` replaced by the reading of ``candidate``."""
-    commune = _commune_level(chain)
+    """The chain with ``target`` replaced by the reading of ``candidate``.
+
+    ``commune`` is the commune level resolved before any proposal (or ``None``).
+    """
     source = _source_text(candidate.identifier)
     if commune is not None:
         if candidate.type != "lieu_dit" or candidate.insee != commune.identifier:
@@ -370,28 +404,32 @@ def proposals(
     the chain (``origin="dicotopo"``, ``status="proposed"``, ``identifier`` ``P…`` and
     ``source`` with the article link). A level with several readings (homonyms, or
     different communes) is never settled silently: each reading becomes a whole
-    alternative chain. Without any single reading the chain is empty; without any
-    reading at all both results are empty. Candidates of another commune than the
-    resolved one are ignored: DicoTopo never changes the commune.
+    alternative chain. As soon as one level is ambiguous the chain is empty (never a
+    partly changed chain); without any reading at all both results are empty.
+    Candidates of another commune than the resolved one are ignored: DicoTopo never
+    changes the commune.
     """
     unique = {c.identifier: c for c in candidates if c.source == DICOTOPO}
     chain: tuple[Level, ...] = tuple(levels)
     changed = False
-    alternatives: tuple[tuple[Level, ...], ...] = ()
+    commune = _commune_level(levels)
+    settled = False  # without a resolved commune only one target can settle the chain
     for target in _targets(levels):
-        key = name_key(target.name)
+        key = form_key(target.name)
+        base = chain if commune is not None else tuple(levels)
         readings = [
-            (c, r)
+            r
             for c in sorted(unique.values(), key=lambda c: c.identifier)
-            if form_key(c.name) == key or name_key(c.name) == key
-            for r in [_reading(chain, _same(chain, target), c)]
+            if key in form_keys(c.name)
+            for r in [_reading(base, _same(base, target), c, commune)]
             if r is not None
         ]
-        if len(readings) == 1:
-            chain, changed = readings[0][1], True
-        elif readings and not alternatives:
-            alternatives = tuple(r for _, r in readings)
-    return (chain if changed else ()), alternatives
+        if len(readings) > 1:
+            return (), tuple(readings)
+        if readings and not settled:
+            chain, changed = readings[0], True
+            settled = commune is None
+    return (chain if changed else ()), ()
 
 
 def _same(chain: Sequence[Level], target: Level) -> Level:

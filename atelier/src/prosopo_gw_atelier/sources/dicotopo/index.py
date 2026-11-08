@@ -88,16 +88,23 @@ def form_key(text: str) -> str:
 def form_keys(text: str) -> set[str]:
     """Keys of a headword or form: ``form_key`` plus the fronted variant.
 
-    ``Quesnoy-Fictif (Le)`` gives its own key and that of ``Le Quesnoy-Fictif``.
+    ``Quesnoy-Fictif (Le)`` gives its own key, that of ``Le Quesnoy-Fictif`` and that of
+    the bare ``Quesnoy-Fictif``.
     """
     cleaned = _TRAILING.sub("", _ITALIC_MARKUP.sub("", text).strip())
     keys = {name_key(cleaned)}
     match = _INVERTED.match(cleaned)
     if match and match.group(1):
+        keys.add(name_key(match.group(1)))  # bare name, without the article
         article = match.group(2)
         sep = "" if article.endswith(("'", "\u2019")) else " "
         keys.add(name_key(f"{article}{sep}{match.group(1)}"))
     return {k for k in keys if k}
+
+
+def plain(text: str) -> str:
+    """Headword or form without markup nor trailing punctuation (order kept)."""
+    return _TRAILING.sub("", _ITALIC_MARKUP.sub("", text).strip())
 
 
 def fronted(text: str) -> str:

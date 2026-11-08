@@ -280,13 +280,15 @@ class RateLimiter:
         self._clock = clock
         self._sleep = sleep
         self._last: float | None = None
+        self._lock = threading.Lock()
 
     def wait(self) -> None:
-        if self._last is not None:
-            remaining = self._interval - (self._clock() - self._last)
-            if remaining > 0:
-                self._sleep(remaining)
-        self._last = self._clock()
+        with self._lock:
+            if self._last is not None:
+                remaining = self._interval - (self._clock() - self._last)
+                if remaining > 0:
+                    self._sleep(remaining)
+            self._last = self._clock()
 
 
 class Worker:

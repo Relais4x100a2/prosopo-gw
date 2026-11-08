@@ -82,7 +82,8 @@ def test_inverted_headword_is_indexed_fronted(tmp_path: Path) -> None:
     assert [a.id for a in index.lookup(form_key("Le Pré-Inventé"), "62")] == [
         "P90000007"
     ]
-    assert [a.id for a in index.lookup(form_key("Pré-Inventé"), "62")] == []
+    # the bare name (written without the article) is indexed too
+    assert [a.id for a in index.lookup(form_key("Pré-Inventé"), "62")] == ["P90000007"]
     assert "l abbaye" in form_keys("Abbaye (L'),")
     assert "les fictives" in form_keys("Fictives(Les)")
 
