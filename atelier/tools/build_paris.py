@@ -232,7 +232,8 @@ def _as_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
-        return [value]
+        # The defunct streets dataset joins several names in one text ("A, B").
+        return [part.strip() for part in value.split(",") if part.strip()]
     return [str(v) for v in value]
 
 

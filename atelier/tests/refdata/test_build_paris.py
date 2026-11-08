@@ -160,3 +160,17 @@ def test_output_is_deterministic(tmp_path: Path) -> None:
         assert (tmp_path / "a" / name).read_bytes() == (
             tmp_path / "b" / name
         ).read_bytes()
+
+
+def test_defunct_street_with_several_quartiers_in_one_text(table: Path) -> None:
+    # The defunct streets dataset joins quartier names in one text ("A, B").
+    rows = read_gz_csv(table / "rues.csv.gz")
+    pairs = {
+        (r["quartier_id"], r["quartier"])
+        for r in rows
+        if r["cle"] == "rue duvergier" and r["periode"] == "paris-1860"
+    }
+    assert pairs == {
+        ("paris-q-villette", "Villette"),
+        ("paris-q-amerique", "Amérique"),
+    }

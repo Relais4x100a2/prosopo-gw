@@ -22,5 +22,11 @@
   "arrdt": null,
   "quartier": null,
   "date_arret": "1900-01-01"
+ },
+ {
+  "typo_min": "rue Duvergier",
+  "arrdt": "19e",
+  "quartier": "Villette, Amérique",
+  "date_arret": "1899-08-02"
  }
 ]
