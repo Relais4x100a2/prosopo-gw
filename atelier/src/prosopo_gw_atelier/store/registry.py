@@ -83,9 +83,6 @@ from ..places.levels import (
 from ..refdata import RefData
 from .migrate import migrate_v1
 
-# Field origins of the version 1 registry, still imported by modules that move
-# to level chains later (project, web, exchange).
-Origin = Literal["rule", "manual", "reference", "llm"]
 Status = Literal["validated", "rejected"]
 PostalOrigin = Literal["written", "rule", "manual", "insee"]
 

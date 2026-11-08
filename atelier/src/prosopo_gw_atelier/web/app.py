@@ -41,7 +41,7 @@ import re
 import threading
 from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -57,7 +57,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..export.archive import build_archive
-from ..places.model import ElementKind, Occurrence
+from ..places.levels import (
+    FOREIGN_TYPES,
+    FRENCH_TYPES,
+    TYPE_LABELS,
+    Level,
+    LevelOrigin,
+    check_chain,
+    french_view,
+    renumber,
+    validated,
+    view_origins,
+)
+from ..places.model import Occurrence
 from ..project import ClusterState, ClusterView, Project
 from ..refdata import RefData
 from ..store.exchange import (
@@ -68,7 +80,7 @@ from ..store.exchange import (
     import_registry,
     resolve_conflict,
 )
-from ..store.registry import JournalEntry, Origin, Place, PlaceRegistry
+from ..store.registry import JournalEntry, Place, PlaceRegistry
 from . import schemas
 
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
@@ -140,11 +152,109 @@ def _error(status: int, detail: str) -> HTTPException:
 def _label(view: ClusterView) -> str:
     if view.provisional_name:
         return view.provisional_name
-    proposal = view.cluster.proposal
-    name = proposal.get("commune") or proposal.get("former_name")
+    name = _chain_name(view.cluster.levels, view.cluster.postal_code)
     if name:
         return name
     return view.cluster.writings[0] if view.cluster.writings else view.cluster.id
+
+
+def _chain_name(levels: Sequence[Level], postal_code: str | None) -> str | None:
+    """Name of a chain: its historical commune, else its commune, else its
+    most precise validated level."""
+    view = french_view(levels, postal_code)
+    name = view.get("historical_commune") or view.get("commune")
+    if name:
+        return name
+    kept = validated(levels)
+    return kept[0].name if kept else None
+
+
+def _level_out(level: Level) -> schemas.LevelModel:
+    return schemas.LevelModel(
+        rank=level.rank,
+        name=level.name,
+        written=level.written,
+        type=level.type,
+        identifier=level.identifier,
+        source=level.source,
+        start=level.start,
+        end=level.end,
+        latitude=level.latitude,
+        longitude=level.longitude,
+        nature=level.nature,
+        origin=level.origin,
+        status=level.status,
+    )
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip() or None
+
+
+def _levels_in(
+    sent: Sequence[schemas.LevelModel], known: Sequence[Level]
+) -> tuple[Level, ...]:
+    """Levels of a request, renumbered, with their origins derived.
+
+    A level identical (same name, type and identifier) to one of ``known``
+    keeps that level's origin; any other level is ``manual``. The client's
+    ranks and origins are ignored.
+    """
+    origins = {(lv.name, lv.type, lv.identifier): lv.origin for lv in known}
+    levels = []
+    for model in sent:
+        level = Level(
+            rank=model.rank,
+            name=model.name.strip(),
+            written=_blank_to_none(model.written),
+            type=_blank_to_none(model.type),
+            identifier=_blank_to_none(model.identifier),
+            source=_blank_to_none(model.source),
+            start=_blank_to_none(model.start),
+            end=_blank_to_none(model.end),
+            latitude=model.latitude,
+            longitude=model.longitude,
+            nature=model.nature,
+            status=model.status,
+        )
+        origin = origins.get((level.name, level.type, level.identifier), "manual")
+        levels.append(replace(level, origin=origin))
+    return renumber(levels)
+
+
+def _checked_levels(
+    sent: Sequence[schemas.LevelModel], known: Sequence[Level]
+) -> tuple[Level, ...]:
+    """:func:`_levels_in`, then :func:`check_chain` (400 with its message)."""
+    levels = _levels_in(sent, known)
+    try:
+        check_chain(levels)
+    except ValueError as exc:
+        raise _error(400, str(exc)) from None
+    return levels
+
+
+def _postal_in(
+    sent: str | None, known: str | None, known_origin: LevelOrigin | None
+) -> tuple[str | None, LevelOrigin | None]:
+    """Postal code of a request and its origin: kept if unchanged, else manual."""
+    postal = _blank_to_none(sent)
+    if postal is None:
+        return None, None
+    if postal == known and known_origin is not None:
+        return postal, known_origin
+    return postal, "manual"
+
+
+def _place_out(place: Place) -> schemas.PlaceOut:
+    return schemas.PlaceOut(
+        place_id=place.place_id,
+        levels=[_level_out(level) for level in place.levels],
+        postal_code=place.postal_code,
+        view=place.fields,
+    )
 
 
 def _summary(view: ClusterView) -> schemas.ClusterSummary:
@@ -203,7 +313,8 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
                 decided=decision.status if decision else None,
             )
         )
-    origins = dict(view.origins or {})
+    levels = view.cluster.levels
+    postal_code = view.cluster.postal_code
     summary = _summary(view)
     return schemas.ClusterDetail(
         id=summary.id,
@@ -214,8 +325,17 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
         parent_id=summary.parent_id,
         provisional_name=summary.provisional_name,
         place_id=summary.place_id,
-        proposal=dict(view.cluster.proposal),
-        origins=origins,
+        levels=[_level_out(level) for level in levels],
+        postal_code=postal_code,
+        view=french_view(levels, postal_code),
+        view_origins=view_origins(levels),
+        from_registry=view.from_registry,
+        needs_manual_levels=view.needs_manual_levels,
+        alternatives=[
+            [_level_out(level) for level in chain]
+            for chain in view.cluster.alternatives
+        ],
+        historical_writings=dict(view.historical_writings),
         complements=[
             schemas.Complement(text=text, occurrences=count)
             for text, count in sorted(complements.items(), key=lambda i: (-i[1], i[0]))
@@ -284,7 +404,7 @@ def _occurrence(labels: _Labels, occurrence: Occurrence) -> schemas.OccurrenceOu
 def _place_label(place: Place | None) -> str | None:
     if place is None:
         return None
-    return place.fields.get("commune") or place.fields.get("former_name")
+    return _chain_name(place.levels, place.postal_code)
 
 
 def _known_place(registry: PlaceRegistry, place_id: str | None) -> Place | None:
@@ -402,6 +522,10 @@ def _project_info(state: AppState) -> schemas.ProjectInfo:
         ),
         cog_vintage=state.ref.cog_vintage,
         postal_vintage=state.ref.postal_vintage,
+        level_types=[
+            schemas.LevelTypeOut(value=value, label=TYPE_LABELS[value])
+            for value in (*FRENCH_TYPES, *FOREIGN_TYPES)
+        ],
     )
 
 
@@ -594,23 +718,20 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 raise _error(
                     400, f"Écritures absentes de ce lieu : {', '.join(unknown)}."
                 )
-            fields: dict[ElementKind, str | None] = {
-                k: v.strip() or None for k, v in body.fields.items()
-            }
-            if not any(fields.values()):
-                raise _error(
-                    400, "La forme retenue est vide : renseignez au moins un champ."
-                )
-            place_id = view.place_id
-            kept = dict(view.origins or {})
-            proposal = view.cluster.proposal
-            origins: dict[ElementKind, Origin] = {
-                kind: kept.get(kind, "rule")
-                if proposal.get(kind) == value
-                else "manual"
-                for kind, value in fields.items()
-                if value is not None
-            }
+            # Checked before any split: a rejected chain leaves nothing done.
+            levels = _checked_levels(body.levels, view.cluster.levels)
+            place_id = view.place_id if view.from_registry else None
+            known_origin: LevelOrigin | None = "written"
+            if place_id is not None:
+                try:
+                    known_origin = registry.place(place_id).postal_origin
+                except KeyError:
+                    raise _error(
+                        409, "Ce lieu a été supprimé entre-temps ; rechargez la file."
+                    ) from None
+            postal, postal_origin = _postal_in(
+                body.postal_code, view.cluster.postal_code, known_origin
+            )
             refs: list[_Ref] = []
             split_id: str | None = None
             unchecked = [w for w in members if w not in checked]
@@ -618,7 +739,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 refs, split_id = _split_out(state, view, unchecked)
             try:
                 validation = registry.validate(
-                    checked, fields, origins, project.project_id, place_id
+                    checked, levels, postal, postal_origin, project.project_id, place_id
                 )
             except BaseException as exc:
                 _undo_refs(state, refs)
@@ -656,22 +777,71 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
 
     # -- places -------------------------------------------------------------
 
-    @app.patch("/api/places/{place_id}")
-    def correct_place(place_id: str, body: schemas.CorrectIn) -> schemas.PlaceOut:
-        value = body.value.strip() or None
+    def _place_or_404(place_id: str) -> Place:
+        try:
+            return registry.place(place_id)
+        except KeyError:
+            raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
+
+    def _push_correct(entry: int | None) -> None:
+        if entry is not None:
+            state.undo.append(_Action("correct", (_Ref("registry", entry),)))
+
+    @app.put("/api/places/{place_id}/levels")
+    def set_place_levels(place_id: str, body: schemas.LevelsIn) -> schemas.PlaceOut:
+        """Replace the chain of a place (and its postal code)."""
         with state.lock:
+            place = _place_or_404(place_id)
+            levels = _checked_levels(body.levels, place.levels)
+            postal, postal_origin = _postal_in(
+                body.postal_code, place.postal_code, place.postal_origin
+            )
             try:
-                entry = registry.correct(
-                    place_id, body.field, value, project.project_id
+                entry = registry.set_levels(
+                    place_id, levels, postal, postal_origin, project.project_id
                 )
             except KeyError:
                 raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
-            if entry is not None:
-                state.undo.append(_Action("correct", (_Ref("registry", entry),)))
-            place = registry.place(place_id)
-            return schemas.PlaceOut(
-                place_id=place.place_id, fields=place.fields, origins=place.origins
-            )
+            except ValueError as exc:
+                raise _error(400, str(exc)) from None
+            _push_correct(entry)
+            return _place_out(registry.place(place_id))
+
+    def _proposal_or_error(place_id: str, rank: int) -> None:
+        place = _place_or_404(place_id)
+        level = next((lv for lv in place.levels if lv.rank == rank), None)
+        if level is None:
+            raise _error(404, f"Ce lieu n'a pas de niveau de rang {rank}.")
+        if level.status != "proposed":
+            raise _error(409, f"Le niveau de rang {rank} n'est pas une proposition.")
+
+    @app.post("/api/places/{place_id}/levels/{rank}/accept")
+    def accept_level(place_id: str, rank: int) -> schemas.PlaceOut:
+        """Validate a proposed level of a place."""
+        with state.lock:
+            _proposal_or_error(place_id, rank)
+            try:
+                entry = registry.accept_proposal(place_id, rank, project.project_id)
+            except KeyError:
+                raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
+            except ValueError as exc:
+                raise _error(409, str(exc)) from None
+            _push_correct(entry)
+            return _place_out(registry.place(place_id))
+
+    @app.post("/api/places/{place_id}/levels/{rank}/refuse")
+    def refuse_level(place_id: str, rank: int) -> schemas.PlaceOut:
+        """Remove a proposed level of a place."""
+        with state.lock:
+            _proposal_or_error(place_id, rank)
+            try:
+                entry = registry.refuse_proposal(place_id, rank, project.project_id)
+            except KeyError:
+                raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
+            except ValueError as exc:
+                raise _error(409, str(exc)) from None
+            _push_correct(entry)
+            return _place_out(registry.place(place_id))
 
     # -- occurrences --------------------------------------------------------
 
@@ -750,7 +920,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             ) from None
         with state.lock:
             try:
-                result = import_registry(registry, document)
+                result = import_registry(registry, document, state.ref)
             except RegistryFormatError as exc:
                 raise _error(400, f"{IMPORT_FORMAT_ERROR} ({exc})") from None
             added = 0

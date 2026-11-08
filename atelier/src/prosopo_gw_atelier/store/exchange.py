@@ -82,7 +82,6 @@ from ..refdata import RefData
 from .migrate import levels_from_v1
 from .registry import (
     Decision,
-    Origin,
     Place,
     PlaceRegistry,
     PostalOrigin,
@@ -95,7 +94,8 @@ VERSION = 2
 _READABLE_VERSIONS = (1, 2)
 
 _KINDS = frozenset(get_args(ElementKind))
-_ORIGINS = frozenset(get_args(Origin))
+_V1_ORIGINS = frozenset(("rule", "manual", "reference", "llm"))
+"""Field origins of a version 1 export."""
 _STATUSES = frozenset(get_args(Status))
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
 _LEVEL_STATUSES = frozenset(get_args(LevelStatus))
@@ -320,10 +320,10 @@ def _parse_place_v1(
         if not isinstance(value, str):
             raise _fail(f"{at}.value must be a string, not {value!r}")
         origin = _get(field, "origin", at)
-        if not isinstance(origin, str) or origin not in _ORIGINS:
+        if not isinstance(origin, str) or origin not in _V1_ORIGINS:
             raise _fail(
                 f"{at}.origin: unknown origin {origin!r} "
-                f"(expected one of {sorted(_ORIGINS)})"
+                f"(expected one of {sorted(_V1_ORIGINS)})"
             )
         fields[kind] = value
         origins[kind] = origin

@@ -1,5 +1,6 @@
 import shutil
 import socket
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
@@ -79,6 +80,19 @@ def test_launch_with_data_dir_and_port(
     # The app was built on that project (its registry is closed after serving,
     # so only routes that do not touch it are checked here).
     assert TestClient(app, base_url="http://127.0.0.1").get("/").status_code == 200
+
+
+def test_version_1_registry_is_migrated_on_launch(tmp_path: Path, gw: Path) -> None:
+    data = tmp_path / "d"
+    data.mkdir()
+    conn = sqlite3.connect(data / "referentiel.sqlite")
+    conn.executescript((FIXTURES / "registry_v1.sql").read_text("utf-8"))
+    conn.close()
+    assert run([str(gw), "--no-browser", "--data-dir", str(data)], Recorder()) == 0
+    conn = sqlite3.connect(data / "referentiel.sqlite")
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    conn.close()
+    assert list(data.glob("referentiel.v1-*.sqlite"))
 
 
 def test_no_browser_and_free_port(tmp_path: Path, gw: Path) -> None:
