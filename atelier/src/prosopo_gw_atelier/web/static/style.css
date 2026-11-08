@@ -256,6 +256,8 @@ a.button {
 }
 a.button:hover, button:hover:not(:disabled) { border-color: var(--accent); }
 #registry-button[aria-pressed="true"] { background: var(--selected); border-color: var(--accent); }
+#sources-button[aria-pressed="true"] { background: var(--selected); border-color: var(--accent); }
+#sources-button.alert { border-color: var(--warn); color: var(--warn); font-weight: 600; }
 #registry-button.alert { border-color: var(--warn); color: var(--warn); font-weight: 600; }
 
 .registry { padding: 16px 20px; max-width: 1100px; }
@@ -327,3 +329,11 @@ button.small { font-size: 12px; padding: 2px 8px; }
 .state.precision-conflict, .state.precision-ambiguous { color: var(--bad); }
 .state.precision-uncertain { color: var(--warn); }
 .state.precision-applied { color: var(--ok); }
+
+.sources progress { width: 100%; max-width: 420px; height: 10px; }
+.sources .counts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 6px 0; }
+.sources .errors { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.sources .errors li { overflow-wrap: anywhere; }
+.sources .attributions { margin: 6px 0; padding-left: 20px; }
+.level-proposal a { margin: 0 4px; }
+.pending-sources { margin: 6px 0; }

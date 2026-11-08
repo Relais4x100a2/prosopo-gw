@@ -78,6 +78,23 @@ def test_page_links_the_exports_and_the_registry(client: TestClient) -> None:
         assert route in script
 
 
+def test_sources_tab_present(client: TestClient) -> None:
+    page = client.get("/").text
+    assert 'id="sources-button"' in page
+    assert 'id="sources"' in page
+    script = client.get("/static/app.js").text
+    for text in (
+        "Sources",
+        "Télécharger",
+        "CC BY-NC-ND",
+        "/api/sources",
+        "Relancer les échecs",
+        "/api/source-proposals/refuse",
+        "source-proposals/accept",
+    ):
+        assert text in script
+
+
 def test_script_never_assigns_inner_html(client: TestClient) -> None:
     """Place names come from user files: the page builds nodes, never HTML."""
     script = client.get("/static/app.js").text

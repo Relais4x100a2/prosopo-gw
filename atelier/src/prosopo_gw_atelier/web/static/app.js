@@ -79,6 +79,15 @@
     ["applied", "Appliquées"],
     ["all", "Toutes"],
   ];
+  const SOURCE_LABELS = { dicotopo: "DicoTopo" };
+  const DICOTOPO_LINK = "https://dicotopo.cths.fr/places/";
+  const QUEUE_LABELS = [
+    ["pending", "en attente"],
+    ["running", "en cours"],
+    ["done", "terminées"],
+    ["failed", "échouées"],
+  ];
+  const POLL_MS = 3000;
   const JOURNAL_LIMIT = 50;
   const FLASH_MS = 1700;
   const INFO_MS = 6000;
@@ -106,11 +115,16 @@
     precisionFilter: "todo",
     journal: [], // GET /api/registry/journal, newest first
     importSummary: null, // text shown after the last import
+    sources: null, // GET /api/sources
+    sourcesError: null, // message when the sources could not be loaded
+    sourcesSelected: new Set(), // department codes ticked for download
+    confirmClear: false, // "Vider le cache" asks a second click
   };
 
   const $ = (id) => document.getElementById(id);
   let messageTimer = null;
   let flashTimer = null;
+  let pollTimer = null;
 
   // -- DOM helpers -------------------------------------------------------------
 
@@ -246,6 +260,10 @@
       ? "← Retour aux lieux"
       : toProcess ? `Précisions (${toProcess})` : "Précisions";
     precisionsButton.classList.toggle("alert", toProcess > 0 && !inPrecisions);
+    const sourcesButton = $("sources-button");
+    const inSources = state.view === "sources";
+    sourcesButton.setAttribute("aria-pressed", String(inSources));
+    sourcesButton.textContent = inSources ? "← Retour aux lieux" : "Sources";
   }
 
   function renderFilters() {
@@ -302,15 +320,19 @@
   function renderAll() {
     const inRegistry = state.view === "registry";
     const inPrecisions = state.view === "precisions";
-    $("layout").hidden = inRegistry || inPrecisions;
+    const inSources = state.view === "sources";
+    $("layout").hidden = inRegistry || inPrecisions || inSources;
     $("registry").hidden = !inRegistry;
     $("precisions").hidden = !inPrecisions;
+    $("sources").hidden = !inSources;
     renderHeader();
     renderFilters();
     renderQueue();
     renderDetail();
     if (inRegistry) renderRegistry();
     if (inPrecisions) renderPrecisions();
+    if (inSources) renderSources();
+    schedulePoll();
   }
 
   // -- detail --------------------------------------------------------------------
@@ -362,8 +384,38 @@
       renderView(detail),
       renderHistorical(detail),
       renderAlternatives(detail),
+      renderPendingSources(detail),
       renderChain(detail),
     );
+  }
+
+  function sourceName(source) {
+    return SOURCE_LABELS[source] || source;
+  }
+
+  /** Searches still running or failed in the external sources for this place. */
+  function renderPendingSources(detail) {
+    const pending = detail.pending_sources || [];
+    const failed = detail.failed_sources || [];
+    if (!pending.length && !failed.length) return null;
+    return el(
+      "div",
+      { class: "pending-sources sub", role: "status" },
+      pending.length ? el("div", { text: `recherche en cours (${pending.map(sourceName).join(", ")})` }) : null,
+      failed.length ? el("div", { text: `recherche échouée (${failed.map(sourceName).join(", ")})` }) : null,
+    );
+  }
+
+  /** Link to a DicoTopo article; null unless it stays on dicotopo.cths.fr. */
+  function articleLink(level) {
+    if (level.origin !== "dicotopo" || !level.identifier) return null;
+    const href = DICOTOPO_LINK + encodeURIComponent(level.identifier);
+    return href.startsWith("https://dicotopo.cths.fr/") ? href : null;
+  }
+
+  function proposalLabel(level) {
+    const name = SOURCE_LABELS[level.origin] || level.source;
+    return name ? `proposé (${name})` : "proposé";
   }
 
   /** French fixed-field view of the place, read only, with each origin. */
@@ -548,7 +600,16 @@
         ? el(
             "span",
             { class: "level-proposal" },
-            level.source ? el("span", { class: "sub", text: `proposé (${level.source})` }) : el("span", { class: "sub", text: "proposé" }),
+            el("span", { class: "sub", text: proposalLabel(level) }),
+            articleLink(level)
+              ? el("a", {
+                  href: articleLink(level),
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  text: "article",
+                  title: "Ouvrir l'article DicoTopo dans un nouvel onglet",
+                })
+              : null,
             el("button", { type: "button", class: "small", text: "Accepter", onclick: () => run(() => acceptLevel(level)) }),
             el("button", { type: "button", class: "small", text: "Refuser", onclick: () => run(() => refuseLevel(level)) }),
           )
@@ -640,8 +701,68 @@
     return true;
   }
 
+  /** A level proposed by an external source (DicoTopo), not stored in the registry. */
+  function isSourceProposal(level) {
+    return level.status === "proposed" && level.origin in SOURCE_LABELS;
+  }
+
+  function levelBody(level) {
+    const { serverRank, originalName, originalType, originalOrigin, ...sent } = level;
+    return { ...sent, rank: Math.max(state.chain.indexOf(level), 0) };
+  }
+
+  async function acceptSourceLevel(level) {
+    const detail = state.detail;
+    if (!(detail.from_registry && detail.place_id)) {
+      // Not validated yet: no place to add the level to. It joins the chain
+      // being edited, and "Valider" saves it with the rest (the server only
+      // drops proposals still marked as proposed).
+      level.status = "validated";
+      renderDetail();
+      showMessage(`Niveau « ${level.name} » ajouté à la chaîne : validez le lieu pour l'enregistrer.`, "info");
+      return;
+    }
+    if (hasUnsavedEdits()) {
+      throw new Error(
+        "Des modifications de la chaîne ou du code postal ne sont pas enregistrées : " +
+          "cliquez d'abord sur « Enregistrer », ou rouvrez le lieu pour les abandonner.",
+      );
+    }
+    await api(
+      "POST",
+      `/api/places/${encodeURIComponent(detail.place_id)}/source-proposals/accept`,
+      { level: levelBody(level) },
+    );
+    state.history.push(detail.id);
+    await refresh();
+    await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+    showMessage(`Niveau « ${level.name} » accepté.`, "info");
+  }
+
+  async function refuseSourceLevel(level) {
+    const detail = state.detail;
+    if (!level.identifier) throw new Error("Cette proposition n'a pas d'identifiant : impossible de la refuser.");
+    const subjects = detail.from_registry && detail.place_id
+      ? [`place:${detail.place_id}`]
+      : detail.writings.map((w) => `writing:${w.text}`);
+    for (const subject of subjects) {
+      const result = await api("POST", "/api/source-proposals/refuse", {
+        subject,
+        source: level.origin,
+        identifier: level.identifier,
+      });
+      if (result && result.entry_id !== null && result.entry_id !== undefined) {
+        state.history.push(detail.id);
+      }
+    }
+    await refresh();
+    await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+    showMessage(`Proposition « ${level.name} » refusée.`, "info");
+  }
+
   async function acceptLevel(level) {
     const detail = state.detail;
+    if (isSourceProposal(level)) return acceptSourceLevel(level);
     if (storedProposal(level)) {
       await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/accept`);
       state.history.push(detail.id);
@@ -657,6 +778,7 @@
 
   async function refuseLevel(level) {
     const detail = state.detail;
+    if (isSourceProposal(level)) return refuseSourceLevel(level);
     if (storedProposal(level)) {
       await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/refuse`);
       state.history.push(detail.id);
@@ -1255,8 +1377,16 @@
   }
 
   async function showView(view) {
+    stopPolling();
     state.view = view;
-    if (view === "precisions") {
+    state.confirmClear = false;
+    if (view === "sources") {
+      try {
+        await loadSources();
+      } finally {
+        renderAll();
+      }
+    } else if (view === "precisions") {
       try {
         await loadPrecisions();
       } finally {
@@ -1315,6 +1445,362 @@
       await loadRegistry();
       await refreshPlaces();
     }
+  }
+
+  // -- sources screen ------------------------------------------------------------
+
+  function queueCounts(sources) {
+    const counts = (sources && sources.queue && sources.queue.counts) || {};
+    const total = { pending: 0, running: 0, done: 0, failed: 0 };
+    for (const byState of Object.values(counts)) {
+      for (const key of Object.keys(total)) total[key] += byState[key] || 0;
+    }
+    return total;
+  }
+
+  function queueActive(sources) {
+    const total = queueCounts(sources);
+    return total.pending + total.running > 0;
+  }
+
+  async function loadSources() {
+    try {
+      state.sources = await api("GET", "/api/sources");
+      state.sourcesError = null;
+    } catch (error) {
+      state.sources = null;
+      state.sourcesError = error.message;
+      throw error;
+    }
+  }
+
+  /** Reload the sources screen after an action on it. */
+  async function reloadSources() {
+    try {
+      await loadSources();
+    } finally {
+      renderAll();
+    }
+  }
+
+  function renderDepartments(dico) {
+    const downloaded = new Map(dico.departments.map((d) => [d.code, d]));
+    const codes = [...new Set([...dico.coverage, ...downloaded.keys()])].sort();
+    if (!codes.length) return el("p", { class: "sub", text: "Aucun département à afficher." });
+    const selected = state.sourcesSelected;
+    return el(
+      "table",
+      null,
+      el(
+        "thead",
+        null,
+        el(
+          "tr",
+          null,
+          el("th", { text: "" }),
+          el("th", { text: "Code" }),
+          el("th", { text: "Département" }),
+          el("th", { text: "Téléchargé le" }),
+          el("th", { class: "num", text: "Articles" }),
+          el("th", { class: "num", text: "Ignorés" }),
+          el("th", { text: "" }),
+        ),
+      ),
+      el(
+        "tbody",
+        null,
+        codes.map((code) => {
+          const done = downloaded.get(code);
+          return el(
+            "tr",
+            null,
+            el(
+              "td",
+              null,
+              el("input", {
+                type: "checkbox",
+                checked: selected.has(code),
+                "aria-label": `Choisir le département ${code} pour le téléchargement`,
+                onchange: (event) => {
+                  if (event.target.checked) selected.add(code);
+                  else selected.delete(code);
+                },
+              }),
+            ),
+            el("td", null, el("code", { text: code })),
+            el("td", { text: done ? done.name : "" }),
+            el("td", { text: done ? formatDate(done.downloaded_at) : "" }),
+            el("td", { class: "num", text: done ? String(done.articles) : "" }),
+            el("td", { class: "num", text: done ? String(done.skipped) : "" }),
+            el(
+              "td",
+              null,
+              done
+                ? el("button", {
+                    type: "button",
+                    class: "small",
+                    text: "Retirer",
+                    title: "Retirer les données de ce département",
+                    "aria-label": `Retirer le département ${code}`,
+                    onclick: () => run(() => removeDepartment(code)),
+                  })
+                : null,
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  function renderDicotopo(dico) {
+    return el(
+      "div",
+      { class: "card" },
+      el("h2", null, el("span", { text: "DicoTopo" })),
+      el("p", {
+        class: "sub",
+        text: "CC BY-NC-ND 3.0 FR : données gardées sur cet ordinateur, jamais exportées en dehors des identifiants.",
+      }),
+      dico.coverage_known
+        ? null
+        : el(
+            "div",
+            { class: "warning", role: "status" },
+            el("span", { text: "Liste des départements couverts inconnue (hors connexion ?)" }),
+            el("button", {
+              type: "button",
+              text: "Réessayer",
+              onclick: () => run(refreshCoverage),
+            }),
+          ),
+      renderDepartments(dico),
+      el(
+        "div",
+        { class: "actions" },
+        el("button", {
+          type: "button",
+          class: "primary",
+          text: "Télécharger",
+          title: "Télécharger les départements cochés",
+          onclick: () => run(downloadDepartments),
+        }),
+      ),
+      el(
+        "label",
+        { class: "api-toggle" },
+        el("input", {
+          type: "checkbox",
+          checked: dico.api_enabled,
+          onchange: (event) => run(() => setApiEnabled(event.target.checked)),
+        }),
+        " Interroger l'API DicoTopo en dernier recours",
+      ),
+    );
+  }
+
+  function renderQueueCard(queue) {
+    const total = queueCounts(state.sources);
+    const sum = total.pending + total.running + total.done + total.failed;
+    const errors = queue.errors || [];
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { text: "File des recherches" }),
+      el(
+        "div",
+        { class: "counts" },
+        QUEUE_LABELS.map(([key, label]) => el("span", { text: `${total[key]} ${label}` })),
+      ),
+      sum
+        ? el("progress", {
+            max: sum,
+            value: total.done,
+            "aria-label": "Progression des recherches",
+          })
+        : el("p", { class: "sub", text: "Aucune recherche pour l'instant." }),
+      errors.length
+        ? el(
+            "ul",
+            { class: "errors" },
+            errors.map((e) =>
+              el("li", null, el("code", { text: `${sourceName(e.source)} · ${e.kind} · ${e.key}` }), ` : ${e.error} (${plural(e.attempts, "essai", "essais")})`),
+            ),
+          )
+        : null,
+      el(
+        "div",
+        { class: "actions" },
+        el("button", {
+          type: "button",
+          text: "Relancer les échecs",
+          disabled: total.failed === 0,
+          onclick: () => run(retryFailed),
+        }),
+      ),
+    );
+  }
+
+  function renderCacheCard() {
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { text: "Cache" }),
+      el("p", {
+        class: "sub",
+        text: "Efface les résultats gardés des recherches ; les départements téléchargés restent.",
+      }),
+      el(
+        "div",
+        { class: "actions" },
+        el("button", {
+          type: "button",
+          class: state.confirmClear ? "danger" : null,
+          text: state.confirmClear ? "Confirmer le vidage du cache" : "Vider le cache DicoTopo",
+          onclick: () => run(clearCache),
+        }),
+        state.confirmClear
+          ? el("button", {
+              type: "button",
+              text: "Garder le cache",
+              onclick: () => {
+                state.confirmClear = false;
+                renderSources();
+              },
+            })
+          : null,
+      ),
+    );
+  }
+
+  function renderAttributions(sources) {
+    const lines = sources.attributions || [];
+    if (!lines.length) return null;
+    return el(
+      "div",
+      { class: "card" },
+      el("h3", { text: "Attributions" }),
+      el("ul", { class: "attributions" }, lines.map((line) => el("li", { text: line }))),
+    );
+  }
+
+  function renderSources() {
+    const section = $("sources");
+    const sources = state.sources;
+    if (!sources) {
+      const text = state.sourcesError
+        ? `Impossible de charger les sources : ${state.sourcesError}`
+        : "Chargement…";
+      section.replaceChildren(el("p", { class: state.sourcesError ? "empty error" : "empty", text }));
+      return;
+    }
+    section.replaceChildren(
+      renderDicotopo(sources.dicotopo),
+      renderQueueCard(sources.queue),
+      renderCacheCard(),
+      renderAttributions(sources),
+    );
+  }
+
+  async function downloadDepartments() {
+    const departments = [...state.sourcesSelected];
+    if (!departments.length) throw new Error("Cochez d'abord au moins un département à télécharger.");
+    const result = await api("POST", "/api/sources/dicotopo/download", { departments });
+    state.sourcesSelected = new Set();
+    await reloadSources();
+    showMessage(`Téléchargement demandé : ${result.queued.join(", ")}.`, "info");
+  }
+
+  async function removeDepartment(code) {
+    state.sources = await api("DELETE", `/api/sources/dicotopo/departments/${encodeURIComponent(code)}`);
+    await reloadSources();
+    showMessage(`Département ${code} retiré.`, "info");
+  }
+
+  async function setApiEnabled(enabled) {
+    try {
+      await api("PUT", "/api/sources/dicotopo/api", { enabled });
+    } finally {
+      await reloadSources();
+    }
+  }
+
+  async function refreshCoverage() {
+    const result = await api("POST", "/api/sources/dicotopo/coverage/refresh");
+    showMessage(
+      result.started
+        ? "Recherche de la liste des départements en cours."
+        : "La liste n'a pas pu être relue maintenant ; réessayez plus tard.",
+      "info",
+    );
+    await reloadSources();
+  }
+
+  async function retryFailed() {
+    await api("POST", "/api/sources/queue/retry");
+    await reloadSources();
+    showMessage("Recherches échouées relancées.", "info");
+  }
+
+  async function clearCache() {
+    if (!state.confirmClear) {
+      state.confirmClear = true;
+      renderSources();
+      return;
+    }
+    state.confirmClear = false;
+    await api("POST", "/api/sources/cache/clear", { source: "dicotopo" });
+    await reloadSources();
+    showMessage("Cache DicoTopo vidé.", "info");
+  }
+
+  // -- polling -------------------------------------------------------------------
+
+  function stopPolling() {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+
+  /** Poll only while jobs run: on the sources screen, or for the open place. */
+  function pollWanted() {
+    if (state.view === "sources") return queueActive(state.sources);
+    if (state.view === "places") {
+      return Boolean(state.detail && (state.detail.pending_sources || []).length);
+    }
+    return false;
+  }
+
+  function schedulePoll() {
+    if (pollTimer !== null || !pollWanted()) return;
+    pollTimer = setTimeout(pollTick, POLL_MS);
+  }
+
+  /** Refresh the open place (not the list) unless the user is editing it. */
+  async function pollDetail() {
+    const id = state.currentId;
+    if (id === null || !state.detail) return;
+    const fresh = await api("GET", clusterPath(id));
+    if (state.busy || state.currentId !== id || !state.detail || hasUnsavedEdits()) return;
+    state.detail = fresh;
+    state.chain = fresh.levels.map((level) => toDraftLevel(level, true));
+    state.postal = fresh.postal_code || "";
+    renderDetail();
+  }
+
+  async function pollTick() {
+    pollTimer = null;
+    if (!state.busy) {
+      try {
+        if (state.view === "sources") {
+          await loadSources();
+          if (state.view === "sources") renderSources();
+        } else if (state.view === "places") {
+          await pollDetail();
+        }
+      } catch (_error) {
+        // The next tick tries again; the screen keeps what it shows.
+      }
+    }
+    schedulePoll();
   }
 
   // -- loading -------------------------------------------------------------------
@@ -1574,6 +2060,9 @@
     });
     $("precisions-button").addEventListener("click", () => {
       run(() => showView(state.view === "precisions" ? "places" : "precisions"));
+    });
+    $("sources-button").addEventListener("click", () => {
+      run(() => showView(state.view === "sources" ? "places" : "sources"));
     });
     document.addEventListener("keydown", onKeyDown);
     run(async () => {
