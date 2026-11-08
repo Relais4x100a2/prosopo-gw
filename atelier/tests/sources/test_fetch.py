@@ -105,3 +105,74 @@ def test_get_json(tmp_path: Path) -> None:
         get_json("http://x/a", opener=_opener(_Body(b"not json")))
     with pytest.raises(SourceError):
         get_json("http://x/a", opener=_raising(_http_error(500)))
+
+
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://host/a", "/etc/passwd"])
+def test_non_http_scheme_refused(tmp_path: Path, url: str) -> None:
+    calls: list[urllib.request.Request] = []
+    opener = _opener(_Body(b"x"), calls)
+    target = tmp_path / "a.bin"
+    with pytest.raises(SourceError, match="schéma"):
+        download(url, target, opener=opener)
+    with pytest.raises(SourceError, match="schéma"):
+        get_json(url, opener=opener)
+    assert calls == []
+    assert not target.exists()
+    assert not target.with_suffix(".bin.part").exists()
+
+
+def test_max_bytes_boundary(tmp_path: Path) -> None:
+    target = tmp_path / "a.bin"
+    assert (
+        download("http://x/a", target, opener=_opener(_Body(b"x" * 100)), max_bytes=100)
+        == 100
+    )
+    with pytest.raises(SourceError):
+        download(
+            "http://x/a",
+            tmp_path / "b.bin",
+            opener=_opener(_Body(b"x" * 101)),
+            max_bytes=100,
+        )
+
+
+def test_failed_download_keeps_existing_target(tmp_path: Path) -> None:
+    target = tmp_path / "a.bin"
+    target.write_bytes(b"old")
+    body = _Body(b"x" * 200_000, fail_after=70_000)
+    with pytest.raises(SourceError):
+        download("http://x/a", target, opener=_opener(body))
+    assert target.read_bytes() == b"old"
+    assert not target.with_suffix(".bin.part").exists()
+
+
+def test_content_length_aborts_early(tmp_path: Path) -> None:
+    class Big(_Body):
+        headers = {"Content-Length": "5000"}  # noqa: RUF012
+        reads = 0
+
+        def read(self, size: int | None = -1) -> bytes:
+            Big.reads += 1
+            return super().read(size)
+
+    body = Big(b"x" * 5000)
+    with pytest.raises(SourceError, match="volumineux"):
+        download("http://x/a", tmp_path / "a", opener=_opener(body), max_bytes=1000)
+    assert Big.reads == 0
+
+
+def test_get_json_size_cap() -> None:
+    big = b'"' + b"x" * (5 * 1024 * 1024) + b'"'
+    with pytest.raises(SourceError, match="volumineuse"):
+        get_json("http://x/a", opener=_opener(_Body(big)))
+
+
+def test_incomplete_read_is_french(tmp_path: Path) -> None:
+    import http.client
+
+    with pytest.raises(SourceError, match="incomplète"):
+        download(
+            "http://x/a",
+            tmp_path / "a",
+            opener=_raising(http.client.IncompleteRead(b"")),
+        )

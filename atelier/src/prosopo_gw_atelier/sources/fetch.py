@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from importlib import metadata
@@ -17,6 +19,7 @@ Opener = Callable[[urllib.request.Request, float], BinaryIO]
 
 REPOSITORY_URL = "https://github.com/Relais4x100a2/prosopo-gw"
 _CHUNK = 64 * 1024
+JSON_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _version() -> str:
@@ -43,9 +46,29 @@ def _describe(exc: BaseException) -> str:
         return f"réponse inattendue du service (HTTP {exc.code})"
     if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
         return "erreur réseau ou délai dépassé"
+    if isinstance(exc, http.client.HTTPException):
+        return "erreur réseau ou réponse incomplète"
     if isinstance(exc, OSError):
         return f"erreur d'entrée/sortie ({exc})"
-    return str(exc)
+    return "erreur inattendue"
+
+
+def _check_scheme(url: str, prefix: str) -> None:
+    if urllib.parse.urlparse(url).scheme.lower() not in ("http", "https"):
+        raise SourceError(
+            f"{prefix} : schéma d'URL non pris en charge (http ou https attendu)"
+        )
+
+
+def _declared_too_large(response: object, max_bytes: int | None) -> bool:
+    if max_bytes is None:
+        return False
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Length") if headers is not None else None
+    try:
+        return value is not None and int(value) > max_bytes
+    except ValueError:
+        return False
 
 
 def _request(url: str) -> urllib.request.Request:
@@ -61,12 +84,17 @@ def download(
     max_bytes: int | None = None,
 ) -> int:
     """Stream ``url`` to ``target`` through a ``.part`` file; return the size."""
+    _check_scheme(url, "Téléchargement impossible")
     open_url = opener or _default_opener
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_suffix(target.suffix + ".part")
     try:
         total = 0
         with open_url(_request(url), timeout) as response, part.open("wb") as out:
+            if _declared_too_large(response, max_bytes):
+                raise SourceError(
+                    f"fichier trop volumineux (plus de {max_bytes} octets)"
+                )
             while chunk := response.read(_CHUNK):
                 total += len(chunk)
                 if max_bytes is not None and total > max_bytes:
@@ -78,6 +106,8 @@ def download(
         return total
     except Exception as exc:
         part.unlink(missing_ok=True)
+        if isinstance(exc, urllib.error.HTTPError):
+            exc.close()
         message = str(exc) if isinstance(exc, SourceError) else _describe(exc)
         raise SourceError(f"Téléchargement impossible : {message}") from exc
 
@@ -86,11 +116,19 @@ def get_json(
     url: str, *, opener: Opener | None = None, timeout: float = 30.0
 ) -> object:
     """Fetch ``url`` and decode it as JSON."""
+    _check_scheme(url, "Requête impossible")
     open_url = opener or _default_opener
     try:
         with open_url(_request(url), timeout) as response:
-            return json.load(response)
+            data = response.read(JSON_MAX_BYTES + 1)
+            if len(data) > JSON_MAX_BYTES:
+                raise SourceError("réponse trop volumineuse")
+            return json.loads(data)
     except Exception as exc:
+        if isinstance(exc, urllib.error.HTTPError):
+            exc.close()
+        if isinstance(exc, SourceError):
+            raise SourceError(f"Requête impossible : {exc}") from exc
         if isinstance(exc, ValueError):
             message = "réponse non valide (JSON attendu)"
         else:
