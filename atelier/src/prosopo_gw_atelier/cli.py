@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from .project import Project
 from .refdata import RefData, load_refdata
 from .sources import SourceRuntime
+from .sources.fetch import Opener
 from .store.paths import data_dir
 from .store.registry import PlaceRegistry
 from .web.app import create_app
@@ -97,6 +98,7 @@ def main(
     launcher: Launcher = serve,
     open_browser: Callable[[str], object] = webbrowser.open,
     load_ref: Callable[[], RefData] = load_refdata,
+    opener: Opener | None = None,
 ) -> int:
     """Entry point; returns the exit code (2: base not found, bad or busy port)."""
     args = _parser().parse_args(argv)
@@ -118,7 +120,7 @@ def main(
         except Exception as exc:  # the parser's errors are not one family
             print(f"Impossible de lire {base} : {exc}", file=sys.stderr)
             return 1
-        runtime = SourceRuntime.build(directory, ref)
+        runtime = SourceRuntime.build(directory, ref, opener=opener)
         app = create_app(project, registry, ref, sources=runtime)
         port = args.port if args.port is not None else free_port()
         url = f"http://{HOST}:{port}/"

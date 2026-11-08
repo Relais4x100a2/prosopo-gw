@@ -1,8 +1,11 @@
 import shutil
 import socket
 import sqlite3
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 from fastapi import FastAPI
@@ -39,9 +42,18 @@ class Recorder:
         return True
 
 
+def offline_opener(request: urllib.request.Request, timeout: float) -> BinaryIO:
+    raise urllib.error.URLError("offline in tests")
+
+
 def run(argv: list[str], recorder: Recorder) -> int:
+    # The sources' background threads get an opener that never reaches a network.
     return cli.main(
-        argv, launcher=recorder.launch, open_browser=recorder.open, load_ref=mini_ref
+        argv,
+        launcher=recorder.launch,
+        open_browser=recorder.open,
+        load_ref=mini_ref,
+        opener=offline_opener,
     )
 
 
@@ -68,12 +80,15 @@ def test_launch_with_data_dir_and_port(
 ) -> None:
     recorder = Recorder()
     data = tmp_path / "donnees"
-    code = run([str(gw), "--port", "8765", "--data-dir", str(data)], recorder)
+    with socket.socket() as probe:  # a free port, not a fixed one
+        probe.bind(("127.0.0.1", 0))
+        wanted = probe.getsockname()[1]
+    code = run([str(gw), "--port", str(wanted), "--data-dir", str(data)], recorder)
     assert code == 0
     ((app, port),) = recorder.served
-    assert port == 8765
-    assert recorder.opened == ["http://127.0.0.1:8765/"]
-    assert "http://127.0.0.1:8765/" in capsys.readouterr().out
+    assert port == wanted
+    assert recorder.opened == [f"http://127.0.0.1:{wanted}/"]
+    assert f"http://127.0.0.1:{wanted}/" in capsys.readouterr().out
     assert (data / "referentiel.sqlite").is_file()
     assert any((data / "projets").glob("*.sqlite"))
     assert not (tmp_path / "home").exists()
@@ -148,3 +163,14 @@ def test_worker_runs_with_the_served_app(tmp_path: Path, gw: Path) -> None:
     with TestClient(app, base_url="http://127.0.0.1"):
         assert runtime.worker.running
     assert not runtime.worker.running
+
+
+def test_served_runtime_uses_the_injected_opener(tmp_path: Path, gw: Path) -> None:
+    recorder = Recorder()
+    assert (
+        run([str(gw), "--no-browser", "--data-dir", str(tmp_path / "d")], recorder) == 0
+    )
+    ((app, _),) = recorder.served
+    runtime = app.state.atelier.sources
+    assert runtime is not None
+    assert runtime.opener is offline_opener
