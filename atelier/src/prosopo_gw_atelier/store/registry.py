@@ -1,12 +1,14 @@
 """Personal place registry (design § 6.3): places, decisions and their journal.
 
 Storage
-    One SQLite file (``schema.sql``, ``PRAGMA user_version = 4``) holding
+    One SQLite file (``schema.sql``, ``PRAGMA user_version = 5``) holding
     ``places`` (stable UUID4 ids), ``place_levels`` (the level chain of each
     place, one row per rank, validated and proposed levels together),
     ``place_attributes`` (the postal code, with its origin), ``writings``
     (writing → place, or ``rejected``), ``precisions`` (the arrondissement
-    decisions, keyed by writing, complement and period) and ``journal``
+    decisions, keyed by writing, complement and period), ``refused_proposals``,
+    ``country_settings`` (GeoNames mode per country, absence = written),
+    ``source_overrides`` (per-writing correction of that mode) and ``journal``
     (append-only).
     A version 1 file (fixed fields in ``place_fields``) is migrated on
     opening when reference data is given (``migrate.migrate_v1``: backup

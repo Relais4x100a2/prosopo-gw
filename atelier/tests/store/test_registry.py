@@ -709,7 +709,7 @@ def test_newer_schema_version_is_refused(tmp_path: Path) -> None:
     con = sqlite3.connect(path)
     con.execute("PRAGMA user_version = 6")
     con.close()
-    with pytest.raises(SchemaVersionError, match="version 5"):
+    with pytest.raises(SchemaVersionError, match="version 6"):
         PlaceRegistry(path)
 
 
