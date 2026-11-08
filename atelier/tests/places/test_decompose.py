@@ -174,9 +174,9 @@ def test_current_name_with_former_alternative(ref: RefData) -> None:
     assert d.alternative is not None and d.alternative.insee == "62743"
 
 
-def test_undecided_name_keeps_the_former_alternative(ref: RefData) -> None:
+def test_ambiguous_name_reads_the_current_commune(ref: RefData) -> None:
     d = decompose("Sainte-Austreberthe", ref)
-    assert d.insee is None and d.candidates == ("62447", "76566")
+    assert d.insee == "76566" and d.candidates == ("76566",)
     assert d.historical is None
     assert d.alternative is not None and d.alternative.insee == "62743"
 

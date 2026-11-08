@@ -271,6 +271,11 @@ def test_alternative_levels(ref: RefData) -> None:
         and alt[1].name == "Hesdin-la-Forêt"
     )
     assert alt[0].identifier == "62743" and alt[0].nature == "deleguee"
+    chain = rule_levels(decompose("Sainte-Austreberthe", ref), ref)
+    assert _names(chain)[:2] == [
+        ("Sainte-Austreberthe", "commune"),
+        ("Seine-Maritime", "departement"),
+    ]
     assert alternative_levels(decompose("Roubaix", ref), ref) is None
 
 

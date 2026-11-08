@@ -19,10 +19,12 @@ Candidates are the INSEE codes allowed by the names, then narrowed by the codes
 and the department. A constraint that would leave no candidate is ignored
 (conflicting clues do not erase the commune). ``insee`` is set only when one
 candidate remains and a commune name or an INSEE code supports it: a postal
-code or a department alone proposes candidates without choosing. Homonyms are
-expressed by ``insee is None`` and several candidates; ``ambiguous`` stays
-``False`` for them. Regions do not narrow the candidates (the reference data
-only gives their name).
+code or a department alone proposes candidates without choosing. A name that
+matches one current commune and former communes of others, with no other clue
+deciding, is read as the current commune (the former one becomes the
+``alternative``). Homonyms are expressed by ``insee is None`` and several
+candidates; ``ambiguous`` stays ``False`` for them. Regions do not narrow the
+candidates (the reference data only gives their name).
 
 Every non-empty segment is kept, with its element or ``None``, so that
 unrecognised levels (a foreign county, a state…) survive. The first segment
@@ -123,6 +125,7 @@ def _read_text(index: int, segment: str, ref: RefData, state: _State) -> None:
     if named is not None and state.names is None:
         state.elements.append((index, named[0]))
         _add_names(state, named[1])
+        # Only the first name segment feeds the historical/alternative readings.
         state.name_matches = named[2]
         return
     admin = _admin_element(segment, ref)
@@ -224,6 +227,10 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
 
     ordered = tuple(sorted(candidates)) if candidates else ()
     insee_code = ordered[0] if supported and len(ordered) == 1 else None
+    if insee_code is None:
+        current = _current_reading(state.name_matches, set(ordered))
+        if current is not None:
+            insee_code, ordered = current, (current,)
     elements = tuple(element for _, element in sorted(state.elements, key=_index))
     by_index = dict(state.elements)
     historical, alternative = _former_readings(
@@ -241,6 +248,23 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
         historical=historical,
         alternative=alternative,
     )
+
+
+def _current_reading(matches: list[NameMatch], candidates: set[str]) -> str | None:
+    """Return the current commune an undecided name is read as (plan choice 5).
+
+    The name must match exactly one current commune, and every other remaining
+    candidate must come only from a former commune (not a rename) of that name.
+    """
+    current = {m.commune.insee for m in matches if m.former is None}
+    if len(current) != 1 or not current <= candidates:
+        return None
+    formers = {
+        m.commune.insee
+        for m in matches
+        if m.former is not None and m.former.nature != "renommage"
+    }
+    return next(iter(current)) if candidates <= current | formers else None
 
 
 def _former_readings(
