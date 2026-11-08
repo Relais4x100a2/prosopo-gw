@@ -1,4 +1,4 @@
-"""Local user configuration and the shared source cache location."""
+"""Local user configuration."""
 
 from __future__ import annotations
 
@@ -12,13 +12,6 @@ from pathlib import Path
 from prosopo_gw_atelier.store.paths import data_dir
 
 _KNOWN = ("dicotopo_api", "geonames_username")
-
-
-def cache_dir() -> Path:
-    """Shared cache for downloaded external sources, created on demand."""
-    path = data_dir() / "cache"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def config_path() -> Path:

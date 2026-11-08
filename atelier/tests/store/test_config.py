@@ -10,7 +10,6 @@ import pytest
 
 from prosopo_gw_atelier.store.config import (
     LocalConfig,
-    cache_dir,
     load_config,
     save_config,
 )
@@ -53,13 +52,10 @@ def test_config_file_is_private(tmp_path: Path) -> None:
     assert stat.S_IMODE(p.stat().st_mode) == 0o600
 
 
-def test_default_path_and_cache_dir_use_home(atelier_home: Path) -> None:
+def test_default_path_uses_home(atelier_home: Path) -> None:
     save_config(LocalConfig(dicotopo_api=True))
     assert load_config().dicotopo_api is True
     assert (atelier_home / "config.json").exists()
-    c = cache_dir()
-    assert c == atelier_home / "cache"
-    assert c.is_dir()
 
 
 def test_network_is_forbidden_in_tests() -> None:
