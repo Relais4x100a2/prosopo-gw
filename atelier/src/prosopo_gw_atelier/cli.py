@@ -111,7 +111,7 @@ def main(
         return 2
     directory: Path = args.data_dir if args.data_dir is not None else data_dir()
     ref = load_ref()
-    with PlaceRegistry(directory / "referentiel.sqlite") as registry:
+    with PlaceRegistry(directory / "referentiel.sqlite", ref) as registry:
         try:
             project = Project.open(base, registry, ref, directory / "projets")
         except Exception as exc:  # the parser's errors are not one family

@@ -4,7 +4,7 @@ import pytest
 
 from prosopo_gw_atelier.places.decompose import decompose
 from prosopo_gw_atelier.places.model import Decomposition, Element
-from prosopo_gw_atelier.refdata import RefData, load_refdata
+from prosopo_gw_atelier.refdata import Former, RefData, load_refdata
 
 MINI = Path(__file__).resolve().parents[1] / "fixtures" / "refdata_mini"
 
@@ -132,3 +132,65 @@ def test_odd_input_never_raises(ref: RefData, writing: str) -> None:
 
 def test_deterministic(ref: RefData) -> None:
     assert decompose("Merville", ref) == decompose("Merville", ref)
+
+
+def test_foreign_levels_are_all_kept(ref: RefData) -> None:
+    d = decompose("Winnipeg, , , Manitoba, Canada", ref)
+    assert [s.text for s in d.segments] == ["Winnipeg", "Manitoba", "Canada"]
+    assert [s.element.kind if s.element else None for s in d.segments] == [
+        None,
+        None,
+        "country",
+    ]
+
+
+def test_four_written_levels(ref: RefData) -> None:
+    d = decompose("Storrington, , East Sussex, England, Royaume-Uni", ref)
+    assert [s.text for s in d.segments] == [
+        "Storrington",
+        "East Sussex",
+        "England",
+        "Royaume-Uni",
+    ]
+
+
+def test_delegated_commune_is_historical(ref: RefData) -> None:
+    d = decompose("Marconne, Pas-de-Calais", ref)
+    assert d.insee == "62447"
+    assert d.historical == Former(
+        "Marconne", "62549", "62447", "deleguee", "2025-01-01"
+    )
+
+
+def test_rename_is_not_historical(ref: RefData) -> None:
+    d = decompose("Saint-Omer-en-Artois", ref)
+    assert d.insee == "62765" and d.historical is None
+    assert [e.kind for e in d.elements] == ["former_name"]
+
+
+def test_current_name_with_former_alternative(ref: RefData) -> None:
+    d = decompose("Sainte-Austreberthe, Seine-Maritime", ref)
+    assert d.insee == "76566" and d.historical is None
+    assert d.alternative is not None and d.alternative.insee == "62743"
+
+
+def test_ambiguous_name_reads_the_current_commune(ref: RefData) -> None:
+    d = decompose("Sainte-Austreberthe", ref)
+    assert d.insee == "76566" and d.candidates == ("76566",)
+    assert d.historical is None
+    assert d.alternative is not None and d.alternative.insee == "62743"
+
+
+def test_department_picks_the_former_reading(ref: RefData) -> None:
+    d = decompose("Sainte-Austreberthe, Pas-de-Calais", ref)
+    assert d.insee == "62447"
+    assert d.historical is not None and d.historical.insee == "62743"
+    assert d.alternative is None
+
+
+def test_codes_are_segments_too(ref: RefData) -> None:
+    d = decompose("Roubaix 59100", ref)
+    assert [(s.text, s.element.kind if s.element else None) for s in d.segments] == [
+        ("Roubaix", "commune"),
+        ("59100", "postal_code"),
+    ]

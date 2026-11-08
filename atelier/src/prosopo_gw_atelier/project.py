@@ -25,22 +25,21 @@ State file
 Clusters
     Decided writings are attached to their place (§ 6.3, "rattachées
     d'office"): the writings validated to one place form the cluster
-    ``place:<place_id>`` (proposal: the place's fields in the registry,
-    anchor: the place, confidence ``high``). The rejected writings are grouped
-    by ``build_clusters`` too, on their own and without anchors, so a rejected
+    ``place:<place_id>`` (levels: the place's chain in the registry, anchor:
+    the place, confidence ``high``). The rejected writings are grouped by
+    ``build_clusters`` too, on their own and without anchors, so a rejected
     cluster stays one cluster: ``rejected:<build_clusters id>`` (e.g.
-    ``rejected:insee:59350``), no proposal, confidence ``low``. The undecided
+    ``rejected:insee:59350``), no levels, confidence ``low``. The undecided
     writings go through ``build_clusters`` (anchors: the registry's known
-    places); a
-    resulting cluster anchored on a place that has a ``place:`` cluster in this
-    ``.gw`` is merged into it (the merged cluster takes the lowest confidence
-    of the two), otherwise it keeps its own id.
+    places); a resulting cluster anchored on a place that has a ``place:``
+    cluster in this ``.gw`` is merged into it (the merged cluster takes the
+    lowest confidence of the two), otherwise it keeps its own id.
 
     Decisions are read from the registry at each ``clusters()`` / ``cluster()``
     call, so a decision taken through the registry shows at once.
     Decompositions are computed at open and ``reload``; the grouping is cached
     until a reload, a split, or a change of the registry's decisions or known
-    places. Place proposals are read at each call. Writings the registry knows
+    places. Place chains are read at each call. Writings the registry knows
     but the ``.gw`` does not are simply ignored. Views hand out copies of the
     cached clusters.
 
@@ -48,10 +47,36 @@ Place of a cluster
     ``ClusterView.place_id`` is the place that validating the cluster
     updates. A ``place:`` cluster is its place; any other cluster whose
     writings are all validated to one same place is that place (typically a
-    validated split). Both show the place as the registry has it: proposal =
-    its fields, ``origins`` = their origins. Otherwise the place is the
-    cluster's anchor, if any, and the proposal comes from the rules
-    (``origins=None``).
+    validated split); otherwise the place is the cluster's anchor, if any.
+    A cluster that is a place shows it as the registry has it:
+    ``cluster.levels`` is the place's whole chain (validated and proposed
+    levels), ``cluster.postal_code`` its postal code, and ``from_registry`` is
+    ``True``. Validating it must pass that stored chain back, so attaching a
+    writing to a known place never changes its chain in silence. A cluster
+    without a place keeps the chain ``build_clusters`` computed from the
+    rules (``from_registry=False``).
+
+    ``historical_writings`` (places only) flags a place that mixes a commune
+    and one of its former communes (a version 1 place holding ``Lille`` and
+    ``Lomme``: the migration never moves writings). The place's own former
+    commune is its first validated level when that level is a
+    ``commune_historique`` (as for its anchor, ``known_places``). The map
+    gives, for each writing of the cluster:
+
+    - whose decomposition names a former commune
+      (``Decomposition.historical``) other than the place's own (same code
+      and name key), the name of that former commune;
+    - when the place has its own former commune, whose decomposition names
+      none but resolves to a current commune, the name of that commune (the
+      ``Lille`` writing of a place that is now ``Lomme``).
+
+Levels to enter by hand
+    ``ClusterView.needs_manual_levels`` is ``True`` when the cluster is not
+    rejected and its chain has no validated level: there is no chain to
+    accept, the user has to enter one (or accept a proposed level). Typically
+    a ``name:`` cluster made only of unknown codes such as ``99999``
+    (``cluster.levels == ()``), or a place whose levels are all proposed. A
+    rejected cluster never needs it: it carries no levels on purpose.
 
 State of a cluster
     ``todo`` while one of its writings is undecided (so a new writing that
@@ -69,11 +94,11 @@ Splits
     its parent). A stored writing absent from the ``.gw`` is left out of the
     view (it is kept in the file, and comes back if the writing reappears); a
     split left with no writing is not shown. A ``build_clusters`` cluster that
-    loses writings gets its proposal, confidence and anchor recomputed from
-    those it keeps (a ``place:`` or ``rejected:`` cluster only loses the
-    writings); one left empty disappears. A split never has an anchor: the
-    user separated its writings on purpose, it does not join a known place
-    by itself.
+    loses writings gets its levels, postal code, alternatives, confidence and
+    anchor recomputed from those it keeps (a ``place:`` or ``rejected:``
+    cluster only loses the writings); one left empty disappears. A split
+    never has an anchor: the user separated its writings on purpose, it does
+    not join a known place by itself.
 
     The writings of the parent are stored with the split. When the stored
     parent id no longer exists (its grouping changed, e.g. it was validated
@@ -96,7 +121,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from contextlib import closing, contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -109,12 +134,14 @@ from .places.cluster import (
     Confidence,
     KnownPlace,
     build_clusters,
+    name_key,
 )
 from .places.collect import collect_writings
 from .places.decompose import decompose
-from .places.model import Decomposition, ElementKind, Writing
+from .places.levels import Level, validated
+from .places.model import Decomposition, Writing
 from .refdata import RefData
-from .store.registry import Decision, Origin, PlaceRegistry, SchemaVersionError
+from .store.registry import Decision, PlaceRegistry, SchemaVersionError
 
 ClusterState = Literal["todo", "validated", "rejected", "already_decided"]
 
@@ -182,9 +209,20 @@ class ClusterView:
     place_id: str | None = None
     """The place this cluster is (see "Place of a cluster" in the module
     docstring), ``None`` if it is to be created."""
-    origins: dict[ElementKind, Origin] | None = None
-    """Origins of the place's fields when ``cluster.proposal`` is the place as
-    the registry has it, ``None`` when the proposal comes from the rules."""
+    from_registry: bool = False
+    """``True`` when ``cluster.levels`` and ``cluster.postal_code`` are the
+    place's as the registry has it (proposed levels included), ``False`` when
+    they come from the rules."""
+    historical_writings: dict[str, str] = field(default_factory=dict)
+    """Writing -> the other commune (former or current) it names, when the
+    place mixes communes (see the module docstring)."""
+
+    @property
+    def needs_manual_levels(self) -> bool:
+        """Not rejected and no validated level: the chain is to enter by hand."""
+        if self.state == "rejected":
+            return False
+        return not any(level.status == "validated" for level in self.cluster.levels)
 
 
 @dataclass(frozen=True)
@@ -385,18 +423,20 @@ class Project:
     def _views(self) -> list[ClusterView]:
         decisions = self._registry.decisions(self._decompositions)
         built = self._built(decisions)
+        places = {place.place_id: place for place in self._registry.places()}
         views = []
         for item in built:
             cluster = item.cluster
-            proposal = dict(cluster.proposal)
+            levels, postal_code = cluster.levels, cluster.postal_code
             found = [decisions.get(w) for w in cluster.writings]
             place_id = _decided_place(cluster, found)
-            origins: dict[ElementKind, Origin] | None = None
-            if place_id is not None:
-                place = self._registry.place(place_id)
-                proposal, origins = dict(place.fields), dict(place.origins)
-            else:
+            if place_id is None:
                 place_id = cluster.anchor_place_id
+            historical: dict[str, str] = {}
+            if place_id is not None:
+                place = places[place_id]
+                levels, postal_code = place.levels, place.postal_code
+                historical = self._historical_writings(cluster.writings, levels)
             state: ClusterState
             if any(d is None for d in found):
                 state = "todo"
@@ -409,7 +449,10 @@ class Project:
             views.append(
                 ClusterView(
                     cluster=replace(
-                        cluster, writings=list(cluster.writings), proposal=proposal
+                        cluster,
+                        writings=list(cluster.writings),
+                        levels=levels,
+                        postal_code=postal_code,
                     ),
                     state=state,
                     occurrences=sum(
@@ -418,10 +461,32 @@ class Project:
                     parent_id=item.parent_id,
                     provisional_name=item.provisional_name,
                     place_id=place_id,
-                    origins=origins,
+                    from_registry=place_id is not None,
+                    historical_writings=historical,
                 )
             )
         return views
+
+    def _historical_writings(
+        self, writings: Sequence[str], levels: Sequence[Level]
+    ) -> dict[str, str]:
+        """Writings naming another commune than the place's (module docstring)."""
+        chain = validated(levels)
+        own: str | None = None
+        if chain and chain[0].type == "commune_historique":
+            own = f"{chain[0].identifier}|{name_key(chain[0].name)}"
+        flagged: dict[str, str] = {}
+        for writing in writings:
+            decomposition = self._decompositions[writing]
+            former = decomposition.historical
+            if former is not None:
+                if f"{former.insee}|{name_key(former.name)}" != own:
+                    flagged[writing] = former.name
+            elif own is not None and decomposition.insee is not None:
+                commune = self._ref.commune_by_insee(decomposition.insee)
+                if commune is not None:
+                    flagged[writing] = commune.name
+        return flagged
 
     def _built(self, decisions: dict[str, Decision]) -> list[_Built]:
         known = tuple(self._registry.known_places())
@@ -451,14 +516,14 @@ class Project:
         clusters: dict[str, Cluster] = {}
         for place_id in sorted(by_place):
             cluster_id = f"{_PLACE}{place_id}"
-            # The proposal is read from the registry by ``_views``.
+            # The levels are read from the registry by ``_views``.
             clusters[cluster_id] = Cluster(
-                cluster_id, sorted(by_place[place_id]), {}, "high", place_id
+                cluster_id, sorted(by_place[place_id]), (), None, "high", place_id
             )
         for cluster in build_clusters(rejected, self._ref, {}):
             cluster_id = f"{_REJECTED}{cluster.id}"
             clusters[cluster_id] = Cluster(
-                cluster_id, sorted(cluster.writings), {}, "low"
+                cluster_id, sorted(cluster.writings), (), None, "low"
             )
         for cluster in build_clusters(undecided, self._ref, known):
             target = f"{_PLACE}{cluster.anchor_place_id}"
@@ -515,9 +580,9 @@ class Project:
     ) -> Cluster:
         """A cluster ``cluster_id`` made of exactly ``writings``.
 
-        Proposal and anchor come from the largest group ``build_clusters``
-        finds among them (ties to the smallest id); the confidence is the
-        lowest of the groups, since they may not agree.
+        Levels, postal code, alternatives and anchor come from the largest
+        group ``build_clusters`` finds among them (ties to the smallest id);
+        the confidence is the lowest of the groups, since they may not agree.
         """
         groups = build_clusters(
             {w: self._decompositions[w] for w in writings}, self._ref, known

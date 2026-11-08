@@ -12,11 +12,17 @@ order) and its values. Right after each place column it inserts:
 The writing key and the complement come from ``places.collect.split_place``,
 so the lookup key is exactly the registry's decision key (§ 6.3).
 
-Two tables follow ``core``'s:
+Three tables follow ``core``'s:
 
 - ``lieux``: the places referenced by a validated writing of these tables,
-  sorted by ``lieu_id``; one column per element kind, then one
-  ``<column>_origine`` per element;
+  sorted by ``lieu_id``; the French view of the validated levels (``french_view``,
+  with the former commune), the ``libelle`` (``chain_label``), the coordinates of
+  the most precise validated level that has some, then one ``<column>_origine``
+  per view column (the postal code takes the place's postal origin). A place
+  without validated level gets empty columns;
+- ``niveaux_lieux``: the validated levels of those places, ranks renumbered
+  0..n-1 (``validated``), sorted by place then rank; proposed levels are never
+  exported;
 - ``ecritures_lieux``: every writing of these tables that has a decision
   (validated or rejected), sorted by writing.
 
@@ -33,14 +39,18 @@ from dataclasses import dataclass
 from geneweb_py.formats.tables import Column, Row, Table, TableSpec
 
 from ..places.collect import split_place
-from ..places.model import ElementKind
+from ..places.levels import ViewField, chain_label, french_view, validated, view_origins
 from ..store.registry import Decision, PlaceRegistry
 
 STATUS_VALUES: dict[str, str] = {"validated": "valide", "rejected": "rejete"}
 ORIGIN_VALUES: dict[str, str] = {
+    "written": "ecrit",
     "rule": "regle",
     "manual": "manuel",
-    "reference": "referentiel",
+    "insee": "insee",
+    "paris": "paris",
+    "dicotopo": "dicotopo",
+    "geonames": "geonames",
     "llm": "llm",
 }
 
@@ -54,20 +64,30 @@ def _french(values: dict[str, str], code: str | None, what: str) -> str | None:
         raise ValueError(f"unknown stored {what}: {code!r}") from None
 
 
-# lieux column -> (element kind, French label for the description)
-PLACE_FIELDS: tuple[tuple[str, ElementKind, str], ...] = (
-    ("commune", "commune", "Commune retenue."),
+# lieux column -> (french view field, French label for the description)
+PLACE_FIELDS: tuple[tuple[str, ViewField, str], ...] = (
+    ("commune", "commune", "Commune actuelle retenue."),
     ("code_insee", "insee_code", "Code INSEE de la commune (COG)."),
     ("code_postal", "postal_code", "Code postal."),
     ("departement", "department", "Département."),
     ("region", "region", "Région (actuelle ou ancienne)."),
     ("pays", "country", "Pays."),
-    ("ancien_nom", "former_name", "Ancien nom ou commune fusionnée."),
+    (
+        "commune_historique",
+        "historical_commune",
+        "Ancienne commune (fusion, association ou délégation), si le lieu en est une.",
+    ),
+    (
+        "code_insee_historique",
+        "historical_insee",
+        "Code INSEE de l'ancienne commune.",
+    ),
 )
 
 _ORIGIN = (
-    "Origine de « {column} » : regle (règle de l'atelier), manuel (saisie), "
-    "referentiel (référentiel externe) ou llm ; vide si la valeur est vide."
+    "Origine de « {column} » : ecrit (écrit dans la base), regle (règle de "
+    "l'atelier), manuel (saisie), insee (référentiel INSEE), paris, dicotopo, "
+    "geonames ou llm ; vide si la valeur est vide."
 )
 
 LIEUX = TableSpec(
@@ -79,12 +99,60 @@ LIEUX = TableSpec(
             "Identifiant stable du lieu (UUID) dans le référentiel personnel.",
         ),
         *(Column(column, "text", label) for column, _, label in PLACE_FIELDS),
+        Column(
+            "libelle",
+            "text",
+            "Noms des niveaux validés, du plus précis au plus large, "
+            "séparés par une virgule.",
+        ),
+        Column(
+            "latitude",
+            "real",
+            "Latitude du niveau validé le plus précis qui en a une.",
+        ),
+        Column(
+            "longitude",
+            "real",
+            "Longitude du niveau validé le plus précis qui en a une.",
+        ),
         *(
             Column(f"{column}_origine", "text", _ORIGIN.format(column=column))
             for column, _, _ in PLACE_FIELDS
         ),
     ),
     primary_key="lieu_id",
+)
+
+NIVEAUX_LIEUX = TableSpec(
+    "niveaux_lieux",
+    (
+        Column("lieu_id", "text", "Lieu (lieux.lieu_id)."),
+        Column(
+            "rang",
+            "int",
+            "Rang du niveau validé dans la chaîne : 0 = le plus précis, puis 1, 2…",
+        ),
+        Column("nom", "text", "Nom du niveau (normalisé)."),
+        Column("nom_ecrit", "text", "Nom tel qu'écrit dans la base, si différent."),
+        Column(
+            "type",
+            "text",
+            "Type du niveau (commune, departement, commune_historique…) ; "
+            "vide si non reconnu.",
+        ),
+        Column(
+            "nature",
+            "text",
+            "Pour une commune historique : fusion, associee ou deleguee.",
+        ),
+        Column("identifiant", "text", "Code du niveau (INSEE, code de département…)."),
+        Column("source", "text", "Référentiel et millésime du niveau (COG 2026…)."),
+        Column("debut", "text", "Début de validité du niveau, si connu."),
+        Column("fin", "text", "Fin de validité du niveau, si connue."),
+        Column("latitude", "real", "Latitude du niveau, si connue."),
+        Column("longitude", "real", "Longitude du niveau, si connue."),
+        Column("origine", "text", _ORIGIN.format(column="le niveau")),
+    ),
 )
 
 ECRITURES_LIEUX = TableSpec(
@@ -191,8 +259,8 @@ def _row(
 
 
 def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]:
-    """``core``'s tables with place ids and complements, then ``lieux`` and
-    ``ecritures_lieux``. The input tables are not modified."""
+    """``core``'s tables with place ids and complements, then ``lieux``,
+    ``niveaux_lieux`` and ``ecritures_lieux``. The input tables are not modified."""
     decisions = registry.decisions(_writings(tables))
     result: list[Table] = []
     for table in tables:
@@ -211,18 +279,51 @@ def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]
             if d.status == "validated" and d.place_id is not None
         }
     )
+    wanted = set(place_ids)
     place_rows: list[Row] = []
-    for place_id in place_ids:
-        place = registry.place(place_id)
-        values: Row = {"lieu_id": place_id}
-        for column, kind, _ in PLACE_FIELDS:
-            values[column] = place.fields.get(kind)
-        for column, kind, _ in PLACE_FIELDS:
-            values[f"{column}_origine"] = _french(
-                ORIGIN_VALUES, place.origins.get(kind), "origin"
+    level_rows: list[Row] = []
+    for place in registry.places():
+        if place.place_id not in wanted:
+            continue
+        chain = validated(place.levels)
+        view = french_view(chain, place.postal_code)
+        origins = view_origins(chain)
+        values: Row = {"lieu_id": place.place_id}
+        for column, field, _ in PLACE_FIELDS:
+            values[column] = view.get(field)
+        located = next(
+            (x for x in chain if x.latitude is not None and x.longitude is not None),
+            None,
+        )
+        values["libelle"] = chain_label(chain) or None
+        values["latitude"] = located.latitude if located else None
+        values["longitude"] = located.longitude if located else None
+        for column, field, _ in PLACE_FIELDS:
+            origin = (
+                place.postal_origin if field == "postal_code" else origins.get(field)
             )
+            values[f"{column}_origine"] = _french(ORIGIN_VALUES, origin, "origin")
         place_rows.append(values)
+        for level in chain:
+            level_rows.append(
+                {
+                    "lieu_id": place.place_id,
+                    "rang": level.rank,
+                    "nom": level.name,
+                    "nom_ecrit": level.written,
+                    "type": level.type,
+                    "nature": level.nature,
+                    "identifiant": level.identifier,
+                    "source": level.source,
+                    "debut": level.start,
+                    "fin": level.end,
+                    "latitude": level.latitude,
+                    "longitude": level.longitude,
+                    "origine": _french(ORIGIN_VALUES, level.origin, "origin"),
+                }
+            )
     result.append(Table(LIEUX, place_rows))
+    result.append(Table(NIVEAUX_LIEUX, level_rows))
     result.append(
         Table(
             ECRITURES_LIEUX,

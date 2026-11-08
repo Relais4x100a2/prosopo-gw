@@ -8,7 +8,13 @@ from geneweb_py import GeneWebParser
 from geneweb_py.formats.table_writers import dictionary_table
 from geneweb_py.formats.tables import Row, Table, build_base_tables
 
-from prosopo_gw_atelier.export.pivot import ECRITURES_LIEUX, LIEUX, build_pivot
+from prosopo_gw_atelier.export.pivot import (
+    ECRITURES_LIEUX,
+    LIEUX,
+    NIVEAUX_LIEUX,
+    build_pivot,
+)
+from prosopo_gw_atelier.places.levels import Level, LevelOrigin
 from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -46,14 +52,59 @@ def registry(tmp_path: Path) -> Iterator[PlaceRegistry]:
         yield reg
 
 
+def commune(name: str) -> list[Level]:
+    return [Level(0, name, type="commune", origin="rule")]
+
+
+def add(
+    registry: PlaceRegistry,
+    writings: list[str],
+    levels: list[Level],
+    project: str = "p",
+    postal: tuple[str, LevelOrigin] | None = None,
+) -> str:
+    code, origin = postal if postal else (None, None)
+    return registry.validate(writings, levels, code, origin, project=project).place_id
+
+
 @pytest.fixture
 def lyon(registry: PlaceRegistry) -> str:
-    return registry.validate(
+    return add(
+        registry,
         ["Lyon"],
-        {"commune": "Lyon", "insee_code": "69123", "department": "Rhône"},
-        {"commune": "rule", "insee_code": "rule", "department": "manual"},
-        project="p",
-    ).place_id
+        [
+            Level(0, "Lyon", type="commune", identifier="69123", origin="rule"),
+            Level(1, "Rhône", type="departement", origin="manual"),
+        ],
+    )
+
+
+@pytest.fixture
+def marconne(registry: PlaceRegistry) -> str:
+    # "Lille" is a writing of lieux_varies.gw: the place is exported
+    return add(
+        registry,
+        ["Lille"],
+        [
+            Level(
+                0,
+                "Marconne",
+                type="commune_historique",
+                identifier="62549",
+                source="COG 2026",
+                end="2025-01-01",
+                nature="deleguee",
+                origin="insee",
+            ),
+            Level(
+                1, "Hesdin-la-Forêt", type="commune", identifier="62447", origin="insee"
+            ),
+            Level(2, "Pas-de-Calais", type="departement", identifier="62"),
+            Level(3, "Hauts-de-France", type="region", origin="insee"),
+            Level(4, "France", type="pays", origin="written"),
+        ],
+        postal=("62140", "insee"),
+    )
 
 
 def by_name(tables: list[Table]) -> dict[str, Table]:
@@ -93,7 +144,11 @@ def test_tables_in_core_order_then_places(
     core_tables: list[Table], registry: PlaceRegistry
 ) -> None:
     names = [t.spec.name for t in build_pivot(core_tables, registry)]
-    assert names == [t.spec.name for t in core_tables] + ["lieux", "ecritures_lieux"]
+    assert names == [t.spec.name for t in core_tables] + [
+        "lieux",
+        "niveaux_lieux",
+        "ecritures_lieux",
+    ]
 
 
 def test_original_values_untouched(
@@ -130,9 +185,7 @@ def test_complement_is_kept_apart_from_the_place(
 
 
 def test_person_columns(core_tables: list[Table], registry: PlaceRegistry) -> None:
-    arras = registry.validate(
-        ["Arras"], {"commune": "Arras"}, {"commune": "rule"}, project="p"
-    ).place_id
+    arras = add(registry, ["Arras"], commune("Arras"))
     registry.reject(["En mer"], project="p")
     persons = by_name(build_pivot(core_tables, registry))["personnes"]
     louise = row(persons, "PETIT_Louise_0")
@@ -154,39 +207,56 @@ def test_person_columns(core_tables: list[Table], registry: PlaceRegistry) -> No
 
 
 def test_family_columns(core_tables: list[Table], registry: PlaceRegistry) -> None:
-    roubaix = registry.validate(
-        ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, project="p"
-    ).place_id
+    roubaix = add(registry, ["Roubaix"], commune("Roubaix"))
     families = by_name(build_pivot(core_tables, registry))["familles"]
     assert row(families, "FAM_001")["mariage_lieu_id"] == roubaix
     assert row(families, "FAM_001")["mariage_complement"] is None
     assert row(families, "FAM_002")["mariage_lieu_id"] is None
 
 
+LIEUX_COLUMNS = [
+    "lieu_id",
+    "commune",
+    "code_insee",
+    "code_postal",
+    "departement",
+    "region",
+    "pays",
+    "commune_historique",
+    "code_insee_historique",
+    "libelle",
+    "latitude",
+    "longitude",
+]
+ORIGIN_COLUMNS = [
+    f"{c}_origine"
+    for c in [
+        "commune",
+        "code_insee",
+        "code_postal",
+        "departement",
+        "region",
+        "pays",
+        "commune_historique",
+        "code_insee_historique",
+    ]
+]
+
+
 def test_places_table_lists_only_places_of_this_gw(
     core_tables: list[Table], registry: PlaceRegistry, lyon: str
 ) -> None:
-    registry.validate(
-        ["Paris"], {"commune": "Paris"}, {"commune": "rule"}, project="other"
-    )
-    roubaix = registry.validate(
+    add(registry, ["Paris"], commune("Paris"), project="other")
+    roubaix = add(
+        registry,
         ["Roubaix", "ROUBAIX, Nord, France"],
-        {
-            "commune": "Roubaix",
-            "postal_code": "59100",
-            "country": "France",
-            "region": "Hauts-de-France",
-            "former_name": "Roubaix-Ancien",
-        },
-        {
-            "commune": "rule",
-            "postal_code": "rule",
-            "country": "manual",
-            "region": "reference",
-            "former_name": "llm",
-        },
-        project="p",
-    ).place_id
+        [
+            Level(0, "Roubaix", type="commune", identifier="59512", origin="rule"),
+            Level(1, "Hauts-de-France", type="region", origin="insee"),
+            Level(2, "France", type="pays", origin="manual"),
+        ],
+        postal=("59100", "rule"),
+    )
     places = by_name(build_pivot(core_tables, registry))["lieux"]
     assert places.spec is LIEUX
     assert [r["lieu_id"] for r in places.rows] == sorted([lyon, roubaix])
@@ -199,37 +269,187 @@ def test_places_table_lists_only_places_of_this_gw(
         "departement": "Rhône",
         "region": None,
         "pays": None,
-        "ancien_nom": None,
+        "commune_historique": None,
+        "code_insee_historique": None,
+        "libelle": "Lyon, Rhône",
+        "latitude": None,
+        "longitude": None,
         "commune_origine": "regle",
         "code_insee_origine": "regle",
         "code_postal_origine": None,
         "departement_origine": "manuel",
         "region_origine": None,
         "pays_origine": None,
-        "ancien_nom_origine": None,
+        "commune_historique_origine": None,
+        "code_insee_historique_origine": None,
     }
     roubaix_row = next(r for r in places.rows if r["lieu_id"] == roubaix)
     assert roubaix_row["code_postal"] == "59100"
+    assert roubaix_row["code_postal_origine"] == "regle"
     assert roubaix_row["pays"] == "France"
     assert roubaix_row["pays_origine"] == "manuel"
-    assert roubaix_row["region_origine"] == "referentiel"
-    assert roubaix_row["ancien_nom"] == "Roubaix-Ancien"
-    assert roubaix_row["ancien_nom_origine"] == "llm"
+    assert roubaix_row["region_origine"] == "insee"
 
 
 def test_places_spec_columns() -> None:
-    values = [
+    assert LIEUX.column_names == LIEUX_COLUMNS + ORIGIN_COLUMNS
+    assert LIEUX.primary_key == "lieu_id"
+    assert ECRITURES_LIEUX.column_names == ["ecriture", "lieu_id", "statut"]
+    assert "ancien_nom" not in LIEUX.column_names
+
+
+def test_lieux_columns() -> None:
+    assert LIEUX.column_names == [
+        "lieu_id",
         "commune",
         "code_insee",
         "code_postal",
         "departement",
         "region",
         "pays",
-        "ancien_nom",
+        "commune_historique",
+        "code_insee_historique",
+        "libelle",
+        "latitude",
+        "longitude",
+        "commune_origine",
+        "code_insee_origine",
+        "code_postal_origine",
+        "departement_origine",
+        "region_origine",
+        "pays_origine",
+        "commune_historique_origine",
+        "code_insee_historique_origine",
     ]
-    assert LIEUX.column_names == ["lieu_id", *values] + [f"{v}_origine" for v in values]
-    assert LIEUX.primary_key == "lieu_id"
-    assert ECRITURES_LIEUX.column_names == ["ecriture", "lieu_id", "statut"]
+    assert NIVEAUX_LIEUX.column_names == [
+        "lieu_id",
+        "rang",
+        "nom",
+        "nom_ecrit",
+        "type",
+        "nature",
+        "identifiant",
+        "source",
+        "debut",
+        "fin",
+        "latitude",
+        "longitude",
+        "origine",
+    ]
+
+
+def test_niveaux_lieux_rows(
+    core_tables: list[Table], registry: PlaceRegistry, marconne: str
+) -> None:
+    levels = by_name(build_pivot(core_tables, registry))["niveaux_lieux"]
+    assert levels.spec is NIVEAUX_LIEUX
+    assert [r["rang"] for r in levels.rows] == [0, 1, 2, 3, 4]
+    assert {r["lieu_id"] for r in levels.rows} == {marconne}
+    first = levels.rows[0]
+    assert first["nom"] == "Marconne"
+    assert first["type"] == "commune_historique"
+    assert first["identifiant"] == "62549"
+    assert first["nature"] == "deleguee"
+    assert first["fin"] == "2025-01-01"
+    assert first["origine"] == "insee"
+    assert first["source"] == "COG 2026"
+    assert levels.rows[4]["origine"] == "ecrit"
+
+
+def test_lieux_row_of_a_historical_commune(
+    core_tables: list[Table], registry: PlaceRegistry, marconne: str
+) -> None:
+    lieu = by_name(build_pivot(core_tables, registry))["lieux"].rows[0]
+    assert lieu["commune"] == "Hesdin-la-Forêt"
+    assert lieu["code_insee"] == "62447"
+    assert lieu["commune_historique"] == "Marconne"
+    assert lieu["code_insee_historique"] == "62549"
+    assert lieu["commune_historique_origine"] == "insee"
+    assert lieu["code_postal"] == "62140"
+    assert lieu["code_postal_origine"] == "insee"
+
+
+def test_proposed_levels_not_exported(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    place = add(
+        registry,
+        ["Lille"],
+        [
+            Level(
+                0,
+                "Marconne",
+                type="commune_historique",
+                identifier="62549",
+                nature="deleguee",
+                origin="insee",
+                status="proposed",
+            ),
+            Level(1, "Hesdin-la-Forêt", type="commune", identifier="62447"),
+            Level(2, "France", type="pays", origin="written"),
+        ],
+    )
+    pivot = by_name(build_pivot(core_tables, registry))
+    levels = pivot["niveaux_lieux"].rows
+    assert [(r["rang"], r["nom"]) for r in levels] == [
+        (0, "Hesdin-la-Forêt"),
+        (1, "France"),
+    ]
+    lieu = pivot["lieux"].rows[0]
+    assert lieu["lieu_id"] == place
+    assert lieu["commune_historique"] is None
+    assert lieu["libelle"] == "Hesdin-la-Forêt, France"
+
+
+def test_libelle(
+    core_tables: list[Table], registry: PlaceRegistry, marconne: str
+) -> None:
+    lieu = by_name(build_pivot(core_tables, registry))["lieux"].rows[0]
+    assert (
+        lieu["libelle"]
+        == "Marconne, Hesdin-la-Forêt, Pas-de-Calais, Hauts-de-France, France"
+    )
+
+
+def test_coordinates_come_from_the_most_precise_located_level(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    add(
+        registry,
+        ["Lille"],
+        [
+            Level(0, "Lille", type="commune"),
+            Level(1, "Nord", type="departement", latitude=50.5, longitude=3.2),
+        ],
+    )
+    lieu = by_name(build_pivot(core_tables, registry))["lieux"].rows[0]
+    assert (lieu["latitude"], lieu["longitude"]) == (50.5, 3.2)
+
+
+def test_place_without_validated_level_does_not_crash(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    place = add(
+        registry,
+        ["Lyon"],
+        [Level(0, "Lyon", type="commune", identifier="69123", status="proposed")],
+    )
+    pivot = by_name(build_pivot(core_tables, registry))
+    assert pivot["lieux"].rows == [
+        {
+            **{c: None for c in LIEUX.column_names},
+            "lieu_id": place,
+        }
+    ]
+    assert pivot["niveaux_lieux"].rows == []
+
+
+def test_niveaux_lieux_only_for_places_of_this_gw(
+    core_tables: list[Table], registry: PlaceRegistry, lyon: str
+) -> None:
+    add(registry, ["Paris"], commune("Paris"), project="other")
+    levels = by_name(build_pivot(core_tables, registry))["niveaux_lieux"]
+    assert {r["lieu_id"] for r in levels.rows} == {lyon}
 
 
 def test_writings_table(
@@ -237,7 +457,7 @@ def test_writings_table(
 ) -> None:
     registry.reject(["En mer"], project="p")
     registry.reject(["Ailleurs"], project="other")  # not in this .gw
-    registry.validate(["Paris"], {"commune": "Paris"}, {"commune": "rule"}, "other")
+    add(registry, ["Paris"], commune("Paris"), project="other")
     writings = by_name(build_pivot(core_tables, registry))["ecritures_lieux"]
     assert writings.spec is ECRITURES_LIEUX
     assert writings.rows == [
@@ -251,6 +471,7 @@ def test_no_decision_gives_empty_places_tables(
 ) -> None:
     pivot = by_name(build_pivot(core_tables, registry))
     assert pivot["lieux"].rows == []
+    assert pivot["niveaux_lieux"].rows == []
     assert pivot["ecritures_lieux"].rows == []
     assert all(r["lieu_id"] is None for r in pivot["evenements"].rows)
 
@@ -268,6 +489,8 @@ def test_dictionary_describes_the_new_columns(
             assert entries[(name, column)]
     for column in LIEUX.column_names:
         assert entries[("lieux", column)]
+    for column in NIVEAUX_LIEUX.column_names:
+        assert entries[("niveaux_lieux", column)]
     for column in ECRITURES_LIEUX.column_names:
         assert entries[("ecritures_lieux", column)]
 
@@ -289,9 +512,10 @@ def test_unknown_stored_origin_raises(
     lyon: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def place(place_id: str) -> Place:
-        return Place(place_id, {"commune": "Lyon"}, {"commune": "guess"})  # type: ignore[dict-item]
+    def places() -> list[Place]:
+        level = Level(0, "Lyon", type="commune", origin="guess")  # type: ignore[arg-type]
+        return [Place(lyon, (level,))]
 
-    monkeypatch.setattr(registry, "place", place)
+    monkeypatch.setattr(registry, "places", places)
     with pytest.raises(ValueError, match="guess"):
         build_pivot(core_tables, registry)

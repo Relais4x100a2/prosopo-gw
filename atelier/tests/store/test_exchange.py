@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 
+from prosopo_gw_atelier.places.levels import Level
+from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.store import exchange
 from prosopo_gw_atelier.store.exchange import (
     FORMAT,
@@ -18,10 +20,28 @@ from prosopo_gw_atelier.store.exchange import (
 )
 from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry, RowChange
 
-ROUBAIX = {"commune": "Roubaix", "department": "59", "insee_code": "59512"}
-ROUBAIX_ORIGINS = {"commune": "rule", "department": "manual", "insee_code": "rule"}
-LILLE = {"commune": "Lille", "insee_code": "59350"}
-LILLE_ORIGINS = {"commune": "rule", "insee_code": "reference"}
+MINI = Path(__file__).resolve().parents[1] / "fixtures" / "refdata_mini"
+ROUBAIX = (
+    Level(0, "Roubaix", type="commune", identifier="59512", origin="rule"),
+    Level(1, "Nord", type="departement", identifier="59", origin="manual"),
+)
+LILLE = (Level(0, "Lille", type="commune", identifier="59350", origin="insee"),)
+MARCONNE = (
+    Level(0, "Les Fontaines", type="lieu_dit", origin="written"),
+    Level(1, "Marconne", type="commune", identifier="62551", origin="insee"),
+    Level(2, "Pas-de-Calais", type="departement", identifier="62", origin="insee"),
+    Level(3, "Hauts-de-France", type="region", origin="insee"),
+    Level(4, "France", type="pays", origin="insee"),
+)
+
+
+def _commune(name: str) -> tuple[Level, ...]:
+    return (Level(0, name, type="commune", origin="manual"),)
+
+
+@pytest.fixture(scope="module")
+def ref() -> RefData:
+    return load_refdata(MINI)
 
 
 @pytest.fixture
@@ -38,12 +58,9 @@ def target(tmp_path: Path) -> Iterator[PlaceRegistry]:
 
 def _fill(reg: PlaceRegistry) -> tuple[str, str]:
     roubaix = reg.validate(
-        ["ROUBAIX", "Roubaix, Nord"],
-        ROUBAIX,
-        ROUBAIX_ORIGINS,
-        "p1",  # type: ignore[arg-type]
+        ["ROUBAIX", "Roubaix, Nord"], ROUBAIX, "59100", "written", "p1"
     ).place_id
-    lille = reg.validate(["Lille"], LILLE, LILLE_ORIGINS, "p2").place_id  # type: ignore[arg-type]
+    lille = reg.validate(["Lille"], LILLE, None, None, "p2").place_id
     reg.reject(["en mer"], "p1")
     return roubaix, lille
 
@@ -52,8 +69,15 @@ def _all_decisions(reg: PlaceRegistry) -> list[Decision]:
     return reg.all_decisions()
 
 
-def _counts(reg: PlaceRegistry) -> tuple[int, int, int]:
-    return len(reg.all_decisions()), len(reg.places()), len(reg.journal())
+def _counts(reg: PlaceRegistry) -> tuple[int, int, int, int, int]:
+    places = reg.places()
+    return (
+        len(reg.all_decisions()),
+        len(places),
+        len(reg.journal()),
+        sum(len(p.levels) for p in places),
+        sum(p.postal_code is not None for p in places),
+    )
 
 
 # --- export ----------------------------------------------------------------
@@ -63,15 +87,19 @@ def test_export_lists_places_and_writings_sorted(source: PlaceRegistry) -> None:
     roubaix, lille = _fill(source)
     data = export_registry(source)
     assert data["format"] == FORMAT == "prosopo-gw-atelier/lieux"
-    assert data["version"] == 1
+    assert data["version"] == 2
     assert data["exported_at"].endswith("+00:00")
     assert [p["place_id"] for p in data["places"]] == sorted([roubaix, lille])
     place = next(p for p in data["places"] if p["place_id"] == roubaix)
-    assert place["fields"] == {
-        "commune": {"value": "Roubaix", "origin": "rule"},
-        "department": {"value": "59", "origin": "manual"},
-        "insee_code": {"value": "59512", "origin": "rule"},
-    }
+    assert place["postal_code"] == {"value": "59100", "origin": "written"}
+    assert [
+        (lv["rank"], lv["name"], lv["type"], lv["origin"]) for lv in place["levels"]
+    ] == [
+        (0, "Roubaix", "commune", "rule"),
+        (1, "Nord", "departement", "manual"),
+    ]
+    other = next(p for p in data["places"] if p["place_id"] == lille)
+    assert other["postal_code"] is None
     assert data["writings"] == [
         {"writing": "Lille", "status": "validated", "place_id": lille, "project": "p2"},
         {
@@ -101,7 +129,7 @@ def test_two_exports_differ_only_by_exported_at(source: PlaceRegistry) -> None:
 def test_export_is_json_serializable(source: PlaceRegistry) -> None:
     _fill(source)
     text = json.dumps(export_registry(source), ensure_ascii=False, indent=2)
-    assert json.loads(text)["version"] == 1
+    assert json.loads(text)["version"] == 2
 
 
 # --- Step 1: round trip, conflicts, resolution ------------------------------
@@ -227,9 +255,9 @@ def test_differing_decision_is_a_conflict_and_local_is_kept(
 ) -> None:
     roubaix, _ = _fill(source)
     local_lille = target.validate(
-        ["Lille"], {"commune": "Lille-lez-Tours"}, {"commune": "manual"}, "mine"
+        ["Lille"], _commune("Lille-lez-Tours"), None, None, "mine"
     ).place_id
-    target.validate(["en mer"], {"commune": "Mer"}, {"commune": "manual"}, "mine")
+    target.validate(["en mer"], _commune("Mer"), None, None, "mine")
     conflicts = import_registry(target, export_registry(source)).conflicts
     by_writing = {c.writing: c for c in conflicts}
     assert sorted(by_writing) == ["Lille", "en mer"]
@@ -278,7 +306,7 @@ def test_resolve_incoming_rejection(
     source: PlaceRegistry, target: PlaceRegistry
 ) -> None:
     _fill(source)
-    target.validate(["en mer"], {"commune": "Mer"}, {"commune": "manual"}, "mine")
+    target.validate(["en mer"], _commune("Mer"), None, None, "mine")
     [conflict] = import_registry(target, export_registry(source)).conflicts
     resolve_conflict(target, conflict, "incoming", None)
     assert target.decision("en mer") == Decision("en mer", None, "rejected", None)
@@ -334,24 +362,24 @@ def test_resolve_rejects_bad_keep(target: PlaceRegistry) -> None:
         resolve_conflict(target, conflict, "both", None)  # type: ignore[arg-type]
 
 
-def test_existing_place_keeps_local_fields(
+def test_existing_place_keeps_local_levels(
     source: PlaceRegistry, target: PlaceRegistry
 ) -> None:
     roubaix, _ = _fill(source)
     import_registry(target, export_registry(source))
-    target.correct(roubaix, "commune", "Roubaix (Nord)", "mine")
+    target.set_levels(roubaix, _commune("Roubaix (Nord)"), "59100", "manual", "mine")
     local = target.place(roubaix)
-    source.validate(["Roubaix 59"], {}, {}, "p3", place_id=roubaix)
+    source.validate(["Roubaix 59"], ROUBAIX, None, None, "p3", place_id=roubaix)
     assert import_registry(target, export_registry(source)).conflicts == []
     assert target.place(roubaix) == local
     assert target.decision("Roubaix 59") == source.decision("Roubaix 59")
 
 
 def test_writing_may_point_to_a_local_place(target: PlaceRegistry) -> None:
-    local = target.validate(["Lille"], LILLE, LILLE_ORIGINS, "mine").place_id  # type: ignore[arg-type]
+    local = target.validate(["Lille"], LILLE, None, None, "mine").place_id
     data = {
         "format": FORMAT,
-        "version": 1,
+        "version": 2,
         "exported_at": "2026-11-07T00:00:00+00:00",
         "places": [],
         "writings": [
@@ -411,7 +439,8 @@ def _mutations() -> list[tuple[str, Any]]:
 
     return [
         ("other format", setter(("format",), "prosopo-gw/other")),
-        ("version 2", setter(("version",), 2)),
+        ("version 3", setter(("version",), 3)),
+        ("version 0", setter(("version",), 0)),
         ("version as string", setter(("version",), "1")),
         ("version as bool", setter(("version",), True)),
         ("missing format", deleter(("format",))),
@@ -423,12 +452,29 @@ def _mutations() -> list[tuple[str, Any]]:
         ("place not object", setter(("places", 0), "x")),
         ("place without id", deleter(("places", 0, "place_id"))),
         ("place id empty", setter(("places", 0, "place_id"), "")),
-        ("fields not object", setter(("places", 0, "fields"), [])),
-        ("unknown kind", setter(("places", 0, "fields", "street"), {})),
-        ("field not object", setter(("places", 0, "fields", "commune"), "Lille")),
-        ("field without origin", deleter(("places", 0, "fields", "commune", "origin"))),
-        ("unknown origin", setter(("places", 0, "fields", "commune", "origin"), "ai")),
-        ("value not str", setter(("places", 0, "fields", "commune", "value"), 59)),
+        ("missing levels", deleter(("places", 0, "levels"))),
+        ("levels not list", setter(("places", 0, "levels"), {})),
+        ("level not object", setter(("places", 0, "levels", 0), "Lille")),
+        ("level without origin", deleter(("places", 0, "levels", 0, "origin"))),
+        ("unknown origin", setter(("places", 0, "levels", 0, "origin"), "ai")),
+        ("level without status", deleter(("places", 0, "levels", 0, "status"))),
+        ("unknown status", setter(("places", 0, "levels", 0, "status"), "maybe")),
+        ("unknown nature", setter(("places", 0, "levels", 0, "nature"), "annexee")),
+        ("bad type slug", setter(("places", 0, "levels", 0, "type"), "Commune!")),
+        ("level without name", deleter(("places", 0, "levels", 0, "name"))),
+        ("level name empty", setter(("places", 0, "levels", 0, "name"), " ")),
+        ("name not str", setter(("places", 0, "levels", 0, "name"), 59)),
+        ("rank as string", setter(("places", 0, "levels", 0, "rank"), "0")),
+        ("rank as bool", setter(("places", 0, "levels", 0, "rank"), False)),
+        ("rank gap", setter(("places", 0, "levels", 0, "rank"), 2)),
+        ("latitude not number", setter(("places", 0, "levels", 0, "latitude"), "n")),
+        ("latitude out of range", setter(("places", 0, "levels", 0, "latitude"), 91)),
+        ("postal not object", setter(("places", 0, "postal_code"), "59000")),
+        ("postal without origin", setter(("places", 0, "postal_code"), {"value": "1"})),
+        (
+            "postal llm origin",
+            setter(("places", 0, "postal_code"), {"value": "1", "origin": "llm"}),
+        ),
         ("duplicate place", dup_place),
         ("writings not list", setter(("writings",), None)),
         ("writing not object", setter(("writings", 0), 1)),
@@ -453,7 +499,7 @@ def test_invalid_document_writes_nothing(
 ) -> None:
     data = _valid(source)
     # a populated target: errors must not be checked row by row while writing
-    target.validate(["Ailleurs"], {"commune": "Ailleurs"}, {"commune": "manual"}, "m")
+    target.validate(["Ailleurs"], _commune("Ailleurs"), None, None, "m")
     mutate(data)
     before = _counts(target)
     with pytest.raises(RegistryFormatError):
@@ -470,10 +516,10 @@ def test_format_error_message_is_clear(
     source: PlaceRegistry, target: PlaceRegistry
 ) -> None:
     data = _valid(source)
-    data["version"] = 2
-    with pytest.raises(RegistryFormatError, match="version 2"):
+    data["version"] = 3
+    with pytest.raises(RegistryFormatError, match="version 3"):
         import_registry(target, data)
-    data["version"] = 1
+    data["version"] = 2
     data["format"] = "other"
     with pytest.raises(RegistryFormatError, match="prosopo-gw-atelier/lieux"):
         import_registry(target, data)
@@ -483,20 +529,12 @@ def test_registry_format_error_is_a_value_error() -> None:
     assert issubclass(RegistryFormatError, ValueError)
 
 
-def test_place_dataclass_roundtrip_fields(source: PlaceRegistry) -> None:
+def test_place_dataclass_roundtrip_levels(source: PlaceRegistry) -> None:
     roubaix, _ = _fill(source)
-    assert source.place(roubaix) == Place(roubaix, ROUBAIX, ROUBAIX_ORIGINS)  # type: ignore[arg-type]
+    assert source.place(roubaix) == Place(roubaix, ROUBAIX, "59100", "written")
 
 
 # --- Fix round 1: ill-typed enum values, stale conflicts ----------------------
-
-
-def _set_kind_key(key: Any) -> Any:
-    def apply(d: dict[str, Any]) -> None:
-        fields = d["places"][0]["fields"]
-        fields[key] = fields.pop("commune")
-
-    return apply
 
 
 def _set_at(path: tuple[Any, ...], value: Any) -> Any:
@@ -510,7 +548,7 @@ def _set_at(path: tuple[Any, ...], value: Any) -> Any:
 
 
 _STATUS = ("writings", 0, "status")
-_ORIGIN = ("places", 0, "fields", "commune", "origin")
+_ORIGIN = ("places", 0, "levels", 0, "origin")
 _ENUM_CASES = {
     "status-list": _set_at(_STATUS, []),
     "status-dict": _set_at(_STATUS, {}),
@@ -518,10 +556,8 @@ _ENUM_CASES = {
     "origin-dict": _set_at(_ORIGIN, {}),
     "format-list": _set_at(("format",), []),
     "format-dict": _set_at(("format",), {}),
-    # JSON object keys are always strings (an unhashable kind cannot even be
-    # a key); a hand-built mapping may still carry non-string keys.
-    "kind-int": _set_kind_key(3),
-    "kind-tuple": _set_kind_key(("commune",)),
+    "nature-list": _set_at(("places", 0, "levels", 0, "nature"), []),
+    "type-list": _set_at(("places", 0, "levels", 0, "type"), []),
 }
 
 
@@ -530,7 +566,7 @@ def test_unhashable_or_non_str_enum_values_are_format_errors(
     source: PlaceRegistry, target: PlaceRegistry, mutate: Any
 ) -> None:
     data = _valid(source)
-    target.validate(["Ailleurs"], {"commune": "Ailleurs"}, {"commune": "manual"}, "m")
+    target.validate(["Ailleurs"], _commune("Ailleurs"), None, None, "m")
     mutate(data)
     before = _counts(target)
     with pytest.raises(RegistryFormatError):
@@ -544,9 +580,7 @@ def test_resolve_stale_conflict_raises_and_writes_nothing(
     _, lille = _fill(source)
     target.reject(["Lille"], "mine")
     [conflict] = import_registry(target, export_registry(source)).conflicts
-    other = target.validate(
-        ["Lille"], {"commune": "Lille"}, {"commune": "manual"}, "m"
-    ).place_id
+    other = target.validate(["Lille"], _commune("Lille"), None, None, "m").place_id
     local = target.decision("Lille")
     before = _counts(target)
     with pytest.raises(StaleConflictError, match="Lille"):
@@ -596,7 +630,7 @@ def test_resolve_uses_a_place_that_appeared_meanwhile(
     )
     resolve_conflict(target, conflict, "incoming", "proj")
     assert target.decision("Lille") == Decision("Lille", lille, "validated", "proj")
-    assert target.place(lille).fields == {}  # existing place left as it was
+    assert target.place(lille).levels == ()  # existing place left as it was
 
 
 def test_resolve_race_on_incoming_place_is_stale(
@@ -617,4 +651,239 @@ def test_resolve_race_on_incoming_place_is_stale(
     with pytest.raises(StaleConflictError, match="place"):
         resolve_conflict(target, conflict, "incoming", "proj")
     assert target.decision("Lille") == conflict.current
-    assert target.place(lille).fields == {}
+    assert target.place(lille).levels == ()
+
+
+# --- version 2: levels, proposals, version 1 documents -----------------------
+
+
+def test_export_is_version_2_with_levels(source: PlaceRegistry) -> None:
+    marconne = source.validate(["Marconne"], MARCONNE, "62140", "rule", "p1").place_id
+    data = export_registry(source)
+    assert data["version"] == 2
+    [place] = data["places"]
+    assert place["place_id"] == marconne
+    assert [lv["rank"] for lv in place["levels"]] == [0, 1, 2, 3, 4]
+    assert [lv["name"] for lv in place["levels"]] == [lv.name for lv in MARCONNE]
+    assert place["levels"][1] == {
+        "rank": 1,
+        "name": "Marconne",
+        "written": None,
+        "type": "commune",
+        "identifier": "62551",
+        "source": None,
+        "start": None,
+        "end": None,
+        "latitude": None,
+        "longitude": None,
+        "nature": None,
+        "origin": "insee",
+        "status": "validated",
+    }
+
+
+def test_round_trip_keeps_levels_and_proposals(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    chain = (
+        Level(0, "Lomme", type="commune_historique", identifier="59355",
+              source="COG 2026", end="2000-01-01", nature="associee",
+              origin="insee", status="proposed"),
+        Level(1, "Lille", written="Lille-Lomme", type="commune",
+              identifier="59350", latitude=50.63, longitude=3.06, origin="insee"),
+        Level(2, "Nord", type="departement", identifier="59", origin="manual"),
+    )  # fmt: skip
+    place_id = source.validate(["Lille"], chain, "59000", "insee", "p1").place_id
+    data = json.loads(json.dumps(export_registry(source)))
+    assert import_registry(target, data).conflicts == []
+    assert target.place(place_id).levels == chain
+    assert target.place(place_id) == source.place(place_id)
+    assert target.place(place_id).levels[0].status == "proposed"
+
+
+def _v1_document(
+    places: list[dict[str, Any]], writings: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "format": FORMAT,
+        "version": 1,
+        "exported_at": "2026-11-07T00:00:00+00:00",
+        "places": places,
+        "writings": writings,
+    }
+
+
+def _v1_field(value: str, origin: str) -> dict[str, str]:
+    return {"value": value, "origin": origin}
+
+
+def _v1_lille() -> dict[str, Any]:
+    return {
+        "place_id": "p-lille",
+        "fields": {
+            "commune": _v1_field("Lille", "reference"),
+            "insee_code": _v1_field("59350", "reference"),
+            "department": _v1_field("59", "reference"),
+            "country": _v1_field("France", "rule"),
+            "former_name": _v1_field("Lomme", "rule"),
+            "postal_code": _v1_field("59000", "rule"),
+        },
+    }
+
+
+def _writing(
+    text: str, place_id: str | None, status: str = "validated"
+) -> dict[str, Any]:
+    return {"writing": text, "status": status, "place_id": place_id, "project": "p1"}
+
+
+def test_import_v1_document(target: PlaceRegistry, ref: RefData) -> None:
+    target.reject(["Lomme"], "mine")
+    data = _v1_document(
+        [_v1_lille()],
+        [_writing("Lille", "p-lille"), _writing("Lomme", "p-lille")],
+    )
+    result = import_registry(target, data, ref)
+    assert [c.writing for c in result.conflicts] == ["Lomme"]  # as in version 1
+    assert target.decision("Lomme") == Decision("Lomme", None, "rejected", "mine")
+    assert target.decision("Lille") == Decision("Lille", "p-lille", "validated", "p1")
+    place = target.place("p-lille")
+    assert [(lv.rank, lv.name, lv.status) for lv in place.levels] == [
+        (0, "Lomme", "proposed"),
+        (1, "Lille", "validated"),
+        (2, "Nord", "validated"),
+        (3, "France", "validated"),
+    ]
+    assert place.levels[0].type == "commune_historique"
+    assert (place.postal_code, place.postal_origin) == ("59000", "rule")
+
+
+def test_import_v1_document_without_refdata(target: PlaceRegistry) -> None:
+    data = _v1_document([_v1_lille()], [_writing("Lille", "p-lille")])
+    assert import_registry(target, data).conflicts == []
+    place = target.place("p-lille")
+    assert [(lv.name, lv.type, lv.status) for lv in place.levels] == [
+        ("Lomme", None, "proposed"),
+        ("Lille", "commune", "validated"),
+        ("59", "departement", "validated"),
+        ("France", "pays", "validated"),
+    ]
+
+
+def test_import_v1_place_without_level_is_named_after_its_first_writing(
+    target: PlaceRegistry,
+) -> None:
+    data = _v1_document(
+        [{"place_id": "p-x", "fields": {}}, {"place_id": "p-y", "fields": {}}],
+        [
+            _writing("Zeta", "p-x"),
+            _writing("Alpha", "p-x"),
+            _writing("Beta", None, "rejected"),
+        ],
+    )
+    import_registry(target, data)
+    assert target.place("p-x").levels == (Level(0, "Alpha", origin="written"),)
+    assert target.place("p-y").levels == ()
+
+
+def test_import_v1_conversion_error_writes_nothing(
+    target: PlaceRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("Origine manquante pour le champ commune.")
+
+    monkeypatch.setattr(exchange, "levels_from_v1", refuse)
+    data = _v1_document([_v1_lille()], [_writing("Lille", "p-lille")])
+    with pytest.raises(RegistryFormatError, match="p-lille"):
+        import_registry(target, data)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("kind", [3, ("commune",)])
+def test_import_v1_non_string_kind_is_a_format_error(
+    target: PlaceRegistry, kind: Any
+) -> None:
+    place = _v1_lille()
+    place["fields"][kind] = place["fields"].pop("commune")
+    with pytest.raises(RegistryFormatError):
+        import_registry(target, _v1_document([place], []))
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+def test_invalid_level_rejected(source: PlaceRegistry, target: PlaceRegistry) -> None:
+    source.validate(["Marconne"], MARCONNE, None, None, "p1")
+    data = export_registry(source)
+    del data["places"][0]["levels"][2]["name"]
+    with pytest.raises(RegistryFormatError, match="name"):
+        import_registry(target, data)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+def test_invalid_chain_error_names_the_place_in_french(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    place_id = source.validate(["Marconne"], MARCONNE, None, None, "p1").place_id
+    data = export_registry(source)
+    data["places"][0]["levels"][3]["rank"] = 7
+    with pytest.raises(RegistryFormatError, match=place_id) as caught:
+        import_registry(target, data)
+    assert "Rang 7" in str(caught.value)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+def _v1_mutations() -> dict[str, Any]:
+    def change(mutate: Any) -> Any:
+        def apply(place: dict[str, Any]) -> None:
+            mutate(place)
+
+        return apply
+
+    def set_field(name: str, value: Any) -> Any:
+        return change(lambda p: p["fields"].__setitem__(name, value))
+
+    return {
+        "fields not object": change(lambda p: p.__setitem__("fields", [])),
+        "unknown kind": set_field("street", _v1_field("x", "rule")),
+        "field not object": set_field("commune", "Lille"),
+        "field without origin": change(lambda p: p["fields"]["commune"].pop("origin")),
+        "unknown origin": set_field("commune", _v1_field("Lille", "ai")),
+        "origin list": set_field("commune", _v1_field("Lille", [])),
+        "value not str": set_field("commune", {"value": 59, "origin": "rule"}),
+        "place_id list": change(lambda p: p.__setitem__("place_id", [])),
+        "place_id object": change(lambda p: p.__setitem__("place_id", {"a": 1})),
+        "place_id empty": change(lambda p: p.__setitem__("place_id", "")),
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate", list(_v1_mutations().values()), ids=list(_v1_mutations())
+)
+def test_invalid_v1_place_writes_nothing(target: PlaceRegistry, mutate: Any) -> None:
+    place = _v1_lille()
+    mutate(place)
+    data = _v1_document([place], [_writing("Lille", "p-lille")])
+    with pytest.raises(RegistryFormatError):
+        import_registry(target, data)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda lv: lv.__setitem__("rank", "0"),
+        lambda lv: lv.pop("name"),
+        lambda lv: lv.__setitem__("origin", "ai"),
+        lambda lv: lv.__setitem__("latitude", "n"),
+    ],
+    ids=["rank as string", "level without name", "unknown origin", "bad latitude"],
+)
+def test_level_errors_name_the_place(
+    source: PlaceRegistry, target: PlaceRegistry, mutate: Any
+) -> None:
+    place_id = source.validate(["Marconne"], MARCONNE, None, None, "p1").place_id
+    data = export_registry(source)
+    mutate(data["places"][0]["levels"][1])
+    with pytest.raises(RegistryFormatError, match=place_id) as caught:
+        import_registry(target, data)
+    assert "lieu" in str(caught.value)
+    assert _counts(target) == (0, 0, 0, 0, 0)

@@ -33,13 +33,21 @@ Le serveur n'écoute que sur `127.0.0.1` ; le navigateur s'ouvre une fois l'atel
   les référentiels publics (COG de l'INSEE, codes postaux), décisions de regroupement ou de rejet.
 - Tout reste en local : la base n'est ni envoyée ni modifiée, aucun service distant n'est appelé.
 - La sortie est un zip « pivot » de données importables, pas un fichier `.gw` réécrit.
+- Un lieu est une chaîne de niveaux, du plus précis au plus large (commune, département, région, pays…).
+  Les anciennes communes (fusion, association, délégation) sont des lieux distincts de la commune actuelle.
+  De même, une écriture qui nomme un niveau plus précis que la commune (« Wazemmes, Lille ») forme un
+  lieu distinct de la commune seule.
 - Un référentiel personnel de lieux se constitue au fil des sessions ; il peut être exporté et échangé.
+  L'échange JSON est en version 2 ; l'import accepte les versions 1 et 2.
 
 ## Où sont les données
 
 Le référentiel (`referentiel.sqlite`) et les projets (`projets/`) vivent dans le dossier de données de
 l'utilisateur (via `platformdirs`, par exemple `~/.local/share/prosopo-gw-atelier` sous Linux). La variable
 d'environnement `PROSOPO_GW_ATELIER_HOME` ou l'option `--data-dir` le remplacent.
+
+Ouvrir un `referentiel.sqlite` de la v1 le migre vers le schéma à niveaux. Une copie de sauvegarde
+`referentiel.v1-AAAAMMJJTHHMMSS.sqlite` (heure UTC) est écrite à côté avant toute modification.
 
 Développement, depuis la racine du monorepo : `uv sync --all-packages --all-extras`.
 
@@ -97,7 +105,19 @@ tabulation), reconnaît les en-têtes sans tenir compte de la casse ni des accen
 avec un message clair si une colonne attendue manque. Il écrit dans
 `src/prosopo_gw_atelier/refdata/data/` (option `--output` pour un autre dossier). Seules les
 lignes `COM` du COG sont des communes actuelles ; les communes associées ou déléguées et les
-anciens noms tirés des mouvements alimentent l'historique (recherche par ancien nom).
+anciens noms tirés des mouvements alimentent l'historique.
+
+Le fichier `historique.csv.gz` a pour colonnes `ancien_nom;ancien_insee;insee_actuel;nature;date_effet`.
+La nature vaut `fusion`, `associee`, `deleguee` ou `renommage`. Seules les trois premières créent
+une commune historique ; un renommage ajoute un ancien nom à la commune actuelle.
+
+## Export
+
+L'export pivot contient les tables de `geneweb-py`, puis `lieux`, `niveaux_lieux` et `ecritures_lieux`.
+`niveaux_lieux` a une ligne par niveau validé : `lieu_id`, `rang` (0 = le plus précis), `nom`, `nom_ecrit`,
+`type`, `nature`, `identifiant`, `source`, `debut`, `fin`, `latitude`, `longitude`, `origine`. Les niveaux
+seulement proposés ne sont pas exportés. `lieux` en donne la vue française (commune, département, région,
+pays, ancienne commune et son code INSEE) et le `libelle`. Le dictionnaire de l'export décrit chaque colonne.
 
 ## Publication (mainteneurs)
 

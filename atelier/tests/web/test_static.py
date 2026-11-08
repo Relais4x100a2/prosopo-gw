@@ -127,3 +127,20 @@ def test_index_forbids_inline_and_remote_scripts(client: TestClient) -> None:
 @pytest.mark.parametrize("path", ["/", "/static/app.js", "/static/style.css"])
 def test_page_files_are_revalidated(client: TestClient, path: str) -> None:
     assert client.get(path).headers["cache-control"] == "no-cache"
+
+
+def test_script_edits_level_chains(client: TestClient) -> None:
+    """The validation screen edits place level chains, not fixed fields."""
+    script = client.get("/static/app.js").text
+    for needle in (
+        "/levels",
+        "accept",
+        "refuse",
+        "Retenir cette lecture",
+        "Ajouter un niveau",
+        "level_types",
+        "Commune historique",
+    ):
+        assert needle in script
+    for gone in ("former_name", "Ancien nom", "detail.proposal", "detail.origins"):
+        assert gone not in script

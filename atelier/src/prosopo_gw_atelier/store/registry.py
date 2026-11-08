@@ -1,10 +1,23 @@
 """Personal place registry (design § 6.3): places, decisions and their journal.
 
 Storage
-    One SQLite file (``schema.sql``, ``PRAGMA user_version = 1``) holding
-    ``places`` (stable UUID4 ids), ``place_fields`` (one row per element kind,
-    with its origin), ``writings`` (writing → place, or ``rejected``) and
-    ``journal`` (append-only).
+    One SQLite file (``schema.sql``, ``PRAGMA user_version = 2``) holding
+    ``places`` (stable UUID4 ids), ``place_levels`` (the level chain of each
+    place, one row per rank, validated and proposed levels together),
+    ``place_attributes`` (the postal code, with its origin), ``writings``
+    (writing → place, or ``rejected``) and ``journal`` (append-only).
+    A version 1 file (fixed fields in ``place_fields``) is migrated on
+    opening when reference data is given (``migrate.migrate_v1``: backup
+    first, then one transaction); without it, ``SchemaVersionError``.
+
+Chains
+    ``validate`` and ``set_levels`` replace the whole chain of a place (ranks
+    beyond the new chain are deleted) and its postal code; both check it with
+    ``check_chain``. ``accept_proposal`` turns a proposed level into a
+    validated one; ``refuse_proposal`` deletes it and renumbers the levels
+    after it. ``known_places`` reads the validated levels only: the name key
+    of a place is its first validated ``commune`` level, else its first
+    validated level.
 
 Journal
     Every public mutation is one transaction that changes rows and appends one
@@ -22,7 +35,8 @@ Journal
 
     An ``undo`` entry carries ``{"undone_entry": <id>, "rows": [...]}`` with
     the inverse changes. Entries are never deleted; an undone entry is only
-    flagged ``undone``.
+    flagged ``undone``. A ``migrate`` entry (schema migration) has no rows:
+    it cannot be undone, nor can the version 1 entries before it.
 
 Undo
     ``undo(id)`` puts back the "before" state of every row the entry touched.
@@ -47,44 +61,89 @@ import threading
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, cast, get_args
 
-from ..places.cluster import KnownPlace, name_key
-from ..places.model import ElementKind
+from ..places.cluster import KnownPlace, finer_key, name_key
+from ..places.levels import (
+    HistoricalNature,
+    Level,
+    LevelOrigin,
+    LevelStatus,
+    ViewField,
+    check_chain,
+    french_view,
+    renumber,
+    validated,
+)
+from ..refdata import RefData
+from .migrate import migrate_v1
 
-Origin = Literal["rule", "manual", "reference", "llm"]
 Status = Literal["validated", "rejected"]
+PostalOrigin = Literal["written", "rule", "manual", "insee"]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+_LEVEL_COLUMNS = (
+    "name",
+    "written",
+    "type",
+    "identifier",
+    "source",
+    "start",
+    "end",
+    "latitude",
+    "longitude",
+    "nature",
+    "origin",
+    "status",
+)
 
 # table -> (key columns, state columns), in dependency order.
 _TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "places": (("place_id",), ("created_at",)),
-    "place_fields": (("place_id", "kind"), ("value", "origin")),
+    "place_levels": (("place_id", "rank"), _LEVEL_COLUMNS),
+    "place_attributes": (("place_id", "name"), ("value", "origin")),
     "writings": (("writing",), ("place_id", "status", "project", "decided_at")),
 }
 _ORDER = list(_TABLES)
-_KINDS = frozenset(get_args(ElementKind))
-_ORIGINS = frozenset(get_args(Origin))
+_TABLE_LABELS = {
+    "places": "le lieu",
+    "place_levels": "un niveau du lieu",
+    "place_attributes": "le code postal du lieu",
+    "writings": "une écriture",
+}
+"""What a journaled table holds, for the French undo conflict message."""
+_LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
+_LEVEL_STATUSES = frozenset(get_args(LevelStatus))
+_NATURES = frozenset(get_args(HistoricalNature))
+_POSTAL_ORIGINS = frozenset(get_args(PostalOrigin))
+_POSTAL = "postal_code"
 _CHUNK = 500
 
 State = dict[str, Any]
 
 
 class SchemaVersionError(RuntimeError):
-    """The registry file was written by a newer version of the atelier."""
+    """The registry file is of another schema version (newer, or to migrate)."""
 
 
 @dataclass(frozen=True)
 class Place:
     place_id: str
-    fields: dict[ElementKind, str]
-    origins: dict[ElementKind, Origin]
+    levels: tuple[Level, ...]
+    """Validated and proposed levels, by rank."""
+    postal_code: str | None = None
+    postal_origin: LevelOrigin | None = None
+
+    @property
+    def fields(self) -> dict[ViewField, str]:
+        """French fixed-field view of the validated levels (``french_view``)."""
+        return french_view(self.levels, self.postal_code)
 
 
 @dataclass(frozen=True)
@@ -118,13 +177,15 @@ class JournalEntry:
 class RowChange:
     """Desired state of one row: ``after=None`` deletes it.
 
-    ``table`` is ``places`` (state ``created_at``), ``place_fields`` (key
-    ``place_id``, ``kind``; state ``value``, ``origin``) or ``writings`` (key
-    ``writing``; state ``place_id``, ``status``, ``project``, ``decided_at``).
+    ``table`` is ``places`` (state ``created_at``), ``place_levels`` (key
+    ``place_id``, ``rank``; state the ``Level`` fields but ``rank``),
+    ``place_attributes`` (key ``place_id``, ``name``; state ``value``,
+    ``origin``) or ``writings`` (key ``writing``; state ``place_id``,
+    ``status``, ``project``, ``decided_at``).
     """
 
     table: str
-    key: Mapping[str, str]
+    key: Mapping[str, Any]
     after: Mapping[str, Any] | None
 
 
@@ -136,6 +197,67 @@ def _row_id(table: str, key: Mapping[str, Any]) -> tuple[str, tuple[Any, ...]]:
     return table, tuple(key[column] for column in _TABLES[table][0])
 
 
+def _quote(column: str) -> str:
+    return f'"{column}"'
+
+
+def _level_state(level: Level) -> State:
+    return {column: getattr(level, column) for column in _LEVEL_COLUMNS}
+
+
+def _level(rank: int, row: Sequence[Any]) -> Level:
+    state = dict(zip(_LEVEL_COLUMNS, row, strict=True))
+    return Level(rank=rank, **state)
+
+
+def _check_levels(levels: Sequence[Level]) -> None:
+    check_chain(levels)
+    for level in levels:
+        if level.origin not in _LEVEL_ORIGINS:
+            raise ValueError(f"unknown level origin: {level.origin!r}")
+        if level.status not in _LEVEL_STATUSES:
+            raise ValueError(f"unknown level status: {level.status!r}")
+        if level.nature is not None and level.nature not in _NATURES:
+            raise ValueError(f"unknown historical nature: {level.nature!r}")
+
+
+def _check_postal(postal_code: str | None, postal_origin: LevelOrigin | None) -> None:
+    if (postal_code is None) != (postal_origin is None):
+        raise ValueError("postal_code and postal_origin go together")
+    if postal_origin is not None and postal_origin not in _POSTAL_ORIGINS:
+        raise ValueError(f"unknown postal code origin: {postal_origin!r}")
+
+
+def _known_place(place_id: str, levels: Sequence[Level]) -> KnownPlace | None:
+    """Anchor of a place, read on its validated levels.
+
+    The head of the chain is its first ``commune`` or ``commune_historique``
+    level; a level before it (``Wazemmes`` in ``Wazemmes, Lille``) is recorded
+    as ``finer``, so the place anchors only clusters with that same finer level.
+    ``None`` without any validated level, or when the head is a
+    ``commune_historique`` without code (no key would tell it from the current
+    commune of that name).
+    """
+    chain = validated(levels)
+    if not chain:
+        return None
+    department = next((lv.identifier for lv in chain if lv.type == "departement"), None)
+    finer = finer_key(chain)
+    head = next(
+        (lv for lv in chain if lv.type in ("commune", "commune_historique")), None
+    )
+    if head is not None and head.type == "commune_historique":
+        if head.identifier is None:
+            return None
+        key = name_key(head.name)
+        return KnownPlace(
+            place_id, None, key, department, f"{head.identifier}|{key}", finer
+        )
+    named = head if head is not None else chain[0]
+    insee = head.identifier if head is not None else None
+    return KnownPlace(place_id, insee, name_key(named.name), department, finer=finer)
+
+
 class PlaceRegistry:
     """The user's personal place registry, stored in one SQLite file.
 
@@ -143,8 +265,14 @@ class PlaceRegistry:
     processes (WAL, ``busy_timeout``, ``BEGIN IMMEDIATE`` transactions).
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, ref: RefData | None = None) -> None:
+        """Open (or create) the registry at ``path``.
+
+        ``ref`` is the reference data a schema migration reads: a version 1
+        file is migrated with it (``migrate_v1``), and refused without it.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._ref = ref
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(
             path, isolation_level=None, check_same_thread=False
@@ -159,6 +287,14 @@ class PlaceRegistry:
                     f"{path}: registry schema version {version} is newer than "
                     f"the supported version {SCHEMA_VERSION}; upgrade the atelier"
                 )
+            if version == 1:
+                if ref is None:
+                    raise SchemaVersionError(
+                        f"{path} : référentiel en version 1 ; sa migration vers "
+                        f"la version {SCHEMA_VERSION} nécessite les données de "
+                        "référence"
+                    )
+                migrate_v1(self._conn, path, ref)
             if version == 0:
                 schema = files(__package__).joinpath("schema.sql").read_text("utf-8")
                 self._conn.executescript(f"BEGIN IMMEDIATE;\n{schema}\nCOMMIT;")
@@ -220,7 +356,7 @@ class PlaceRegistry:
         ]
 
     def places(self) -> list[Place]:
-        """Every place with its fields and origins, sorted by id."""
+        """Every place with its chain and postal code, sorted by id."""
         with self._lock:
             ids = [
                 r[0]
@@ -228,51 +364,28 @@ class PlaceRegistry:
                     "SELECT place_id FROM places ORDER BY place_id"
                 )
             ]
-            rows = self._conn.execute(
-                "SELECT place_id, kind, value, origin FROM place_fields ORDER BY kind"
-            ).fetchall()
-        by_place: dict[str, Place] = {i: Place(i, {}, {}) for i in ids}
-        for place_id, kind, value, origin in rows:
-            by_place[place_id].fields[cast(ElementKind, kind)] = value
-            by_place[place_id].origins[cast(ElementKind, kind)] = cast(Origin, origin)
-        return list(by_place.values())
+            levels = self._levels_by_place()
+            postal = self._postal_by_place()
+        return [self._place(i, levels, postal) for i in ids]
 
     def place(self, place_id: str) -> Place:
         """The place ``place_id``; ``KeyError`` if unknown."""
         with self._lock:
             if not self._place_exists(place_id):
                 raise KeyError(place_id)
-            rows = self._conn.execute(
-                "SELECT kind, value, origin FROM place_fields WHERE place_id = ? "
-                "ORDER BY kind",
-                (place_id,),
-            ).fetchall()
-        fields = {cast(ElementKind, kind): value for kind, value, _ in rows}
-        origins = {cast(ElementKind, kind): cast(Origin, o) for kind, _, o in rows}
-        return Place(place_id, fields, origins)
+            levels = self._levels_by_place(place_id)
+            postal = self._postal_by_place(place_id)
+        return self._place(place_id, levels, postal)
 
     def known_places(self) -> list[KnownPlace]:
-        """Validated places, as anchors for ``build_clusters`` (by ``place_id``)."""
+        """Places with a validated level, as anchors for ``build_clusters``
+        (by ``place_id``); read on their validated levels only."""
         with self._lock:
-            ids = [r[0] for r in self._conn.execute("SELECT place_id FROM places")]
-            rows = self._conn.execute(
-                "SELECT place_id, kind, value FROM place_fields "
-                "WHERE kind IN ('commune', 'former_name', 'insee_code', 'department')"
-            ).fetchall()
-        by_place: dict[str, dict[str, str]] = {place_id: {} for place_id in ids}
-        for place_id, kind, value in rows:
-            by_place[place_id][kind] = value
-        return [
-            KnownPlace(
-                place_id=place_id,
-                insee=fields.get("insee_code"),
-                name_key=name_key(
-                    fields.get("commune") or fields.get("former_name", "")
-                ),
-                department=fields.get("department"),
-            )
-            for place_id, fields in sorted(by_place.items())
-        ]
+            levels = self._levels_by_place()
+        known = (
+            _known_place(place_id, chain) for place_id, chain in sorted(levels.items())
+        )
+        return [k for k in known if k is not None]
 
     def journal(self, limit: int | None = None) -> list[JournalEntry]:
         """Journal entries, latest first (the ``limit`` latest when given)."""
@@ -296,35 +409,30 @@ class PlaceRegistry:
     def validate(
         self,
         writings: Sequence[str],
-        fields: Mapping[ElementKind, str | None],
-        origins: Mapping[ElementKind, Origin],
+        levels: Sequence[Level],
+        postal_code: str | None,
+        postal_origin: LevelOrigin | None,
         project: str,
         place_id: str | None = None,
     ) -> Validation:
-        """Attach ``writings`` to one place and set its ``fields``.
+        """Attach ``writings`` to one place and set its chain and postal code.
 
         Returns the place id and the journal entry written.
 
-        Without ``place_id`` a new place (UUID4) is created; with it, the
-        given fields are merged into that place (``KeyError`` if unknown).
-        ``origins`` must give the origin of each field set. A field given as
-        ``None`` is removed from the place (journaled, so undo restores its
-        value and origin); it takes no origin. A writing decided otherwise
-        before is re-attached; its previous row is journaled.
+        Without ``place_id`` a new place (UUID4) is created; with it, that
+        place's chain and postal code are replaced by the given ones
+        (``KeyError`` if unknown): a caller attaching a writing to an existing
+        place must pass its stored chain and postal code to keep them.
+        ``levels`` must pass ``check_chain`` (``ValueError``); ``postal_code``
+        and ``postal_origin`` are both given or both ``None`` (no postal code).
+        A writing decided otherwise before is re-attached; its previous row is
+        journaled.
         """
         unique = list(dict.fromkeys(writings))
         if not unique:
             raise ValueError("validate needs at least one writing")
-        for kind in fields:
-            self._check_kind(kind)
-        if {k for k, v in fields.items() if v is not None} != set(origins):
-            raise ValueError(
-                "origins must give the origin of each field, and only those"
-            )
-        for kind, origin in origins.items():
-            self._check_kind(kind)
-            if origin not in _ORIGINS:
-                raise ValueError(f"unknown origin: {origin!r}")
+        _check_levels(levels)
+        _check_postal(postal_code, postal_origin)
         now = _now()
         with self._transaction():
             changes: list[RowChange] = []
@@ -335,16 +443,7 @@ class PlaceRegistry:
                 )
             elif not self._place_exists(place_id):
                 raise KeyError(place_id)
-            for kind, value in fields.items():
-                changes.append(
-                    RowChange(
-                        "place_fields",
-                        {"place_id": place_id, "kind": kind},
-                        None
-                        if value is None
-                        else {"value": value, "origin": origins[kind]},
-                    )
-                )
+            changes += self._chain_changes(place_id, levels, postal_code, postal_origin)
             for writing in unique:
                 changes.append(
                     RowChange(
@@ -365,7 +464,7 @@ class PlaceRegistry:
         """Mark ``writings`` as not a usable place (e.g. "en mer").
 
         Returns the journal entry written (``None`` if nothing changed), as
-        do ``correct`` and ``detach``.
+        do ``set_levels``, the proposal decisions and ``detach``.
         """
         now = _now()
         changes = [
@@ -384,23 +483,55 @@ class PlaceRegistry:
         with self._transaction():
             return self._record("reject", project, changes, {})
 
-    def correct(
-        self, place_id: str, field: ElementKind, value: str | None, project: str
+    def set_levels(
+        self,
+        place_id: str,
+        levels: Sequence[Level],
+        postal_code: str | None,
+        postal_origin: LevelOrigin | None,
+        project: str,
     ) -> int | None:
-        """Set ``field`` of a place by hand: its origin becomes ``manual``.
+        """Replace the whole chain and postal code of a place (``correct``).
 
-        ``value=None`` removes the field (journaled; undo restores it).
+        Same checks as ``validate``; ``KeyError`` if the place is unknown.
         """
-        self._check_kind(field)
+        _check_levels(levels)
+        _check_postal(postal_code, postal_origin)
         with self._transaction():
             if not self._place_exists(place_id):
                 raise KeyError(place_id)
+            changes = self._chain_changes(place_id, levels, postal_code, postal_origin)
+            return self._record("correct", project, changes, {"place_id": place_id})
+
+    def accept_proposal(self, place_id: str, rank: int, project: str) -> int | None:
+        """Validate the proposed level ``rank`` of a place (``correct``).
+
+        ``KeyError`` if the place is unknown, ``ValueError`` if it has no
+        proposed level at ``rank``.
+        """
+        with self._transaction():
+            level = self._proposal(place_id, rank)
             change = RowChange(
-                "place_fields",
-                {"place_id": place_id, "kind": field},
-                None if value is None else {"value": value, "origin": "manual"},
+                "place_levels",
+                {"place_id": place_id, "rank": rank},
+                _level_state(replace(level, status="validated")),
             )
-            return self._record("correct", project, [change], {"place_id": place_id})
+            return self._record(
+                "correct", project, [change], {"place_id": place_id, "rank": rank}
+            )
+
+    def refuse_proposal(self, place_id: str, rank: int, project: str) -> int | None:
+        """Delete the proposed level ``rank`` and renumber the levels after it
+        (``correct``); same errors as ``accept_proposal``."""
+        with self._transaction():
+            self._proposal(place_id, rank)
+            levels = self._levels_by_place(place_id).get(place_id, ())
+            kept = renumber([level for level in levels if level.rank != rank])
+            check_chain(kept)
+            changes = self._level_changes(place_id, kept, len(levels))
+            return self._record(
+                "correct", project, changes, {"place_id": place_id, "rank": rank}
+            )
 
     def detach(self, writings: Sequence[str], project: str) -> int | None:
         """Make ``writings`` undecided again; their place stays."""
@@ -441,12 +572,29 @@ class PlaceRegistry:
                 (entry_id,),
             ).fetchone()
             if row is None:
-                raise ValueError(f"no journal entry {entry_id}")
+                raise ValueError(f"Aucune entrée {entry_id} au journal.")
             action, payload, undone = row
+            if action == "migrate":
+                backup = json.loads(payload).get("backup")
+                raise ValueError(
+                    f"la migration ne s'annule pas ; la sauvegarde est {backup}"
+                )
+            migrated = self._conn.execute(
+                "SELECT MIN(entry_id) FROM journal WHERE action = 'migrate' "
+                "AND entry_id > ?",
+                (entry_id,),
+            ).fetchone()[0]
+            if migrated is not None:
+                raise ValueError(
+                    f"l'entrée {entry_id} précède la migration du référentiel "
+                    f"(entrée {migrated}) et ne s'annule plus"
+                )
             if action == "undo":
-                raise ValueError(f"entry {entry_id} is an undo and cannot be undone")
+                raise ValueError(
+                    f"L'entrée {entry_id} est une annulation : elle ne s'annule pas."
+                )
             if undone:
-                raise ValueError(f"entry {entry_id} is already undone")
+                raise ValueError(f"L'entrée {entry_id} est déjà annulée.")
             rows: list[State] = json.loads(payload)["rows"]
             touched = {_row_id(r["table"], r["key"]) for r in rows}
             for r in rows:
@@ -485,10 +633,95 @@ class PlaceRegistry:
                 raise
             self._conn.execute("COMMIT")
 
+    def _levels_by_place(
+        self, place_id: str | None = None
+    ) -> dict[str, tuple[Level, ...]]:
+        """Chains of every place (or of ``place_id``) having levels, by rank."""
+        sql = f"SELECT place_id, rank, {', '.join(map(_quote, _LEVEL_COLUMNS))} "
+        sql += "FROM place_levels "
+        params: tuple[str, ...] = ()
+        if place_id is not None:
+            sql += "WHERE place_id = ? "
+            params = (place_id,)
+        rows = self._conn.execute(sql + "ORDER BY place_id, rank", params)
+        chains: dict[str, list[Level]] = {}
+        for row in rows:
+            chains.setdefault(row[0], []).append(_level(row[1], row[2:]))
+        return {key: tuple(chain) for key, chain in chains.items()}
+
+    def _postal_by_place(
+        self, place_id: str | None = None
+    ) -> dict[str, tuple[str, LevelOrigin]]:
+        sql = "SELECT place_id, value, origin FROM place_attributes WHERE name = ?"
+        params: tuple[str, ...] = (_POSTAL,)
+        if place_id is not None:
+            sql += " AND place_id = ?"
+            params += (place_id,)
+        return {
+            row[0]: (row[1], cast(LevelOrigin, row[2]))
+            for row in self._conn.execute(sql, params)
+        }
+
     @staticmethod
-    def _check_kind(kind: str) -> None:
-        if kind not in _KINDS:
-            raise ValueError(f"unknown element kind: {kind!r}")
+    def _place(
+        place_id: str,
+        levels: Mapping[str, tuple[Level, ...]],
+        postal: Mapping[str, tuple[str, LevelOrigin]],
+    ) -> Place:
+        code, origin = postal.get(place_id, (None, None))
+        return Place(place_id, levels.get(place_id, ()), code, origin)
+
+    def _proposal(self, place_id: str, rank: int) -> Level:
+        """The proposed level ``rank`` of a place (see ``accept_proposal``)."""
+        if not self._place_exists(place_id):
+            raise KeyError(place_id)
+        levels = self._levels_by_place(place_id).get(place_id, ())
+        level = next((lv for lv in levels if lv.rank == rank), None)
+        if level is None or level.status != "proposed":
+            raise ValueError(f"place {place_id} has no proposed level at rank {rank}")
+        return level
+
+    def _level_changes(
+        self, place_id: str, levels: Sequence[Level], previous: int
+    ) -> list[RowChange]:
+        """Rows writing ``levels`` over a chain of ``previous`` levels."""
+        changes = [
+            RowChange(
+                "place_levels",
+                {"place_id": place_id, "rank": level.rank},
+                _level_state(level),
+            )
+            for level in levels
+        ]
+        changes += [
+            RowChange("place_levels", {"place_id": place_id, "rank": rank}, None)
+            for rank in range(len(levels), previous)
+        ]
+        return changes
+
+    def _chain_changes(
+        self,
+        place_id: str,
+        levels: Sequence[Level],
+        postal_code: str | None,
+        postal_origin: LevelOrigin | None,
+    ) -> list[RowChange]:
+        """Rows replacing the chain and postal code of ``place_id``."""
+        previous = self._conn.execute(
+            "SELECT COALESCE(MAX(rank) + 1, 0) FROM place_levels WHERE place_id = ?",
+            (place_id,),
+        ).fetchone()[0]
+        changes = self._level_changes(place_id, levels, previous)
+        changes.append(
+            RowChange(
+                "place_attributes",
+                {"place_id": place_id, "name": _POSTAL},
+                None
+                if postal_code is None
+                else {"value": postal_code, "origin": postal_origin},
+            )
+        )
+        return changes
 
     def _place_exists(self, place_id: str) -> bool:
         return (
@@ -500,9 +733,9 @@ class PlaceRegistry:
 
     def _read(self, table: str, key: Mapping[str, Any]) -> State | None:
         keys, columns = _TABLES[table]
-        where = " AND ".join(f"{k} = ?" for k in keys)
+        where = " AND ".join(f"{_quote(k)} = ?" for k in keys)
         row = self._conn.execute(
-            f"SELECT {', '.join(columns)} FROM {table} WHERE {where}",
+            f"SELECT {', '.join(map(_quote, columns))} FROM {table} WHERE {where}",
             [key[k] for k in keys],
         ).fetchone()
         return None if row is None else dict(zip(columns, row, strict=True))
@@ -560,17 +793,17 @@ class PlaceRegistry:
         )
         for r in upserts:
             keys, columns = _TABLES[r["table"]]
-            names = ", ".join(keys + columns)
+            names = ", ".join(map(_quote, keys + columns))
             marks = ", ".join("?" * (len(keys) + len(columns)))
-            update = ", ".join(f"{c} = excluded.{c}" for c in columns)
+            update = ", ".join(f"{_quote(c)} = excluded.{_quote(c)}" for c in columns)
             self._conn.execute(
                 f"INSERT INTO {r['table']} ({names}) VALUES ({marks}) "
-                f"ON CONFLICT ({', '.join(keys)}) DO UPDATE SET {update}",
+                f"ON CONFLICT ({', '.join(map(_quote, keys))}) DO UPDATE SET {update}",
                 [r["key"][k] for k in keys] + [r["after"][c] for c in columns],
             )
         for r in deletes:
             keys, _ = _TABLES[r["table"]]
-            where = " AND ".join(f"{k} = ?" for k in keys)
+            where = " AND ".join(f"{_quote(k)} = ?" for k in keys)
             self._conn.execute(
                 f"DELETE FROM {r['table']} WHERE {where}", [r["key"][k] for k in keys]
             )
@@ -592,27 +825,29 @@ class PlaceRegistry:
             "ORDER BY entry_id DESC",
             (entry_id,),
         ):
-            rows = json.loads(payload)["rows"]
+            rows = json.loads(payload).get("rows", [])
             if any(_row_id(r["table"], r["key"]) == target for r in rows):
                 return int(later)
         return None
 
     def _conflict(self, entry_id: int, table: str, key: Mapping[str, Any]) -> None:
         later = self._latest_touching(entry_id, table, key)
-        by = f"entry {later}" if later is not None else "a later change"
+        by = f"l'entrée {later}" if later is not None else "un changement ultérieur"
+        what = _TABLE_LABELS.get(table, table)
         raise ValueError(
-            f"cannot undo entry {entry_id}: {table} {dict(key)} was changed "
-            f"since by {by}; undo it first"
+            f"Impossible d'annuler l'entrée {entry_id} : {what} a changé depuis, "
+            f"par {by} ; annulez d'abord ce changement."
         )
 
     def _check_unreferenced(
         self, entry_id: int, place_id: str, touched: set[tuple[str, tuple[Any, ...]]]
     ) -> None:
         """Undoing a place creation: nothing outside the entry may still use it."""
-        for table in ("place_fields", "writings"):
+        for table in ("place_levels", "place_attributes", "writings"):
             keys, _ = _TABLES[table]
+            columns = ", ".join(map(_quote, keys))
             for row in self._conn.execute(
-                f"SELECT {', '.join(keys)} FROM {table} WHERE place_id = ?", (place_id,)
+                f"SELECT {columns} FROM {table} WHERE place_id = ?", (place_id,)
             ).fetchall():
                 key = dict(zip(keys, row, strict=True))
                 if _row_id(table, key) not in touched:
