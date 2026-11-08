@@ -1,7 +1,7 @@
 """Personal place registry (design § 6.3): places, decisions and their journal.
 
 Storage
-    One SQLite file (``schema.sql``, ``PRAGMA user_version = 3``) holding
+    One SQLite file (``schema.sql``, ``PRAGMA user_version = 4``) holding
     ``places`` (stable UUID4 ids), ``place_levels`` (the level chain of each
     place, one row per rank, validated and proposed levels together),
     ``place_attributes`` (the postal code, with its origin), ``writings``

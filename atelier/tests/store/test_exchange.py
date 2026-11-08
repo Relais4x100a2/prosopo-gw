@@ -1141,6 +1141,6 @@ def test_import_without_refusals_key_and_bad_ones(target: PlaceRegistry) -> None
     }
     assert import_registry(target, base).entry_id is None
     row = {"sujet": "writing:a", "source": "dicotopo", "identifiant": "P1"}
-    for bad in ("x", [1], [row, row], [{"sujet": "a"}]):
+    for bad in ("x", [1], [row, row], [{"sujet": "a"}], [{**row, "sujet": "other:x"}]):
         with pytest.raises(RegistryFormatError):
             import_registry(target, {**base, "propositions_refusees": bad})

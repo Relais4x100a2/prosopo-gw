@@ -12,7 +12,7 @@ import logging
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS results (
   source TEXT NOT NULL, query_key TEXT NOT NULL, candidates TEXT NOT NULL,
   PRIMARY KEY (source, query_key)
 );
+CREATE TABLE IF NOT EXISTS epochs (
+  name TEXT PRIMARY KEY, value INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO epochs(name, value) VALUES ('stored', 0), ('reset', 0);
 """
 
 
@@ -257,6 +261,74 @@ class SourceQueue:
                 " VALUES (?,?,?)",
                 (source, query_key, _encode(candidates)),
             )
+            db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'stored'")
+
+    @contextlib.contextmanager
+    def _reader(self) -> Iterator[sqlite3.Connection]:
+        """A read-only connection (no write lock), closed on exit."""
+        db = sqlite3.connect(self._path, timeout=5)
+        db.row_factory = sqlite3.Row
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def results(
+        self, source: str, query_keys: Collection[str]
+    ) -> dict[str, list[SourceCandidate]]:
+        """Cached results of many keys in one read (absent keys are not cached)."""
+        wanted = list(dict.fromkeys(query_keys))
+        out: dict[str, list[SourceCandidate]] = {}
+        with self._reader() as db:
+            for start in range(0, len(wanted), 500):
+                chunk = wanted[start : start + 500]
+                marks = ",".join("?" * len(chunk))
+                for row in db.execute(
+                    "SELECT query_key, candidates FROM results"
+                    f" WHERE source=? AND query_key IN ({marks})",
+                    (source, *chunk),
+                ):
+                    out[row["query_key"]] = _decode(row["candidates"])
+        return out
+
+    def epochs(self) -> tuple[int, int]:
+        """``(stored, reset)``: counters bumped when a result is stored, and when
+        results are deleted (``clear``, ``clear_results``)."""
+        with self._reader() as db:
+            values = {r["name"]: r["value"] for r in db.execute("SELECT * FROM epochs")}
+        return values["stored"], values["reset"]
+
+    def failed_keys(self, source: str, kind: JobKind = "match") -> set[str]:
+        """Keys of the jobs of ``source`` that failed for good."""
+        with self._reader() as db:
+            return {
+                r["key"]
+                for r in db.execute(
+                    "SELECT key FROM jobs WHERE source=? AND kind=? AND state='failed'",
+                    (source, kind),
+                )
+            }
+
+    def clear_results(self, source: str, department: str) -> int:
+        """Delete the cached results of ``source`` whose query is for
+        ``department``; returns how many. Always bumps the reset epoch."""
+        with self._db() as db:
+            doomed = []
+            for row in db.execute(
+                "SELECT query_key FROM results WHERE source=?", (source,)
+            ):
+                try:
+                    found = json.loads(row["query_key"]).get("department")
+                except (ValueError, AttributeError):
+                    continue
+                if found == department:
+                    doomed.append(row["query_key"])
+            db.executemany(
+                "DELETE FROM results WHERE source=? AND query_key=?",
+                [(source, k) for k in doomed],
+            )
+            db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'reset'")
+            return len(doomed)
 
     def result(self, source: str, query_key: str) -> list[SourceCandidate] | None:
         with self._db() as db:
@@ -270,6 +342,7 @@ class SourceQueue:
         with self._db() as db:
             db.execute("DELETE FROM jobs WHERE source=?", (source,))
             db.execute("DELETE FROM results WHERE source=?", (source,))
+            db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'reset'")
 
 
 class RateLimiter:
@@ -364,7 +437,11 @@ def match_payload(query: LevelQuery) -> dict[str, object]:
 
 def handle_match(job: Job, *, source: Source, queue: SourceQueue) -> None:
     """Run the ``match`` job: search ``source`` and store the candidates
-    (an empty list too: "searched, nothing found")."""
+    (an empty list too: "searched, nothing found").
+
+    A source that cannot answer yet (``can_answer`` false, e.g. department not
+    indexed) stores nothing; the job ends done.
+    """
     raw = job.payload
     query = LevelQuery(
         name=str(raw["name"]),
@@ -374,4 +451,6 @@ def handle_match(job: Job, *, source: Source, queue: SourceQueue) -> None:
         department=cast("str | None", raw.get("department")),
         insee=cast("str | None", raw.get("insee")),
     )
+    if not source.can_answer(query):
+        return  # nothing is cached: the source will be asked again once it can
     queue.store_result(job.source, job.key, source.search(query))

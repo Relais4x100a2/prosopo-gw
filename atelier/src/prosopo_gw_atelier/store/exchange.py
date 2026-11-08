@@ -53,7 +53,9 @@ Refused proposals
     user refused (``PlaceRegistry.refuse_source_proposal``), sorted by ``sujet``
     (``place:<place_id>`` or ``writing:<text>``), ``source``, ``identifiant``. A
     document without the key has none. On import the refusals absent locally are
-    applied, the others are skipped silently; a duplicate is a format error.
+    applied (with no project, ``project`` NULL, like imported precisions), the
+    others are skipped silently; a duplicate, a ``sujet`` of another form, is a
+    format error.
 
 Versions
     Version 2 is read as is. Version 1 (fixed ``fields`` per place) is still
@@ -424,6 +426,7 @@ def _parse_refusals(raw: object) -> list[tuple[str, str, str]]:
     if not isinstance(raw, list):
         raise _fail("propositions_refusees must be a list")
     refusals: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
     for index, item in enumerate(raw):
         where = f"propositions_refusees[{index}]"
         if not isinstance(item, Mapping):
@@ -433,8 +436,16 @@ def _parse_refusals(raw: object) -> list[tuple[str, str, str]]:
             _text(_get(item, "source", where), f"{where}.source"),
             _text(_get(item, "identifiant", where), f"{where}.identifiant"),
         )
-        if refusal in refusals:
+        if not refusal[0].startswith(("place:", "writing:")) or refusal[0].endswith(
+            (":",)
+        ):
+            raise _fail(
+                f"{where}.sujet must be 'place:<place_id>' or 'writing:<text>', "
+                f"not {refusal[0]!r}"
+            )
+        if refusal in seen:
             raise _fail(f"{where}: duplicate refusal {refusal!r}")
+        seen.add(refusal)
         refusals.append(refusal)
     return refusals
 

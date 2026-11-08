@@ -57,6 +57,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ..export.archive import build_archive
+from ..places.cluster import name_key
 from ..places.levels import (
     FOREIGN_TYPES,
     FRENCH_TYPES,
@@ -281,6 +282,42 @@ def _checked_levels(
     if not any(level.status == "validated" for level in levels):
         raise _error(400, "La chaîne doit contenir au moins un niveau validé.")
     return levels
+
+
+def _strip_overlay(levels: Sequence[Level], view: ClusterView) -> tuple[Level, ...]:
+    """``levels`` without the sources' proposals laid over the chain.
+
+    A level proposed by a source (origin ``dicotopo``, status ``proposed``, absent
+    from ``view.base_levels``) is not saved: the written level it made precise
+    (same name or written form, untyped) comes back in its place; without such a
+    level, it is dropped. The other proposed levels (recorded ones) are kept.
+    """
+    base = {(lv.name, lv.type, lv.identifier) for lv in view.base_levels}
+    out: list[Level] = []
+    for level in levels:
+        overlay = (
+            level.status == "proposed"
+            and level.origin == "dicotopo"
+            and (level.name, level.type, level.identifier) not in base
+        )
+        if not overlay:
+            out.append(level)
+            continue
+        names = {name_key(n) for n in (level.name, level.written) if n}
+        original = next(
+            (
+                lv
+                for lv in view.base_levels
+                if lv.type is None
+                and name_key(lv.name) in names
+                and (lv.name, lv.type, lv.identifier)
+                not in {(o.name, o.type, o.identifier) for o in out}
+            ),
+            None,
+        )
+        if original is not None:
+            out.append(original)
+    return renumber(out)
 
 
 def _postal_in(
@@ -773,6 +810,9 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 )
             # Checked before any split: a rejected chain leaves nothing done.
             levels = _checked_levels(body.levels, view.cluster.levels)
+            levels = _strip_overlay(levels, view)
+            if not any(level.status == "validated" for level in levels):
+                raise _error(400, "La chaîne doit contenir au moins un niveau validé.")
             place_id = view.place_id if view.from_registry else None
             known_origin: LevelOrigin | None = "written"
             if place_id is not None:

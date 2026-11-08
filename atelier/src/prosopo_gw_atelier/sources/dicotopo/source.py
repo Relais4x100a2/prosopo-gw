@@ -103,6 +103,13 @@ class DicoTopoSource:
         department = self._department(query)
         return department is not None and department in self._index.departments()
 
+    def can_answer(self, query: LevelQuery) -> bool:
+        """Department indexed, or the API allowed (and a department known)."""
+        department = self._department(query)
+        return department is not None and (
+            self._api_enabled or department in self._index.departments()
+        )
+
     def search(self, query: LevelQuery) -> list[SourceCandidate]:
         department = self._department(query)
         if department is None:

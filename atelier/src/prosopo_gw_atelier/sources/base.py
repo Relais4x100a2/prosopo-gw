@@ -67,3 +67,7 @@ class Source(Protocol):
     def covers(self, query: LevelQuery) -> bool:
         """Local coverage only (the API is an internal mode of the source)."""
         ...
+
+    def can_answer(self, query: LevelQuery) -> bool:
+        """Whether ``search`` can give a real answer now (local data or API)."""
+        ...

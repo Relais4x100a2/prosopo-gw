@@ -135,12 +135,20 @@ Source proposals
     result, ``proposals`` is laid over the cluster's chain: ``cluster.levels``
     then holds the proposed levels (``status="proposed"``, ``origin="dicotopo"``)
     and ``cluster.alternatives`` the whole-chain readings, after the cluster's own.
-    ``pending_sources`` names the sources still awaited. Nothing is written to
+    ``pending_sources`` names the sources still awaited, ``failed_sources`` those
+    whose job failed for good (see the Sources screen). A query the source cannot
+    answer yet (department not indexed, API off) is not asked and not cached;
+    indexing a department deletes its cached results (``handle_index`` with the
+    queue) and the next pass asks again. The project follows the queue through
+    its epoch counters, keeps the resolved results in memory and reads pending
+    keys in one batch. Nothing is written to
     the registry: validating a proposal is ``add_level`` / ``set_levels`` and
     refusing it ``refuse_source_proposal`` (subject ``place:<place_id>`` for a
     place, else ``writing:<text>`` for each writing of the cluster); a refused
     ``(source, identifier)`` is left out of the candidates before the proposals
-    are computed, for every subject of the cluster. Results are cached per
+    are computed. The subjects read for a cluster are the union of
+    ``writing:<w>`` for each of its writings and ``place:<place_id>`` when it has
+    a place, so a refusal made before validation survives it. Results are cached per
     cluster once complete, until a reload, attach or change of the cluster, its
     chain or its refusals; a cleared queue result is seen after a reload.
 
@@ -272,14 +280,19 @@ class ClusterView:
     """The place this cluster is (see "Place of a cluster" in the module
     docstring), ``None`` if it is to be created."""
     from_registry: bool = False
-    """``True`` when ``cluster.levels`` and ``cluster.postal_code`` are the
-    place's as the registry has it (proposed levels included), ``False`` when
-    they come from the rules."""
+    """``True`` when the chain and ``cluster.postal_code`` start from the place's
+    as the registry has it (proposed levels included), ``False`` when they come
+    from the rules. ``cluster.levels`` may also carry the sources' proposals
+    (``base_levels`` is the chain without them)."""
+    base_levels: tuple[Level, ...] = ()
+    """The chain before the sources' proposals were laid over it."""
     historical_writings: dict[str, str] = field(default_factory=dict)
     """Writing -> the other commune (former or current) it names, when the
     place mixes communes (see the module docstring)."""
     pending_sources: tuple[str, ...] = ()
     """Sources whose result is still awaited for this cluster."""
+    failed_sources: tuple[str, ...] = ()
+    """Sources whose job failed for good (see the Sources screen); not pending."""
 
     @property
     def alternatives(self) -> tuple[tuple[Level, ...], ...]:
@@ -342,6 +355,7 @@ class _Overlay:
     levels: tuple[Level, ...]
     alternatives: tuple[tuple[Level, ...], ...]
     pending: tuple[str, ...]
+    failed: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -418,6 +432,9 @@ class Project:
         self._sources: dict[str, Source] = {}
         self._enqueued: set[tuple[str, str]] = set()
         self._overlays: dict[object, _Overlay] = {}
+        self._resolved: dict[tuple[str, str], list[SourceCandidate]] = {}
+        self._pending: dict[str, set[str]] = {}
+        self._epochs: tuple[int, int] | None = None
         self._queries: dict[str, list[tuple[str, LevelQuery]]] = {}
         self.gw_changed = False
         self.tables = []
@@ -466,8 +483,7 @@ class Project:
             self._cache = None
             self._precisions = None
             self._raw_precisions = None
-            self._overlays = {}
-            self._enqueued = set()
+            self._reset_sources()
             if self._queue is not None:
                 self._views()
 
@@ -476,9 +492,31 @@ class Project:
         with self._lock:
             self._queue = queue
             self._sources = dict(sources)
+            self._reset_sources()
+            self._views()
+
+    def _reset_sources(self) -> None:
+        self._overlays = {}
+        self._enqueued = set()
+        self._resolved = {}
+        self._pending = {}
+        self._epochs = None
+
+    def _sync_sources(self, queue: SourceQueue) -> None:
+        """Follow the queue: forget what a deletion of results invalidated, and
+        read (in one batch per source) the pending keys when results arrived."""
+        stored, reset = queue.epochs()
+        old = self._epochs
+        if old is not None and old[1] != reset:
             self._overlays = {}
             self._enqueued = set()
-            self._views()
+            self._resolved = {}
+        if old is None or old != (stored, reset):
+            for name, keys in self._pending.items():
+                missing = [k for k in keys if (name, k) not in self._resolved]
+                for key, found in queue.results(name, missing).items():
+                    self._resolved[(name, key)] = found
+        self._epochs = (stored, reset)
 
     def touch(self, cluster_id: str) -> None:
         """The user opens ``cluster_id``: match its queries first."""
@@ -489,7 +527,7 @@ class Project:
             self._views()
             for source, query in self._queries.get(cluster_id, []):
                 key = query.key()
-                if queue.result(source, key) is not None:
+                if (source, key) in self._resolved:
                     continue
                 if (source, key) not in self._enqueued:
                     queue.enqueue(
@@ -680,8 +718,12 @@ class Project:
             for writing in view.cluster.writings:
                 arrondissement = self._decompositions[writing].arrondissement
                 for occurrence in self.writings[writing].occurrences:
+                    # base levels: the cache key does not cover the sources' overlay
                     result = precise(
-                        view.cluster.levels, arrondissement, occurrence, table
+                        view.base_levels or view.cluster.levels,
+                        arrondissement,
+                        occurrence,
+                        table,
                     )
                     if result is None:
                         continue
@@ -733,6 +775,15 @@ class Project:
             refusals[subject].add((source, identifier))
         overlays: dict[object, _Overlay] = {}
         queries: dict[str, list[tuple[str, LevelQuery]]] = {}
+        pending: dict[str, set[str]] = {}
+        failed: dict[str, set[str]] = {}
+        if self._queue is not None:
+            self._sync_sources(self._queue)
+            failed = {
+                name: self._queue.failed_keys(name)
+                for name, keys in self._pending.items()
+                if keys
+            }
         views = []
         for item in built:
             cluster = item.cluster
@@ -749,14 +800,19 @@ class Project:
             occurrences = sum(
                 len(self.writings[w].occurrences) for w in cluster.writings
             )
-            subjects = (
-                [f"{_PLACE}{place_id}"]
-                if place_id is not None
-                else [f"writing:{w}" for w in cluster.writings]
-            )
+            subjects = [f"writing:{w}" for w in cluster.writings]
+            if place_id is not None:
+                subjects.append(f"{_PLACE}{place_id}")
             refused = frozenset().union(*(refusals[s] for s in subjects))
             overlay = self._overlay(
-                cluster, levels, occurrences, refused, overlays, queries
+                cluster,
+                levels,
+                occurrences,
+                refused,
+                overlays,
+                queries,
+                pending,
+                failed,
             )
             state: ClusterState
             if any(d is None for d in found):
@@ -784,10 +840,13 @@ class Project:
                     from_registry=place_id is not None,
                     historical_writings=historical,
                     pending_sources=overlay.pending,
+                    failed_sources=overlay.failed,
+                    base_levels=levels,
                 )
             )
         self._overlays = overlays
         self._queries = queries
+        self._pending = pending
         return views
 
     def _overlay(
@@ -798,9 +857,11 @@ class Project:
         refused: frozenset[tuple[str, str]],
         overlays: dict[object, _Overlay],
         queries: dict[str, list[tuple[str, LevelQuery]]],
+        pending_keys: dict[str, set[str]],
+        failed_keys: dict[str, set[str]],
     ) -> _Overlay:
         """The chain and alternatives of a cluster with the sources' proposals."""
-        plain = _Overlay(levels, cluster.alternatives, ())
+        plain = _Overlay(levels, cluster.alternatives, (), ())
         queue = self._queue
         if queue is None or not levels:
             return plain
@@ -811,6 +872,7 @@ class Project:
             return cached
         chain, alternatives = levels, cluster.alternatives
         pending: list[str] = []
+        failing: list[str] = []
         asked: list[tuple[str, LevelQuery]] = []
         for name, source_adapter in _ADAPTERS.items():
             if name not in self._sources:
@@ -819,22 +881,37 @@ class Project:
             for writing in cluster.writings:
                 for query in source_adapter[0](levels, self._decompositions[writing]):
                     wanted.setdefault(query.key(), query)
+            live = self._sources[name]
+            wanted = {k: q for k, q in wanted.items() if live.can_answer(q)}
+            known_pending = self._pending.get(name, set())
+            unknown = [
+                k
+                for k in wanted
+                if (name, k) not in self._resolved and k not in known_pending
+            ]
+            if unknown:
+                for found_key, found in queue.results(name, unknown).items():
+                    self._resolved[(name, found_key)] = found
             candidates: list[SourceCandidate] = []
-            waiting = False
+            waiting: list[str] = []
             for query_key, query in wanted.items():
                 asked.append((name, query))
-                found = queue.result(name, query_key)
-                if found is None:
-                    waiting = True
+                resolved = self._resolved.get((name, query_key))
+                if resolved is None:
+                    waiting.append(query_key)
+                    pending_keys.setdefault(name, set()).add(query_key)
                     if (name, query_key) not in self._enqueued:
                         queue.enqueue(
                             name, "match", query_key, match_payload(query), occurrences
                         )
                         self._enqueued.add((name, query_key))
                 else:
-                    candidates += found
+                    candidates += resolved
             if waiting:
-                pending.append(name)
+                if any(k in failed_keys.get(name, ()) for k in waiting):
+                    failing.append(name)
+                else:
+                    pending.append(name)
                 continue
             usable = [c for c in candidates if (name, c.identifier) not in refused]
             proposed, readings = source_adapter[1](chain, usable)
@@ -842,8 +919,8 @@ class Project:
                 chain = proposed
             alternatives = alternatives + readings
         queries[cluster.id] = asked
-        result = _Overlay(chain, alternatives, tuple(pending))
-        if not pending:
+        result = _Overlay(chain, alternatives, tuple(pending), tuple(failing))
+        if not pending and not failing:
             overlays[key] = result
         return result
 

@@ -158,8 +158,18 @@ def handle_download(
     queue.enqueue(DICOTOPO, "index", f"DT{department}", {"downloaded_at": stamp}, 0)
 
 
-def handle_index(job: Job, *, cache: Path, index: DicoTopoIndex) -> None:
-    """Index a downloaded department; a missing or partial file is an error."""
+def handle_index(
+    job: Job,
+    *,
+    cache: Path,
+    index: DicoTopoIndex,
+    queue: SourceQueue | None = None,
+) -> None:
+    """Index a downloaded department; a missing or partial file is an error.
+
+    With ``queue``, the cached match results for that department are deleted so
+    the projects match it again.
+    """
     department = _check_department(_department_of(job))
     xml = _directory(cache) / f"DT{department}.xml"
     part = xml.with_suffix(xml.suffix + ".part")
@@ -175,6 +185,8 @@ def handle_index(job: Job, *, cache: Path, index: DicoTopoIndex) -> None:
         else datetime.now(UTC).isoformat(timespec="seconds")
     )
     index.add_department(department, xml, downloaded_at)
+    if queue is not None:
+        queue.clear_results(DICOTOPO, department)
 
 
 def remove_department(

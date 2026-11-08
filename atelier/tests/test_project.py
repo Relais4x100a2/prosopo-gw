@@ -1293,10 +1293,8 @@ def test_opened_cluster_is_matched_first(
     dicotopo: DicoTopoSource,
 ) -> None:
     project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
-    other = copy_fixture(hamlet_gw.parent.parent, "lieux_varies.gw")
-    other_project = Project.open(other, registry, ref, projects_dir)
-    other_project.attach_sources(queue, {DICOTOPO: dicotopo})
-    # the other project's jobs may exist; touching the hamlet cluster moves it first
+    queue.enqueue(DICOTOPO, "match", "competitor", {"name": "zz"}, 5)
+    # without touch the competitor (priority 5) would come first
     project.touch(hamlet_view(project).cluster.id)
     job = queue.next_job()
     assert job is not None
@@ -1332,3 +1330,108 @@ def test_no_sources_attached_changes_nothing(
     assert view.pending_sources == ()
     assert all(lv.origin != "dicotopo" for lv in view.cluster.levels)
     project.touch(view.cluster.id)  # no-op without a queue
+
+
+def test_unanswerable_query_is_not_cached_then_proposed_after_indexing(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    tmp_path: Path,
+) -> None:
+    index = DicoTopoIndex(tmp_path / "empty.sqlite")
+    source = DicoTopoSource(index, ref, api_enabled=False)
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, source)
+    drain(worker_for(queue, source))
+    view = hamlet_view(project)
+    assert all(lv.origin != "dicotopo" for lv in view.cluster.levels)
+    assert queue.epochs()[0] == 0  # nothing stored: no empty result cached
+    # the department gets indexed (what handle_index does), the next pass asks again
+    index.add_department("62", FIXTURES / "dicotopo" / "DT62.xml", "2026-11-08")
+    queue.clear_results(DICOTOPO, "62")
+    hamlet_view(project)
+    drain(worker_for(queue, source))
+    assert hamlet_view(project).cluster.levels[0].origin == "dicotopo"
+
+
+def test_failed_job_is_reported_not_pending(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+
+    job = queue.next_job()
+    assert job is not None
+    for _ in range(4):  # three back-offs, then failed for good
+        with queue._db() as db:  # test only: make the retry due at once
+            db.execute("UPDATE jobs SET not_before=NULL, state='running'")
+        queue.fail(job.id, "boom")
+    view = hamlet_view(project)
+    assert view.failed_sources == (DICOTOPO,)
+    assert view.pending_sources == ()
+
+
+def test_refusal_made_before_validation_survives_it(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    view = hamlet_view(project)
+    for writing in view.cluster.writings:
+        registry.refuse_source_proposal(
+            f"writing:{writing}", DICOTOPO, "P90000002", project.project_id
+        )
+    registry.validate(
+        view.cluster.writings,
+        rule_levels(decompose(HAMLET, ref), ref),
+        None,
+        None,
+        project.project_id,
+    )
+    after = hamlet_view(project)
+    assert after.place_id is not None
+    assert all(lv.origin != "dicotopo" for lv in after.cluster.levels)
+
+
+def test_validate_path_does_not_save_overlay_levels(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    from prosopo_gw_atelier.web.app import _strip_overlay
+
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    view = hamlet_view(project)
+    assert view.cluster.levels[0].origin == "dicotopo"
+    kept = _strip_overlay(view.cluster.levels, view)
+    assert all(lv.origin != "dicotopo" for lv in kept)
+    assert [lv.rank for lv in kept] == list(range(len(kept)))
+    assert kept[0].name == view.base_levels[0].name
+
+
+def test_queue_results_batch_and_clear(
+    registry: PlaceRegistry, queue: SourceQueue
+) -> None:
+    import json
+
+    k1 = json.dumps({"department": "62", "name": "a"}, sort_keys=True)
+    k2 = json.dumps({"department": "59", "name": "b"}, sort_keys=True)
+    queue.store_result(DICOTOPO, k1, [])
+    queue.store_result(DICOTOPO, k2, [])
+    assert set(queue.results(DICOTOPO, [k1, k2, "absent"])) == {k1, k2}
+    assert queue.clear_results(DICOTOPO, "62") == 1
+    assert set(queue.results(DICOTOPO, [k1, k2])) == {k2}
