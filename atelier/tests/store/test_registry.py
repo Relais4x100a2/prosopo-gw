@@ -848,3 +848,17 @@ def test_undo_clear_precision(registry: PlaceRegistry) -> None:
     assert registry.precision_decisions() == {}
     registry.undo(cleared)
     assert list(registry.precision_decisions()) == [("Paris", "", "paris-1860")]
+
+
+def test_empty_ids_store_the_same_as_none(registry: PlaceRegistry) -> None:
+    registry.decide_precision("A", None, "", "", "", "p")
+    registry.decide_precision("B", None, "", None, None, "p")
+    a = registry.precision_decisions()[("A", "", "")]
+    b = registry.precision_decisions()[("B", "", "")]
+    assert (a.arrondissement_id, a.quartier_id) == (b.arrondissement_id, b.quartier_id)
+    assert (a.arrondissement_id, a.quartier_id) == (None, None)
+
+
+def test_clear_missing_precision_writes_nothing(registry: PlaceRegistry) -> None:
+    assert registry.clear_precision("Paris", None, "", "p") is None
+    assert registry.journal() == []

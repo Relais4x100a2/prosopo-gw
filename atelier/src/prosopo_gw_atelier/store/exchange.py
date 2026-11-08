@@ -43,7 +43,9 @@ Precisions
     for an undated occurrence, and both ids ``null`` means "no arrondissement".
     A document without the key has none. Project and date are not exported. On
     import a decision absent locally is applied; one already present for the
-    same key is kept as is, silently (like the levels of a known place); an empty
+    same key wins: it is kept, and reported in
+    ``ImportResult.precisions_kept_local`` and the import journal details when
+    the incoming one differs (identical ones are skipped silently); an empty
     id is read as ``null``; a duplicate key is a format error.
 
 Versions
@@ -513,10 +515,16 @@ def _writing_change(decision: Decision, project: str | None, now: str) -> RowCha
 @dataclass(frozen=True)
 class ImportResult:
     """The conflicts left to settle, and the ``import`` journal entry written
-    (``None`` if nothing was applied)."""
+    (``None`` if nothing was applied).
+
+    ``precisions_kept_local`` lists the ``(writing, complement, period)`` keys
+    whose incoming precision differs from the local one: the local decision
+    wins and is kept. Identical ones are not listed.
+    """
 
     conflicts: list[Conflict]
     entry_id: int | None
+    precisions_kept_local: tuple[tuple[str, str, str], ...] = ()
 
 
 def import_registry(
@@ -567,6 +575,16 @@ def _import_once(
         for p in precisions
         if (p.writing, p.complement, p.period) not in known_precisions
     ]
+    kept_local = tuple(
+        (p.writing, p.complement, p.period)
+        for p in precisions
+        if (p.writing, p.complement, p.period) in known_precisions
+        and (
+            known_precisions[(p.writing, p.complement, p.period)].arrondissement_id,
+            known_precisions[(p.writing, p.complement, p.period)].quartier_id,
+        )
+        != (p.arrondissement_id, p.quartier_id)
+    )
 
     applied: list[Decision] = []
     conflicts: list[Conflict] = []
@@ -620,10 +638,14 @@ def _import_once(
     entry = registry.apply_import(
         changes,
         None,
-        {"exported_at": exported_at, "conflicts": [c.writing for c in conflicts]},
+        {
+            "exported_at": exported_at,
+            "conflicts": [c.writing for c in conflicts],
+            "precisions_kept_local": [list(k) for k in kept_local],
+        },
         check=plan_holds,
     )
-    return ImportResult(conflicts, entry)
+    return ImportResult(conflicts, entry, kept_local)
 
 
 def _known(registry: PlaceRegistry, place_id: str) -> bool:

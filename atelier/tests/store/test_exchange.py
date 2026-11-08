@@ -962,9 +962,20 @@ def test_import_keeps_local_precision(
 ) -> None:
     source.decide_precision("Paris", None, "paris-1860", "75107", None, "p")
     target.decide_precision("Paris", None, "paris-1860", "75108", None, "p")
-    import_registry(target, export_registry(source))
-    [d] = target.precision_decisions().values()
-    assert d.arrondissement_id == "75108"
+    source.decide_precision("Paris", None, "", "paris-07", None, "p")
+    target.decide_precision("Paris", None, "", "paris-07", None, "p")
+    source.decide_precision("Lyon", None, "", "69381", None, "p")
+    result = import_registry(target, export_registry(source))
+    assert (
+        target.precision_decisions()[("Paris", "", "paris-1860")].arrondissement_id
+        == "75108"
+    )
+    assert result.precisions_kept_local == (("Paris", "", "paris-1860"),)
+    entry = next(e for e in target.journal() if e.action == "import")
+    assert entry.payload["details"]["precisions_kept_local"] == [
+        ["Paris", "", "paris-1860"]
+    ]
+    assert ("Lyon", "", "") in target.precision_decisions()
 
 
 def test_import_without_precisions_key(
