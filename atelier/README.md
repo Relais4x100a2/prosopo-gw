@@ -35,6 +35,8 @@ Le serveur n'écoute que sur `127.0.0.1` ; le navigateur s'ouvre une fois l'atel
 - La sortie est un zip « pivot » de données importables, pas un fichier `.gw` réécrit.
 - Un lieu est une chaîne de niveaux, du plus précis au plus large (commune, département, région, pays…).
   Les anciennes communes (fusion, association, délégation) sont des lieux distincts de la commune actuelle.
+  De même, une écriture qui nomme un niveau plus précis que la commune (« Wazemmes, Lille ») forme un
+  lieu distinct de la commune seule.
 - Un référentiel personnel de lieux se constitue au fil des sessions ; il peut être exporté et échangé.
   L'échange JSON est en version 2 ; l'import accepte les versions 1 et 2.
 

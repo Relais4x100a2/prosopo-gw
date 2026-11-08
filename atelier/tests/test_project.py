@@ -803,7 +803,7 @@ def test_historical_writings_follow_the_place_s_own_former_commune(
 def test_validating_onto_an_anchored_place_keeps_its_manual_level(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:
-    stored = chain(("Le Hameau", "lieu_dit", None), ("Roubaix", "commune", "59512"))
+    stored = chain(("Roubaix", "commune", "59512"), ("Ferrain", None, None))
     place = validate(registry, ["Roubaix-Ville"], stored, "other", postal_code="59101")
     project = open_project(gw, registry, ref, projects_dir)
     view = project.cluster("insee:59512")
@@ -819,6 +819,21 @@ def test_validating_onto_an_anchored_place_keeps_its_manual_level(
     assert kept.levels[0].origin == "manual"
     assert (kept.postal_code, kept.postal_origin) == ("59101", "manual")
     assert project.cluster(f"place:{place}").state == "validated"
+
+
+def test_commune_writings_do_not_anchor_on_a_finer_place(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    stored = chain(("Le Hameau", "lieu_dit", None), ("Roubaix", "commune", "59512"))
+    validate(registry, ["Roubaix-Ville"], stored, "other")
+    project = open_project(gw, registry, ref, projects_dir)
+    view = project.cluster("insee:59512")
+    assert view.cluster.anchor_place_id is None
+    assert view.from_registry is False
+    assert (view.cluster.levels[0].name, view.cluster.levels[0].type) == (
+        "Roubaix",
+        "commune",
+    )
 
 
 def test_cluster_of_unknown_codes_is_entered_by_hand(

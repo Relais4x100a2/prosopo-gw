@@ -469,8 +469,8 @@ def test_validating_an_anchored_cluster_keeps_its_manual_level(
     tmp_path: Path, registry: PlaceRegistry, ref: RefData
 ) -> None:
     stored = (
-        Level(0, "Le Hameau", type="lieu_dit", origin="manual"),
-        Level(1, "Roubaix", type="commune", identifier="59512", origin="manual"),
+        Level(0, "Roubaix", type="commune", identifier="59512", origin="manual"),
+        Level(1, "Ferrain", origin="manual"),
     )
     place_id = registry.validate(
         ["Roubaix-Ville"], stored, "59101", "manual", "other"
@@ -479,7 +479,7 @@ def test_validating_an_anchored_cluster_keeps_its_manual_level(
     data = detail(client, ROUBAIX)
     assert data["place_id"] == place_id
     assert data["from_registry"] is True
-    assert data["levels"][0]["name"] == "Le Hameau"
+    assert data["levels"][1]["name"] == "Ferrain"
     assert data["postal_code"] == "59101"
     response = client.post(cluster_url(ROUBAIX, "validate"), json=validate_body(data))
     assert response.status_code == 200, response.text

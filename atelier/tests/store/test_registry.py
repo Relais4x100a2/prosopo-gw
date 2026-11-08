@@ -271,7 +271,30 @@ def test_known_places_key_on_the_commune_after_a_sub_level(
     fives = renumber((Level(0, "Fives", origin="written"), *LILLE))
     v = registry.validate(["Fives, Lille"], fives, None, None, "p1")
     assert registry.known_places() == [
-        KnownPlace(v.place_id, "59350", name_key("Lille"), "59")
+        KnownPlace(v.place_id, "59350", name_key("Lille"), "59", finer="fives")
+    ]
+
+
+def test_known_places_sub_level_before_a_historical_commune(
+    registry: PlaceRegistry,
+) -> None:
+    levels = renumber(
+        (
+            Level(0, "Canteleu", origin="written"),
+            Level(
+                0,
+                "Lomme",
+                type="commune_historique",
+                identifier="59355",
+                nature="associee",
+                origin="insee",
+            ),
+            *LILLE,
+        )
+    )
+    v = registry.validate(["Canteleu, Lomme"], levels, None, None, "p1")
+    assert registry.known_places() == [
+        KnownPlace(v.place_id, None, "lomme", "59", "59355|lomme", "canteleu")
     ]
 
 

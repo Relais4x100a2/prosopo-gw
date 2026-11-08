@@ -5,7 +5,12 @@ Keys
     ``Decomposition.historical``) goes to the cluster
     ``historique:<former code>|<name key>`` (Hesdin and Hesdin-la-Forêt share
     the code 62447, hence the name). Any other writing whose commune is
-    resolved goes to ``insee:<code>``. Any other writing is keyed by its
+    resolved goes to ``insee:<code>``. A resolved writing whose chain starts
+    with a level finer than its commune or former commune (``Wazemmes,
+    Lille``) is a distinct place (design § 6.3, as Marconne is distinct from
+    Hesdin): its key gets ``|<name key of that level>`` (``insee:59350|
+    wazemmes``), so the plain commune cluster never starts below the commune.
+    Any other writing is keyed by its
     normalized name (the commune or former name element, else the first
     segment that is neither a code nor a department, region or country) plus
     its department when one was written: ``name:<key>`` or
@@ -42,13 +47,18 @@ Similarity
     normalized names, at least ``SIMILARITY_THRESHOLD``, inside a block: same
     first character and same department, or a department unknown on either
     side. A writing goes to the best-scoring cluster of its block (``insee:``,
-    ``historique:`` or unsplit ``name:``, ties to the smallest id); unresolved
+    ``historique:`` or unsplit ``name:``, ties to the smallest id; a cluster
+    with a finer level is never a target); unresolved
     groups are processed in id order. Writings with several candidates
     (homonyms written without department, a postal code alone…) keep their
     own ``low`` cluster: they are neither merged nor merge targets.
 
 Anchor
-    A ``historique:`` cluster is anchored only on the validated place whose
+    A cluster anchors only on a validated place with the same finer level
+    (``KnownPlace.finer``, ``None`` on both sides for a plain commune), so
+    ``Lille`` never anchors on a ``Wazemmes, Lille`` place nor the reverse; a
+    place with a finer level is never anchored by name key. A ``historique:``
+    cluster is anchored only on the validated place whose
     ``historical`` equals ``<former code>|<name key>``. The other clusters
     never anchor on a place that has a ``historical``; among the others,
     ``anchor_place_id`` is the place whose INSEE code equals the cluster's,
@@ -117,8 +127,12 @@ class KnownPlace:
     department: str | None = None
     """As stored in the place (a code, or a name the COG may know)."""
     historical: str | None = None
-    """``<former code>|<name key>`` when the first validated level is a
+    """``<former code>|<name key>`` when the head of the validated chain (its
+    first ``commune`` or ``commune_historique`` level) is a
     ``commune_historique``."""
+    finer: str | None = None
+    """Name key of the first validated level when it comes before that head
+    (a level finer than the commune, ``Wazemmes`` in ``Wazemmes, Lille``)."""
 
 
 @dataclass
@@ -141,6 +155,8 @@ class _Group:
     department: str | None
     insee: str | None
     historical: str | None = None
+    finer: str | None = None
+    """Name key of the chain's level 0 when it is finer than the commune."""
     members: list[Decomposition] = field(default_factory=list)
     """Every writing of the cluster, similarity merges included."""
     own: list[Decomposition] = field(default_factory=list)
@@ -201,6 +217,19 @@ def _writing_confidence(decomposition: Decomposition, ref: RefData) -> Confidenc
     return "medium"
 
 
+_HEADS = ("commune", "commune_historique")
+
+
+def finer_key(levels: Iterable[Level]) -> str | None:
+    """Name key of level 0 when a level comes before the chain's first
+    ``commune`` or ``commune_historique`` level, else ``None``."""
+    chain = list(levels)
+    for index, level in enumerate(chain):
+        if level.type in _HEADS:
+            return name_key(chain[0].name) if index > 0 else None
+    return None
+
+
 def _majority(values: Iterable[str]) -> str | None:
     counts = Counter(values)
     if not counts:
@@ -234,7 +263,11 @@ def _alternatives(group: _Group, ref: RefData) -> tuple[tuple[Level, ...], ...]:
 
 
 def _anchor(group: _Group, known: Mapping[str, KnownPlace], ref: RefData) -> str | None:
-    places = sorted(known.values(), key=lambda p: p.place_id)
+    places = [
+        place
+        for place in sorted(known.values(), key=lambda p: p.place_id)
+        if place.finer == group.finer
+    ]
     if group.historical is not None:
         for place in places:
             if place.historical == group.historical:
@@ -246,7 +279,7 @@ def _anchor(group: _Group, known: Mapping[str, KnownPlace], ref: RefData) -> str
             if place.insee == group.insee:
                 return place.place_id
     for place in places:
-        if place.name_key != group.key:
+        if place.finer is not None or place.name_key != group.key:
             continue
         if place.insee is not None and group.insee is not None:
             continue  # two different INSEE codes: not the same place
@@ -398,6 +431,9 @@ def build_clusters(
             else:
                 key = name_key(commune.name) if commune else decomposition.insee
                 group_id = f"insee:{decomposition.insee}"
+            finer = finer_key(chains[writing])
+            if finer is not None:
+                group_id = f"{group_id}|{finer}"
         else:
             key = name_key(_name_segment(decomposition, ref))
             department = _department(decomposition)
@@ -405,10 +441,11 @@ def build_clusters(
                 f"name:{key}" if department is None else f"name:{key}|{department}"
             )
             insee = None
+            finer = None
             if decomposition.candidates:
                 frozen.add(group_id)
         group = keyed.setdefault(
-            group_id, _Group(group_id, key, department, insee, historical)
+            group_id, _Group(group_id, key, department, insee, historical, finer)
         )
         group.members.append(decomposition)
         group.own.append(decomposition)
@@ -424,7 +461,7 @@ def build_clusters(
 
     blocks = _Blocks()
     for group_id in sorted(groups):
-        if groups[group_id].insee is not None:
+        if groups[group_id].insee is not None and groups[group_id].finer is None:
             blocks.add(groups[group_id])
     final: dict[str, _Group] = {}
     for group_id in sorted(groups):

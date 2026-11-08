@@ -68,7 +68,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, cast, get_args
 
-from ..places.cluster import KnownPlace, name_key
+from ..places.cluster import KnownPlace, finer_key, name_key
 from ..places.levels import (
     HistoricalNature,
     Level,
@@ -224,24 +224,31 @@ def _check_postal(postal_code: str | None, postal_origin: LevelOrigin | None) ->
 def _known_place(place_id: str, levels: Sequence[Level]) -> KnownPlace | None:
     """Anchor of a place, read on its validated levels.
 
-    ``None`` without any, or when the first one is a ``commune_historique``
-    without code (no key would tell it from the current commune of that name).
+    The head of the chain is its first ``commune`` or ``commune_historique``
+    level; a level before it (``Wazemmes`` in ``Wazemmes, Lille``) is recorded
+    as ``finer``, so the place anchors only clusters with that same finer level.
+    ``None`` without any validated level, or when the head is a
+    ``commune_historique`` without code (no key would tell it from the current
+    commune of that name).
     """
     chain = validated(levels)
     if not chain:
         return None
-    first = chain[0]
     department = next((lv.identifier for lv in chain if lv.type == "departement"), None)
-    if first.type == "commune_historique":
-        if first.identifier is None:
+    finer = finer_key(chain)
+    head = next(
+        (lv for lv in chain if lv.type in ("commune", "commune_historique")), None
+    )
+    if head is not None and head.type == "commune_historique":
+        if head.identifier is None:
             return None
-        key = name_key(first.name)
-        return KnownPlace(place_id, None, key, department, f"{first.identifier}|{key}")
-    # A chain may start with an unrecognised sub-level before its commune.
-    commune = next((lv for lv in chain if lv.type == "commune"), None)
-    named = commune if commune is not None else first
-    insee = commune.identifier if commune is not None else None
-    return KnownPlace(place_id, insee, name_key(named.name), department)
+        key = name_key(head.name)
+        return KnownPlace(
+            place_id, None, key, department, f"{head.identifier}|{key}", finer
+        )
+    named = head if head is not None else chain[0]
+    insee = head.identifier if head is not None else None
+    return KnownPlace(place_id, insee, name_key(named.name), department, finer=finer)
 
 
 class PlaceRegistry:

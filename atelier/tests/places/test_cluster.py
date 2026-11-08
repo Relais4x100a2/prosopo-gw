@@ -424,3 +424,49 @@ def test_historical_anchor(ref: RefData) -> None:
 def test_postal_code_proposal(ref: RefData) -> None:
     [cluster] = _clusters(["Roubaix 59100", "Roubaix"], ref)
     assert cluster.postal_code == "59100"
+
+
+def test_finer_level_writing_is_a_distinct_cluster(ref: RefData) -> None:
+    clusters = _clusters(["Lille", "Lille, Nord", "Lile", "Wazemmes, Lille"], ref)
+    assert sorted(c.id for c in clusters) == ["insee:59350", "insee:59350|wazemmes"]
+    lille = _by_id(clusters, "insee:59350")
+    assert lille.writings == ["Lile", "Lille", "Lille, Nord"]
+    assert (lille.levels[0].name, lille.levels[0].type) == ("Lille", "commune")
+    wazemmes = _by_id(clusters, "insee:59350|wazemmes")
+    assert wazemmes.writings == ["Wazemmes, Lille"]
+    assert (wazemmes.levels[0].name, wazemmes.levels[0].type) == ("Wazemmes", None)
+    assert wazemmes.levels[1].name == "Lille"
+
+
+def test_finer_level_under_a_former_commune_is_distinct(ref: RefData) -> None:
+    clusters = _clusters(["Lomme", "Canteleu, Lomme"], ref)
+    assert sorted(c.id for c in clusters) == [
+        "historique:59355|lomme",
+        "historique:59355|lomme|canteleu",
+    ]
+
+
+def test_finer_level_does_not_take_a_similarity_merge(ref: RefData) -> None:
+    clusters = _clusters(["Wazemmes, Lille", "Lillle"], ref)
+    assert cluster_of(clusters, "Lillle").id != "insee:59350|wazemmes"
+
+
+def test_commune_and_finer_places_do_not_anchor_on_each_other(ref: RefData) -> None:
+    known = {
+        "p1": KnownPlace("p1", "59350", "lille", "59", finer="wazemmes"),
+        "p2": KnownPlace("p2", "59350", "lille", "59"),
+    }
+    clusters = build_clusters(
+        decompose_all(["Lille", "Wazemmes, Lille", "Fives, Lille"], ref), ref, known
+    )
+    assert {c.id: c.anchor_place_id for c in clusters} == {
+        "insee:59350": "p2",
+        "insee:59350|fives": None,
+        "insee:59350|wazemmes": "p1",
+    }
+
+
+def test_finer_place_alone_does_not_anchor_the_commune(ref: RefData) -> None:
+    known = {"p1": KnownPlace("p1", "59350", "lille", "59", finer="wazemmes")}
+    [cluster] = build_clusters(decompose_all(["Lille"], ref), ref, known)
+    assert cluster.anchor_place_id is None
