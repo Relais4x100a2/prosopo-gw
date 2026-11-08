@@ -1,4 +1,4 @@
--- Personal place registry (design § 6.3), schema version 4.
+-- Personal place registry (design § 6.3), schema version 5.
 -- Applied by PlaceRegistry on a database whose user_version is 0, and replayed
 -- on a database of an older version 2 or more (only CREATE ... IF NOT EXISTS).
 
@@ -73,6 +73,24 @@ CREATE TABLE IF NOT EXISTS refused_proposals (
     PRIMARY KEY (subject, source, identifier)
 );
 
+-- GeoNames mode chosen per country (ISO alpha-2, uppercase); absence = 'written'.
+CREATE TABLE IF NOT EXISTS country_settings (
+    country    TEXT PRIMARY KEY,
+    mode       TEXT NOT NULL CHECK (mode IN ('written', 'geonames')),
+    project    TEXT,
+    decided_at TEXT
+);
+
+-- Per-writing correction of the country mode (the writing, the source).
+CREATE TABLE IF NOT EXISTS source_overrides (
+    writing    TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    mode       TEXT NOT NULL CHECK (mode IN ('written', 'geonames')),
+    project    TEXT,
+    decided_at TEXT,
+    PRIMARY KEY (writing, source)
+);
+
 -- Append-only: rows are never deleted, only flagged undone.
 CREATE TABLE IF NOT EXISTS journal (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,4 +102,4 @@ CREATE TABLE IF NOT EXISTS journal (
     undone   INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1))
 );
 
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;

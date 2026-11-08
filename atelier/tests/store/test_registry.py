@@ -319,10 +319,10 @@ def test_known_places_skip_historical_commune_without_code(
     assert registry.known_places() == []
 
 
-def test_new_registry_is_version_4(tmp_path: Path) -> None:
+def test_new_registry_is_version_5(tmp_path: Path) -> None:
     PlaceRegistry(tmp_path / "r.sqlite").close()
     con = sqlite3.connect(tmp_path / "r.sqlite")
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 5
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master")}
     assert {"place_levels", "place_attributes", "precisions"} <= tables
     assert "place_fields" not in tables
@@ -689,7 +689,7 @@ def test_creates_missing_file_and_parent_dirs(tmp_path: Path) -> None:
         assert reg.journal() == []
     assert path.exists()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 5
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -707,7 +707,7 @@ def test_reopen_keeps_data(tmp_path: Path) -> None:
 def test_newer_schema_version_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "ref.sqlite"
     con = sqlite3.connect(path)
-    con.execute("PRAGMA user_version = 5")
+    con.execute("PRAGMA user_version = 6")
     con.close()
     with pytest.raises(SchemaVersionError, match="version 5"):
         PlaceRegistry(path)
@@ -881,7 +881,7 @@ def test_refuse_then_undo(registry: PlaceRegistry) -> None:
     assert registry.refused("writing:Fictimont") == set()
 
 
-def test_schema3_file_upgraded_to_4(tmp_path: Path) -> None:
+def test_schema3_file_upgraded_to_5(tmp_path: Path) -> None:
     path = tmp_path / "r.sqlite"
     with PlaceRegistry(path) as reg:
         reg.validate(["Roubaix"], ROUBAIX, None, None, "p")
@@ -895,7 +895,7 @@ def test_schema3_file_upgraded_to_4(tmp_path: Path) -> None:
         reg.refuse_source_proposal("x", "dicotopo", "P1", "p")
         assert len(reg.places()) == 1
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 5
     con.close()
 
 
@@ -948,3 +948,88 @@ def test_add_level_replaces_the_written_level_it_makes_precise(
         ("Fictimont", "lieu_dit", "validated"),
         ("Roubaix", "commune", "validated"),
     ]
+
+
+# --- GeoNames settings (schema 5) -------------------------------------------
+
+
+def test_country_mode_round_trip_and_undo(registry: PlaceRegistry) -> None:
+    assert registry.country_modes() == {}
+    entry = registry.set_country_mode("gb", "geonames", "p1")
+    assert entry is not None
+    assert registry.country_modes() == {"GB": "geonames"}
+    assert registry.set_country_mode("GB", "geonames", "p1") is None
+    back = registry.set_country_mode("GB", "written", "p1")
+    assert back is not None
+    assert registry.country_modes() == {}  # absence = written
+    assert registry.set_country_mode("GB", "written", "p1") is None
+    registry.undo(back)
+    assert registry.country_modes() == {"GB": "geonames"}
+    registry.undo(entry)
+    assert registry.country_modes() == {}
+    assert registry.journal()[-1].action == "correct"
+
+
+def test_override_on_many_writings_is_one_journal_entry(
+    registry: PlaceRegistry,
+) -> None:
+    before = len(registry.journal())
+    entry = registry.set_override(
+        ["Londres", "London", "Londres"], "geonames", "geonames", "p1"
+    )
+    assert entry is not None
+    assert len(registry.journal()) == before + 1
+    assert registry.overrides("geonames") == {
+        "Londres": "geonames",
+        "London": "geonames",
+    }
+    assert registry.overrides("dicotopo") == {}
+    assert registry.set_override(["London"], "geonames", "geonames", "p1") is None
+    removal = registry.set_override(["London"], "geonames", None, "p1")
+    assert removal is not None
+    assert registry.overrides("geonames") == {"Londres": "geonames"}
+    registry.undo(removal)
+    assert registry.overrides("geonames")["London"] == "geonames"
+    registry.undo(entry)
+    assert registry.overrides("geonames") == {}
+
+
+def test_override_undo_restores_previous_value(registry: PlaceRegistry) -> None:
+    registry.set_override(["Londres"], "geonames", "written", "p1")
+    entry = registry.set_override(["Londres"], "geonames", "geonames", "p1")
+    assert entry is not None
+    registry.undo(entry)
+    assert registry.overrides("geonames") == {"Londres": "written"}
+
+
+def test_override_survives_country_change(registry: PlaceRegistry) -> None:
+    registry.set_override(["Londres"], "geonames", "written", "p1")
+    registry.set_country_mode("GB", "geonames", "p1")
+    registry.set_country_mode("GB", "written", "p1")
+    assert registry.overrides("geonames") == {"Londres": "written"}
+
+
+def test_unknown_mode_is_refused(registry: PlaceRegistry) -> None:
+    with pytest.raises(ValueError):
+        registry.set_country_mode("GB", "other", "p1")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        registry.set_override(["x"], "geonames", "other", "p1")  # type: ignore[arg-type]
+
+
+def test_schema4_file_upgraded_to_5(tmp_path: Path) -> None:
+    path = tmp_path / "r.sqlite"
+    with PlaceRegistry(path) as reg:
+        reg.validate(["LILLE"], LILLE, None, None, "p1")
+    conn = sqlite3.connect(path)
+    conn.execute("DROP TABLE country_settings")
+    conn.execute("DROP TABLE source_overrides")
+    conn.execute("PRAGMA user_version = 4")
+    conn.commit()
+    conn.close()
+    with PlaceRegistry(path) as reg:
+        assert reg.country_modes() == {}
+        assert reg.set_country_mode("GB", "geonames", "p1") is not None
+        assert reg.decision("LILLE") is not None
+    conn = sqlite3.connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    conn.close()

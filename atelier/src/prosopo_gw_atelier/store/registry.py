@@ -120,6 +120,8 @@ _TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("subject", "source", "identifier"),
         ("project", "decided_at"),
     ),
+    "country_settings": (("country",), ("mode", "project", "decided_at")),
+    "source_overrides": (("writing", "source"), ("mode", "project", "decided_at")),
 }
 _ORDER = list(_TABLES)
 _TABLE_LABELS = {
@@ -129,8 +131,13 @@ _TABLE_LABELS = {
     "writings": "une écriture",
     "precisions": "une précision d'arrondissement",
     "refused_proposals": "un refus de proposition",
+    "country_settings": "le réglage d'un pays",
+    "source_overrides": "la correction d'une écriture",
 }
 """What a journaled table holds, for the French undo conflict message."""
+SourceMode = Literal["written", "geonames"]
+"""How a source treats a place: keep what is written, or follow GeoNames."""
+_SOURCE_MODES = frozenset(get_args(SourceMode))
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
 _LEVEL_STATUSES = frozenset(get_args(LevelStatus))
 _NATURES = frozenset(get_args(HistoricalNature))
@@ -408,6 +415,33 @@ class PlaceRegistry:
                 "ORDER BY subject, source, identifier"
             ).fetchall()
         return [(r[0], r[1], r[2]) for r in rows]
+
+    def country_modes(self) -> dict[str, SourceMode]:
+        """Countries (ISO alpha-2) whose mode is ``geonames``; absence = ``written``."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT country, mode FROM country_settings ORDER BY country"
+            ).fetchall()
+        return {r[0]: cast(SourceMode, r[1]) for r in rows}
+
+    def overrides(self, source: str) -> dict[str, SourceMode]:
+        """Per-writing corrections of the mode for ``source``."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT writing, mode FROM source_overrides WHERE source = ? "
+                "ORDER BY writing",
+                (source,),
+            ).fetchall()
+        return {r[0]: cast(SourceMode, r[1]) for r in rows}
+
+    def all_overrides(self) -> list[tuple[str, str, SourceMode]]:
+        """Every correction as ``(writing, source, mode)``, sorted."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT writing, source, mode FROM source_overrides "
+                "ORDER BY writing, source"
+            ).fetchall()
+        return [(r[0], r[1], cast(SourceMode, r[2])) for r in rows]
 
     def all_decisions(self) -> list[Decision]:
         """Every decision, sorted by writing (for the registry export)."""
@@ -713,6 +747,73 @@ class PlaceRegistry:
                     )
                 ],
                 {"kind": "refusal", **key},
+            )
+
+    def set_country_mode(
+        self, country: str, mode: SourceMode, project: str
+    ) -> int | None:
+        """Choose the GeoNames mode of ``country`` (ISO alpha-2, any case).
+
+        ``written`` is the default and is stored as no row. One ``correct``
+        journal entry (``{"kind": "country_setting", …}``); ``None`` if nothing
+        changes. Undone like any entry.
+        """
+        if mode not in _SOURCE_MODES:
+            raise ValueError(f"unknown mode: {mode!r}")
+        key = {"country": country.upper()}
+        after = (
+            None
+            if mode == "written"
+            else {"mode": mode, "project": project, "decided_at": _now()}
+        )
+        with self._transaction():
+            before = self._read("country_settings", key)
+            if before is not None and after is not None and before["mode"] == mode:
+                return None
+            return self._record(
+                "correct",
+                project,
+                [RowChange("country_settings", key, after)],
+                {"kind": "country_setting", **key, "mode": mode},
+            )
+
+    def set_override(
+        self,
+        writings: Sequence[str],
+        source: str,
+        mode: SourceMode | None,
+        project: str,
+    ) -> int | None:
+        """Correct the mode of ``writings`` for ``source`` (``None`` removes the
+        correction). One ``correct`` journal entry for all of them
+        (``{"kind": "source_override", …}``); ``None`` if nothing changes."""
+        if mode is not None and mode not in _SOURCE_MODES:
+            raise ValueError(f"unknown mode: {mode!r}")
+        names = list(dict.fromkeys(writings))
+        now = _now()
+        with self._transaction():
+            changes = []
+            for writing in names:
+                key = {"writing": writing, "source": source}
+                before = self._read("source_overrides", key)
+                if before is not None and before["mode"] == mode:
+                    continue
+                after = (
+                    None
+                    if mode is None
+                    else {"mode": mode, "project": project, "decided_at": now}
+                )
+                changes.append(RowChange("source_overrides", key, after))
+            return self._record(
+                "correct",
+                project,
+                changes,
+                {
+                    "kind": "source_override",
+                    "source": source,
+                    "mode": mode,
+                    "writings": names,
+                },
             )
 
     def detach(self, writings: Sequence[str], project: str) -> int | None:

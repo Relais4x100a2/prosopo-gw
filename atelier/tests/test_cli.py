@@ -105,7 +105,7 @@ def test_version_1_registry_is_migrated_on_launch(tmp_path: Path, gw: Path) -> N
     conn.close()
     assert run([str(gw), "--no-browser", "--data-dir", str(data)], Recorder()) == 0
     conn = sqlite3.connect(data / "referentiel.sqlite")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
     conn.close()
     assert list(data.glob("referentiel.v1-*.sqlite"))
 

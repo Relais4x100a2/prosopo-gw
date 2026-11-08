@@ -1144,3 +1144,44 @@ def test_import_without_refusals_key_and_bad_ones(target: PlaceRegistry) -> None
     for bad in ("x", [1], [row, row], [{"sujet": "a"}], [{**row, "sujet": "other:x"}]):
         with pytest.raises(RegistryFormatError):
             import_registry(target, {**base, "propositions_refusees": bad})
+
+
+def test_export_import_settings(source: PlaceRegistry, target: PlaceRegistry) -> None:
+    source.set_country_mode("GB", "geonames", "p")
+    source.set_override(["Londres"], "geonames", "geonames", "p")
+    source.set_override(["Lyon"], "geonames", "written", "p")
+    data = json.loads(json.dumps(export_registry(source)))
+    assert data["version"] == 2
+    assert data["reglages_pays"] == [{"pays": "GB", "mode": "geonames"}]
+    assert data["corrections_sources"] == [
+        {"ecriture": "Londres", "source": "geonames", "mode": "geonames"},
+        {"ecriture": "Lyon", "source": "geonames", "mode": "written"},
+    ]
+    target.set_override(["Lyon"], "geonames", "geonames", "p")
+    assert import_registry(target, data).entry_id is not None
+    assert target.country_modes() == {"GB": "geonames"}
+    assert target.overrides("geonames") == {"Londres": "geonames", "Lyon": "geonames"}
+    assert import_registry(target, data).entry_id is None
+    target.undo(target.journal()[0].entry_id)
+    assert target.country_modes() == {}
+    assert target.overrides("geonames") == {"Lyon": "geonames"}
+
+
+def test_import_without_settings_keys_and_bad_ones(target: PlaceRegistry) -> None:
+    base = {
+        "format": FORMAT,
+        "version": 2,
+        "exported_at": "x",
+        "places": [],
+        "writings": [],
+    }
+    assert import_registry(target, base).entry_id is None
+    for key, value in (
+        ("reglages_pays", [{"pays": "GB", "mode": "bad"}]),
+        ("reglages_pays", [{"pays": "GB", "mode": "geonames"}] * 2),
+        ("reglages_pays", {}),
+        ("corrections_sources", [{"ecriture": "a", "source": "s"}]),
+        ("corrections_sources", [{"ecriture": "a", "source": "s", "mode": "x"}]),
+    ):
+        with pytest.raises(RegistryFormatError):
+            import_registry(target, {**base, key: value})

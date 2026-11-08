@@ -267,7 +267,7 @@ def test_migration_is_journaled_once_and_idempotent(
         assert entries[0].project is None
         assert entries[0].payload == {
             "from": 1,
-            "to": 4,
+            "to": 5,
             "backup": backup.name,
             "places": 2,
             "proposals": 2,
@@ -442,7 +442,7 @@ def test_migrated_file_is_left_alone_without_backup(
     try:
         migrate.migrate_v1(conn, path, ref)  # as a second opener would, too late
         assert not conn.in_transaction
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         actions = [r[0] for r in conn.execute("SELECT action FROM journal")]
     finally:
         conn.close()
@@ -510,7 +510,7 @@ def test_levels_from_v1_french_commune_without_code_stays_a_commune(
         assert levels[0].type == "commune"
 
 
-def test_v1_file_migrates_to_schema4(tmp_path: Path, ref: RefData) -> None:
+def test_v1_file_migrates_to_schema5(tmp_path: Path, ref: RefData) -> None:
     path = tmp_path / "r.sqlite"
     _v1_registry(path)
     with PlaceRegistry(path, ref) as registry:
@@ -518,7 +518,7 @@ def test_v1_file_migrates_to_schema4(tmp_path: Path, ref: RefData) -> None:
         registry.decide_precision("Paris", None, "paris-1860", "75107", None, "p1")
         assert len(registry.precision_decisions()) == 1
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert "precisions" in tables
     conn.close()
@@ -584,7 +584,7 @@ def test_schema2_file_is_upgraded_in_place(tmp_path: Path, ref: RefData) -> None
         assert registry.decision("Lille") is not None
         assert registry.decision("en mer") is not None
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
     assert conn.execute("SELECT count(*) FROM precisions").fetchone()[0] == 0
     conn.close()
     assert _snapshot(path) == before  # nothing changed, no journal entry added

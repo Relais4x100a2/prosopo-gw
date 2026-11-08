@@ -57,6 +57,15 @@ Refused proposals
     others are skipped silently; a duplicate, a ``sujet`` of another form, is a
     format error.
 
+GeoNames settings
+    The optional ``reglages_pays`` list (``pays`` ISO alpha-2 uppercase, ``mode``
+    ``geonames``; a country in ``written`` has no row) and ``corrections_sources``
+    list (``ecriture``, ``source``, ``mode``) hold ``PlaceRegistry.set_country_mode``
+    and ``set_override``. A document without them has none. On import the ones
+    absent locally are applied (project NULL); those already set locally keep
+    their local value, silently; a duplicate or an unknown mode is a format
+    error. The export keeps version 2.
+
 Versions
     Version 2 is read as is. Version 1 (fixed ``fields`` per place) is still
     accepted: each place is converted by ``migrate.levels_from_v1`` with the
@@ -113,6 +122,7 @@ from .registry import (
     PostalOrigin,
     PrecisionDecision,
     RowChange,
+    SourceMode,
     Status,
 )
 
@@ -203,6 +213,14 @@ def export_registry(registry: PlaceRegistry) -> dict[str, Any]:
         "propositions_refusees": [
             {"sujet": subject, "source": source, "identifiant": identifier}
             for subject, source, identifier in registry.all_refusals()
+        ],
+        "reglages_pays": [
+            {"pays": country, "mode": mode}
+            for country, mode in registry.country_modes().items()
+        ],
+        "corrections_sources": [
+            {"ecriture": writing, "source": source, "mode": mode}
+            for writing, source, mode in registry.all_overrides()
         ],
         "precisions": [
             {
@@ -450,6 +468,49 @@ def _parse_refusals(raw: object) -> list[tuple[str, str, str]]:
     return refusals
 
 
+def _mode(value: object, where: str) -> SourceMode:
+    if not isinstance(value, str) or value not in get_args(SourceMode):
+        raise _fail(f"{where}.mode: unknown mode {value!r}")
+    return cast(SourceMode, value)
+
+
+def _parse_country_settings(raw: object) -> list[tuple[str, SourceMode]]:
+    if not isinstance(raw, list):
+        raise _fail("reglages_pays must be a list")
+    settings: list[tuple[str, SourceMode]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        where = f"reglages_pays[{index}]"
+        if not isinstance(item, Mapping):
+            raise _fail(f"{where} must be an object")
+        country = _text(_get(item, "pays", where), f"{where}.pays").upper()
+        if country in seen:
+            raise _fail(f"{where}: duplicate country {country!r}")
+        seen.add(country)
+        settings.append((country, _mode(_get(item, "mode", where), where)))
+    return settings
+
+
+def _parse_overrides(raw: object) -> list[tuple[str, str, SourceMode]]:
+    if not isinstance(raw, list):
+        raise _fail("corrections_sources must be a list")
+    overrides: list[tuple[str, str, SourceMode]] = []
+    seen: set[tuple[str, str]] = set()
+    for index, item in enumerate(raw):
+        where = f"corrections_sources[{index}]"
+        if not isinstance(item, Mapping):
+            raise _fail(f"{where} must be an object")
+        key = (
+            _text(_get(item, "ecriture", where), f"{where}.ecriture"),
+            _text(_get(item, "source", where), f"{where}.source"),
+        )
+        if key in seen:
+            raise _fail(f"{where}: duplicate correction {key!r}")
+        seen.add(key)
+        overrides.append((*key, _mode(_get(item, "mode", where), where)))
+    return overrides
+
+
 def _parse(
     data: object, local_places: set[str], ref: RefData | None
 ) -> tuple[
@@ -458,6 +519,8 @@ def _parse(
     list[Decision],
     list[PrecisionDecision],
     list[tuple[str, str, str]],
+    list[tuple[str, SourceMode]],
+    list[tuple[str, str, SourceMode]],
 ]:
     if not isinstance(data, Mapping):
         raise _fail("the document must be a JSON object")
@@ -483,6 +546,8 @@ def _parse(
     if not isinstance(raw_precisions, list):
         raise _fail("precisions must be a list")
     refusals = _parse_refusals(data.get("propositions_refusees", []))
+    country_settings = _parse_country_settings(data.get("reglages_pays", []))
+    overrides = _parse_overrides(data.get("corrections_sources", []))
     precisions: list[PrecisionDecision] = []
     seen_keys: set[tuple[str, str, str]] = set()
     for index, raw in enumerate(raw_precisions):
@@ -521,7 +586,15 @@ def _parse(
                 f"writings[{index}]: place_id {pid!r} is neither in the document "
                 "nor in the registry"
             )
-    return exported_at, places, writings, precisions, refusals
+    return (
+        exported_at,
+        places,
+        writings,
+        precisions,
+        refusals,
+        country_settings,
+        overrides,
+    )
 
 
 # -- import ---------------------------------------------------------------
@@ -615,9 +688,19 @@ def _import_once(
     registry: PlaceRegistry, data: object, ref: RefData | None
 ) -> ImportResult:
     local_places = {place.place_id for place in registry.places()}
-    exported_at, places, incoming, precisions, refusals = _parse(
-        data, local_places, ref
-    )
+    (
+        exported_at,
+        places,
+        incoming,
+        precisions,
+        refusals,
+        country_settings,
+        overrides,
+    ) = _parse(data, local_places, ref)
+    known_countries = registry.country_modes()
+    new_countries = [(c, m) for c, m in country_settings if c not in known_countries]
+    known_overrides = {(w, s) for w, s, _ in registry.all_overrides()}
+    new_overrides = [o for o in overrides if (o[0], o[1]) not in known_overrides]
     known_refusals = set(registry.all_refusals())
     new_refusals = [r for r in refusals if r not in known_refusals]
     local = registry.decisions(d.writing for d in incoming)
@@ -679,6 +762,23 @@ def _import_once(
         )
         for subject, source, identifier in new_refusals
     )
+    changes.extend(
+        RowChange(
+            "country_settings",
+            {"country": country},
+            {"mode": mode, "project": None, "decided_at": now},
+        )
+        for country, mode in new_countries
+        if mode != "written"
+    )
+    changes.extend(
+        RowChange(
+            "source_overrides",
+            {"writing": writing, "source": source},
+            {"mode": mode, "project": None, "decided_at": now},
+        )
+        for writing, source, mode in new_overrides
+    )
     relied_on = needed - set(created)
 
     def plan_holds() -> None:
@@ -692,6 +792,12 @@ def _import_once(
             ):
                 raise _PlanOutdated
         if new_refusals and known_refusals != set(registry.all_refusals()):
+            raise _PlanOutdated
+        if new_countries and known_countries != registry.country_modes():
+            raise _PlanOutdated
+        if new_overrides and known_overrides != {
+            (w, s) for w, s, _ in registry.all_overrides()
+        }:
             raise _PlanOutdated
         if any(_known(registry, place_id) for place_id in created):
             raise _PlanOutdated
