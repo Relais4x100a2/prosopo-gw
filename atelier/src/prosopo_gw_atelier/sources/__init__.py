@@ -7,6 +7,7 @@ le ``Worker`` qui exécute les tâches (téléchargement, indexation, appariemen
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -52,6 +53,7 @@ class SourceRuntime:
     opener: Opener | None = None
     limiter: RateLimiter | None = None
     worker: Worker = field(init=False)
+    _refreshing: threading.Lock = field(init=False, default_factory=threading.Lock)
 
     def __post_init__(self) -> None:
         self.worker = Worker(self.queue, self._handlers())
@@ -140,19 +142,26 @@ class SourceRuntime:
                 return False
         except (OSError, ValueError):
             pass
+        if not self._refreshing.acquire(blocking=False):
+            return False  # a refresh is already running
 
         def run() -> None:
-            found = dicotopo_download.coverage(
-                self.cache, refresh=True, opener=self.opener
-            )
-            if not found:
-                try:
-                    directory.mkdir(parents=True, exist_ok=True)
-                    failed.write_text(str(time.time()))
-                except OSError:
-                    pass
-            else:
-                failed.unlink(missing_ok=True)
+            try:
+                found = dicotopo_download.coverage(
+                    self.cache, refresh=True, opener=self.opener
+                )
+                if not found:
+                    try:
+                        directory.mkdir(parents=True, exist_ok=True)
+                        tmp = failed.with_suffix(".tmp")
+                        tmp.write_text(str(time.time()))
+                        os.replace(tmp, failed)  # never seen half-written
+                    except OSError:
+                        pass
+                else:
+                    failed.unlink(missing_ok=True)
+            finally:
+                self._refreshing.release()
 
         threading.Thread(target=run, daemon=True).start()
         return True
