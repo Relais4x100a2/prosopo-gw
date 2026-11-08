@@ -1392,8 +1392,10 @@ def test_decide_precision_then_undo(paris_client: TestClient) -> None:
         json={**VAUGIRARD, "arrondissement_id": "75106", "quartier_id": None},
     )
     assert same.json() == {"entry_id": None}
-    assert paris_client.post("/api/undo").json() == {"action": "correct"}
-    assert paris_client.post("/api/undo").json() == {"action": "correct"}
+    journal = paris_client.get("/api/registry/journal").json()["entries"]
+    assert [e["action"] for e in journal[:2]] == ["precision", "precision"]
+    assert paris_client.post("/api/undo").json() == {"action": "precision"}
+    assert paris_client.post("/api/undo").json() == {"action": "precision"}
     back = precision_groups(paris_client)
     assert back[0]["status"] == "conflict"
 

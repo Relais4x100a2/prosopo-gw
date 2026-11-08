@@ -55,6 +55,7 @@
     correct: "correction des niveaux d'un lieu",
     import: "import du référentiel",
     resolve: "résolution d'un conflit",
+    precision: "décision de précision d'arrondissement",
   };
   const JOURNAL_ACTIONS = {
     validate: "Validation",
@@ -63,6 +64,7 @@
     detach: "Écritures sorties d'un lieu",
     import: "Import du référentiel",
     resolve: "Conflit tranché : décision importée retenue",
+    precision: "Précision d'arrondissement",
     undo: "Annulation",
   };
   const PRECISION_STATUS_LABELS = {
@@ -1144,7 +1146,6 @@
           class: "small",
           text: "Retenir",
           title: "Retenir cet arrondissement pour toutes les occurrences du groupe",
-          disabled: state.busy,
           onclick: () => run(() => decidePrecision(group, c.arrondissement_id, c.quartier_id)),
         }),
         " ",
@@ -1177,8 +1178,7 @@
             type: "button",
             text: "Aucun arrondissement",
             title: "Aucun arrondissement ne s'applique à ce groupe",
-            disabled: state.busy,
-            onclick: () => run(() => decidePrecision(group, "", null)),
+              onclick: () => run(() => decidePrecision(group, "", null)),
           }),
         ),
     );
@@ -1466,11 +1466,7 @@
       renderAll();
     }
     renderAll(); // the precision list and its counter follow the undo
-    // A precision decision is journaled as a "correct" action.
-    const label = state.view === "precisions" && result.action === "correct"
-      ? "décision de précision d'arrondissement"
-      : UNDO_LABELS[result.action] || result.action;
-    showMessage(`Action annulée : ${label}.`, "info");
+    showMessage(`Action annulée : ${UNDO_LABELS[result.action] || result.action}.`, "info");
   }
 
   async function reloadGw() {

@@ -501,7 +501,7 @@ def _journal_place(rows: Sequence[Mapping[str, Any]], details: object) -> str | 
             row_state = row["after"] if row["after"] is not None else row["before"]
             if row_state and row_state.get("place_id"):
                 ids.add(row_state["place_id"])
-        else:
+        elif "place_id" in row["key"]:  # precision rows are keyed by writing
             ids.add(row["key"]["place_id"])
     return ids.pop() if len(ids) == 1 else None
 
@@ -522,6 +522,12 @@ def _journal_entry(
         and "resolved_conflict" in details
     ):
         action = "resolve"
+    if (
+        action == "correct"
+        and isinstance(details, Mapping)
+        and details.get("kind") == "precision"
+    ):
+        action = "precision"
     undone_entry = payload.get("undone_entry") if action == "undo" else None
     place_id = _journal_place(rows, details)
     return schemas.JournalEntryOut(
@@ -830,9 +836,9 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
         except KeyError:
             raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
 
-    def _push_correct(entry: int | None) -> None:
+    def _push_correct(entry: int | None, kind: schemas.UndoKind = "correct") -> None:
         if entry is not None:
-            state.undo.append(_Action("correct", (_Ref("registry", entry),)))
+            state.undo.append(_Action(kind, (_Ref("registry", entry),)))
 
     @app.put("/api/places/{place_id}/levels")
     def set_place_levels(place_id: str, body: schemas.LevelsIn) -> schemas.PlaceOut:
@@ -960,7 +966,7 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 quartier,
                 project.project_id,
             )
-            _push_correct(entry)
+            _push_correct(entry, "precision")
             return schemas.PrecisionDecideOut(entry_id=entry)
 
     # -- undo ---------------------------------------------------------------

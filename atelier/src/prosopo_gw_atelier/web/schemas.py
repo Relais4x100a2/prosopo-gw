@@ -169,7 +169,9 @@ class OccurrenceOut(BaseModel):
     complement: str | None
 
 
-UndoKind = Literal["validate", "split", "reject", "correct", "import", "resolve"]
+UndoKind = Literal[
+    "validate", "split", "reject", "correct", "import", "resolve", "precision"
+]
 
 
 class UndoOut(BaseModel):
@@ -208,7 +210,9 @@ class JournalEntryOut(BaseModel):
 
     ``action`` is the registry's code (``validate``, ``reject``, ``correct``,
     ``detach``, ``import``, ``undo``), except that an import entry settling
-    a conflict is reported as ``resolve``. ``writings`` holds at most
+    a conflict is reported as ``resolve`` and a precision decision (a
+    ``correct`` entry whose details have kind ``precision``) as ``precision``.
+    ``writings`` holds at most
     ``JOURNAL_WRITINGS`` of the writings touched (sorted); ``writing_count``
     counts them all. ``place_id`` is the one place the entry is about, if
     any; ``place_label`` its current commune or former name.
