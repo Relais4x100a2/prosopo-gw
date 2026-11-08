@@ -43,7 +43,15 @@ import re
 from dataclasses import dataclass, field
 
 from ..refdata import Former, NameMatch, RefData
-from .model import Decomposition, Element, Segment
+from ..refdata.arrondissements import (
+    CITY_INSEE,
+    City,
+    by_code,
+    city_of,
+    is_insee_code,
+    numbers,
+)
+from .model import Decomposition, Element, Segment, WrittenArrondissement
 
 _CODE = r"(?:\d{5}|2[ABab]\d{3})"
 _SPLIT = re.compile(rf"[,;()]|\s-\s|(?<!\w)({_CODE})(?!\w)")
@@ -58,6 +66,54 @@ HINT_OLD_REGION = "ancienne région"
 HINT_REGION = "région"
 HINT_COUNTRY = "pays"
 HINT_FORMER_NAME = "ancien nom"
+HINT_ARR_NUMBER = "numéro d'arrondissement"
+HINT_ARR_CODE = "code d'arrondissement"
+
+_ROMAN = {
+    "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8,
+    "IX": 9, "X": 10, "XI": 11, "XII": 12, "XIII": 13, "XIV": 14, "XV": 15,
+    "XVI": 16, "XVII": 17, "XVIII": 18, "XIX": 19, "XX": 20,
+}  # fmt: skip
+_ORDINAL = r"(?i:ère|ere|er|re|ème|eme|è|e)"
+_WORD = r"(?i:arrondissement|arr\.?)"
+_NUM = rf"(?:\d{{1,2}}{_ORDINAL}|[IVX]{{1,5}}(?:{_ORDINAL})?)"
+_TOKEN = rf"(?:{_NUM}(?:\s+{_WORD})?|{_WORD}\s+(?:\d{{1,2}}|[IVX]{{1,5}}))(?!\w)"
+_DE = r"(?i:de|du|d['’])\s*"
+_ARR_ALONE = re.compile(rf"^(?P<token>{_TOKEN})$")
+_ARR_FIRST = re.compile(rf"^(?P<token>{_TOKEN})\s+(?:{_DE})?(?P<rest>.+)$")
+_ARR_LAST = re.compile(rf"^(?P<rest>.+?)\s+(?P<token>{_TOKEN})$")
+
+
+def _arrondissement_token(segment: str) -> tuple[str, str, int] | None:
+    """Return ``(rest, token, number)`` of a segment naming an arrondissement."""
+    for pattern in (_ARR_ALONE, _ARR_FIRST, _ARR_LAST):
+        found = pattern.match(segment)
+        if found is None:
+            continue
+        token = found.group("token")
+        digits = re.search(r"\d{1,2}", token)
+        if digits is not None:
+            number = int(digits.group())
+        else:
+            roman = re.search(r"[IVX]+", token)
+            number = _ROMAN.get(roman.group() if roman else "", 0)
+        if not 1 <= number <= 20:
+            return None
+        rest = found.groupdict().get("rest") or ""
+        return rest.strip(_STRIP), token, number
+    return None
+
+
+def split_arrondissement(segment: str) -> tuple[str, int] | None:
+    """Split a segment naming an arrondissement into its rest and its number.
+
+    Reads ``7e``, ``7è``, ``7ème``, ``1er``, ``1re``, ``1ère``, ``VIIe``, ``VII``,
+    ``7e arr.``, ``7e arrondissement`` and ``arrondissement 7``, alone or before
+    or after a name (``Paris 7e``, ``7e arrondissement de Paris``). Return the
+    cleaned rest (possibly empty) and the number, or ``None``.
+    """
+    found = _arrondissement_token(segment)
+    return None if found is None else (found[0], found[2])
 
 
 def is_code(segment: str) -> bool:
@@ -144,6 +200,14 @@ def _narrow(candidates: set[str], constraint: set[str]) -> set[str]:
     return narrowed if narrowed else candidates
 
 
+def _insee_city(code: str, ref: RefData) -> City | None:
+    """City of an arrondissement INSEE code, if the reference knows the city."""
+    found = by_code(code)
+    if found is None or not is_insee_code(code):
+        return None
+    return found[0] if ref.commune_by_insee(CITY_INSEE[found[0]]) else None
+
+
 def _read_codes(
     codes: list[tuple[int, str]], ref: RefData, state: _State
 ) -> list[tuple[int, str, set[str], set[str]]]:
@@ -161,6 +225,12 @@ def _read_codes(
         elif postal:
             state.elements.append((index, Element("postal_code", code, HINT_POSTAL)))
             state.postal_codes.append(postal)
+        elif (city := _insee_city(code, ref)) is not None:
+            # INSEE code of an arrondissement: read as the INSEE of its city.
+            state.elements.append(
+                (index, Element("insee_code", CITY_INSEE[city], HINT_ARR_CODE))
+            )
+            state.insee_codes.append({CITY_INSEE[city]})
         else:
             state.ambiguous = True
     return undecided
@@ -192,15 +262,58 @@ def _settle_code(
 
 
 def decompose(writing: str, ref: RefData) -> Decomposition:
-    """Split ``writing`` into typed elements and resolve its commune if possible."""
+    """Split ``writing`` into typed elements and resolve its commune if possible.
+
+    A segment naming an arrondissement number (``Paris 7e``) is first read with
+    the number set apart; it is kept only when the rest resolves a commune that
+    has that arrondissement, otherwise the writing is read as written.
+    """
+    written = segments(writing)
+    parts = [_Part(text) for text in written]
+    expanded: list[_Part] = []
+    found = False
+    for text in written:
+        token = None if is_code(text) else _arrondissement_token(text)
+        if token is None:
+            expanded.append(_Part(text))
+            continue
+        found = True
+        rest, token_text, number = token
+        if rest:
+            expanded.append(_Part(rest))
+        expanded.append(_Part(token_text, number))
+    if found:
+        result = _build(writing, expanded, ref, need_number=True)
+        if result is not None:
+            return result
+    result = _build(writing, parts, ref, need_number=False)
+    assert result is not None
+    return result
+
+
+@dataclass(frozen=True)
+class _Part:
+    """A written segment; ``number`` is set on an arrondissement token."""
+
+    text: str
+    number: int | None = None
+
+
+def _build(
+    writing: str, parts: list[_Part], ref: RefData, *, need_number: bool
+) -> Decomposition | None:
+    """Decompose ``parts``; ``None`` if ``need_number`` and no number fits."""
     state = _State()
     codes: list[tuple[int, str]] = []
-    written = segments(writing)
-    for index, segment in enumerate(written):
-        if is_code(segment):
-            codes.append((index, segment.upper()))
+    tokens: list[tuple[int, int]] = []
+    written = [part.text for part in parts]
+    for index, part in enumerate(parts):
+        if part.number is not None:
+            tokens.append((index, part.number))
+        elif is_code(part.text):
+            codes.append((index, part.text.upper()))
         else:
-            _read_text(index, segment, ref, state)
+            _read_text(index, part.text, ref, state)
 
     unsettled: set[str] = set()
     for index, code, insee, postal in _read_codes(codes, ref, state):
@@ -231,6 +344,15 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
         current = _current_reading(state.name_matches, set(ordered))
         if current is not None:
             insee_code, ordered = current, (current,)
+    arrondissement = _arrondissement(insee_code, codes, tokens, state)
+    if need_number:
+        city = city_of(insee_code) if insee_code is not None else None
+        if city is None or not any(n in numbers(city) for _, n in tokens):
+            return None
+    if arrondissement is not None and arrondissement[1] is not None:
+        number = str(arrondissement[0].number)
+        element = Element("arrondissement", number, HINT_ARR_NUMBER)
+        state.elements.append((arrondissement[1], element))
     elements = tuple(element for _, element in sorted(state.elements, key=_index))
     by_index = dict(state.elements)
     historical, alternative = _former_readings(
@@ -247,7 +369,44 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
         ),
         historical=historical,
         alternative=alternative,
+        arrondissement=arrondissement[0] if arrondissement else None,
     )
+
+
+def _arrondissement(
+    insee: str | None,
+    codes: list[tuple[int, str]],
+    tokens: list[tuple[int, int]],
+    state: _State,
+) -> tuple[WrittenArrondissement, int | None] | None:
+    """Arrondissement the writing names, and the index of its number token.
+
+    The code wins over a number; a number that disagrees with the code is not
+    retained (its segment stays an untyped level). The index is ``None`` when the
+    arrondissement is named by a code alone, or by a code the number contradicts.
+    """
+    city = city_of(insee) if insee is not None else None
+    if city is None:
+        return None
+    read = dict(state.elements)
+    number_at = next(((i, n) for i, n in tokens if n in numbers(city)), None)
+    for index, code in codes:
+        element = read.get(index)
+        found = by_code(code)
+        if (
+            element is not None
+            and (element.kind == "postal_code" or element.hint == HINT_ARR_CODE)
+            and found is not None
+            and found[0] == city
+        ):
+            agreed = number_at is not None and number_at[1] == found[1]
+            return (
+                WrittenArrondissement(city, found[1], "code"),
+                number_at[0] if agreed and number_at else None,
+            )
+    if number_at is None:
+        return None
+    return WrittenArrondissement(city, number_at[1], "number"), number_at[0]
 
 
 def _current_reading(matches: list[NameMatch], candidates: set[str]) -> str | None:

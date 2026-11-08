@@ -132,6 +132,12 @@ def by_code(code: str) -> tuple[City, int] | None:
     return None
 
 
+def is_insee_code(code: str) -> bool:
+    """Tell whether ``code`` is the INSEE code of an arrondissement."""
+    found = by_code(code)
+    return found is not None and code == _insee_code(*found)
+
+
 def _postal(city: City, number: int) -> str:
     prefix = {"paris": "750", "lyon": "690", "marseille": "130"}[city]
     return f"{prefix}{number:02d}"

@@ -41,3 +41,11 @@ def test_periods():
     assert current("marseille", 1).start == "1946-10-18"
     assert current("lyon", 10) is None
     assert city_of("13055") == "marseille" and city_of("59350") is None
+
+
+def test_is_insee_code_tells_insee_from_postal():
+    from prosopo_gw_atelier.refdata.arrondissements import is_insee_code
+
+    assert is_insee_code("75107") and is_insee_code("69381") and is_insee_code("13208")
+    assert not is_insee_code("75007") and not is_insee_code("69001")
+    assert not is_insee_code("59350")

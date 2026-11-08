@@ -478,3 +478,16 @@ def test_finer_place_alone_does_not_anchor_the_commune(ref: RefData) -> None:
     known = {"p1": KnownPlace("p1", "59350", "lille", "59", finer="wazemmes")}
     [cluster] = build_clusters(decompose_all(["Lille"], ref), ref, known)
     assert cluster.anchor_place_id is None
+
+
+def test_arrondissement_is_a_distinct_cluster(ref: RefData) -> None:
+    clusters = _clusters(["Paris", "Paris 7e", "75007 Paris"], ref)
+    assert {c.id for c in clusters} == {
+        "insee:75056",
+        "insee:75056|7e arrondissement",
+    }
+    assert _by_id(clusters, "insee:75056|7e arrondissement").writings == [
+        "75007 Paris",
+        "Paris 7e",
+    ]
+    assert _by_id(clusters, "insee:75056").writings == ["Paris"]
