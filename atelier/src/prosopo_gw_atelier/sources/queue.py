@@ -172,7 +172,8 @@ class SourceQueue:
             row = db.execute(
                 "SELECT * FROM jobs WHERE state='pending'"
                 " AND (not_before IS NULL OR not_before<=?)"
-                " AND source NOT IN (SELECT source FROM pauses WHERE until>?)"
+                " AND NOT (kind='match' AND source IN"
+                " (SELECT source FROM pauses WHERE until>?))"
                 " ORDER BY priority DESC, id ASC LIMIT 1",
                 (now, self._clock()),
             ).fetchone()
@@ -182,10 +183,13 @@ class SourceQueue:
             return replace(_job(row), state="running")
 
     def pause(self, source: str, until: float) -> None:
-        """Keep the pending jobs of ``source`` back until the timestamp ``until``."""
+        """Keep the pending ``match`` jobs of ``source`` back until ``until``.
+
+        Downloads and indexing are not paused; an existing pause is never shortened."""
         with self._db() as db:
             db.execute(
-                "INSERT OR REPLACE INTO pauses(source, until) VALUES (?,?)",
+                "INSERT INTO pauses(source, until) VALUES (?,?)"
+                " ON CONFLICT(source) DO UPDATE SET until=MAX(until, excluded.until)",
                 (source, until),
             )
 

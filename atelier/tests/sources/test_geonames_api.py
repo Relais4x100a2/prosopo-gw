@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import shutil
 import urllib.error
 import urllib.parse
@@ -224,7 +225,7 @@ def test_http_429_pauses_one_hour(index: GeoNamesIndex, tmp_path: Path) -> None:
     err = urllib.error.HTTPError("https://x/?username=" + SECRET, 429, "x", None, None)  # type: ignore[arg-type]
     with pytest.raises(QuotaReached) as raised:
         make(index, tmp_path, _failing(err)).search(q("Nowhere", "ZZ"))
-    assert raised.value.retry_at == NEXT_HOUR
+    assert raised.value.retry_at == NOON + 3600
 
 
 def _failing(err: BaseException) -> FakeApi:
@@ -257,12 +258,9 @@ def test_api_quota_pauses_geonames_only(index: GeoNamesIndex, tmp_path: Path) ->
     job = queue.next_job()
     assert job is not None and job.id == other  # DicoTopo flows, GeoNames is skipped
     queue.finish(job.id)
-    assert queue.next_job() is None
     assert queue.errors() == []
     counts = queue.counts()[GEONAMES]
     assert counts["pending"] == 1 and counts["failed"] == 0
-    row = [j for j in [queue.next_job()] if j]
-    assert row == []
     later = SourceQueue(tmp_path / "sources.sqlite", clock=lambda: NEXT_HOUR + 1)
     resumed = later.next_job()  # the pause is persisted and expires
     assert resumed is not None and resumed.id == gn_job and resumed.attempts == 0
@@ -291,7 +289,10 @@ def _chain(exc: BaseException | None) -> list[str]:
     return out
 
 
-def test_username_never_leaks(index: GeoNamesIndex, tmp_path: Path) -> None:
+def test_username_never_leaks(
+    index: GeoNamesIndex, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
     url = f"https://secure.geonames.org/searchJSON?username={SECRET}"
     api = FakeApi()
     api.plan = [
@@ -362,3 +363,55 @@ def test_username_never_leaks(index: GeoNamesIndex, tmp_path: Path) -> None:
     with zipfile.ZipFile(io.BytesIO(archive)) as zf:
         for name in zf.namelist():
             assert SECRET.encode() not in zf.read(name), name
+
+
+def test_pause_only_holds_match_jobs(tmp_path: Path) -> None:
+    queue = SourceQueue(tmp_path / "q.sqlite", clock=lambda: NOON)
+    queue.pause(GEONAMES, NEXT_HOUR)
+    queue.enqueue(GEONAMES, "match", "m", {}, 9)
+    download = queue.enqueue(GEONAMES, "download", "d", {}, 1)
+    job = queue.next_job()
+    assert job is not None and job.id == download
+    assert queue.next_job() is None
+
+
+def test_pause_never_shortens(tmp_path: Path) -> None:
+    queue = SourceQueue(tmp_path / "q.sqlite", clock=lambda: NOON)
+    queue.pause(GEONAMES, MIDNIGHT)
+    queue.pause(GEONAMES, NEXT_HOUR)
+    assert queue.paused_until(GEONAMES) == MIDNIGHT
+    queue.pause(GEONAMES, MIDNIGHT + 10)
+    assert queue.paused_until(GEONAMES) == MIDNIGHT + 10
+
+
+def test_sync_api_respects_pause(index: GeoNamesIndex, tmp_path: Path) -> None:
+    queue = SourceQueue(tmp_path / "q.sqlite", clock=lambda: NOON)
+    queue.pause(GEONAMES, NEXT_HOUR)
+    api = FakeApi({"geonames": [_entry()]})
+    source = GeoNamesSource(
+        index,
+        config=LocalConfig(geonames_username=SECRET),
+        counter_path=tmp_path / "cache" / "api_counter.json",
+        opener=api,
+        limiter=NoWait(),  # type: ignore[arg-type]
+        clock=lambda: NOON,
+        queue=queue,
+    )
+    with pytest.raises(QuotaReached) as raised:
+        source.search(q("Nowhere", "ZZ"))
+    assert raised.value.retry_at == NEXT_HOUR
+    with pytest.raises(QuotaReached):
+        source.article("5000009")
+    assert api.urls == []
+    assert source.search(q("Winnipeg"))  # local answers still work
+
+
+def test_hostile_username_is_one_parameter(
+    index: GeoNamesIndex, tmp_path: Path
+) -> None:
+    hostile = "a&username=b#"
+    api = FakeApi()
+    make(index, tmp_path, api, username=hostile).search(q("Nowhere", "ZZ"))
+    params = api.params()
+    assert params["username"] == [hostile]
+    assert len(urllib.parse.urlparse(api.urls[0]).query.split("&username=")) == 2

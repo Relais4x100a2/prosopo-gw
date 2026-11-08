@@ -14,7 +14,7 @@ in it:
 
 Quotas: one request every 4 seconds (``RateLimiter``), at most 10 000 per UTC day
 (counter kept in ``api_counter.json``: date and number only). A reached quota raises
-``QuotaReached``: hourly limits (19, HTTP 429) wait for the next full hour UTC, daily
+``QuotaReached``: the hourly limit (19) waits for the next full hour UTC, HTTP 429 for one hour from now, daily
 ones for the next UTC midnight; the worker pauses the GeoNames jobs until then.
 
 The user name is in the query string. It is never logged, never put in a message,
@@ -60,7 +60,7 @@ from prosopo_gw_atelier.sources.geonames.index import (
     GeoPlace,
     check_country,
 )
-from prosopo_gw_atelier.sources.queue import RateLimiter
+from prosopo_gw_atelier.sources.queue import RateLimiter, SourceQueue
 from prosopo_gw_atelier.store.config import LocalConfig
 
 __all__ = ["GEONAMES", "GeoNamesSource", "QuotaReached"]
@@ -127,7 +127,9 @@ class GeoNamesSource:
         opener: Opener | None = None,
         limiter: RateLimiter | None = None,
         clock: Callable[[], float] = time.time,
+        queue: SourceQueue | None = None,
     ) -> None:
+        self._queue = queue
         self._index = index
         self._config = config
         self._counter_path = counter_path
@@ -296,6 +298,12 @@ class GeoNamesSource:
         username = self._config.geonames_username
         if not username:
             raise SourceError("Aucun identifiant GeoNames n'est saisi.")
+        if self._queue is not None:
+            paused = self._queue.paused_until(GEONAMES)
+            if paused is not None:
+                raise QuotaReached(
+                    "Requêtes GeoNames en pause (plafond atteint)", paused
+                )
         self._count_request()
         self._limiter.wait()
         url = f"{API_URL}{method}?" + urllib.parse.urlencode(
@@ -316,7 +324,7 @@ class GeoNamesSource:
         if rate_limited:
             raise QuotaReached(
                 "GeoNames limite le nombre de requêtes (HTTP 429)",
-                _next_hour(self._clock()),
+                self._clock() + 3600,
             )
         if message is not None:
             raise SourceError(message)
