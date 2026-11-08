@@ -602,6 +602,15 @@ class Project:
                         (writing, occurrence.complement or "", result.period)
                     )
                     if decision is not None:
+                        quartier = next(
+                            (
+                                c.quartier
+                                for c in result.candidates
+                                if (c.arrondissement_id, c.quartier_id)
+                                == (decision.arrondissement_id, decision.quartier_id)
+                            ),
+                            None,
+                        )
                         result = Precision(
                             result.period,
                             "applied",
@@ -609,7 +618,7 @@ class Project:
                                 Candidate(
                                     decision.arrondissement_id or "",
                                     decision.quartier_id,
-                                    None,
+                                    quartier,
                                     "manual",
                                 ),
                             ),

@@ -958,6 +958,44 @@ def test_stored_decision_wins(
     assert back.precision.status == "conflict"
 
 
+def test_stored_decision_keeps_the_quartier_name(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    named = [
+        (c.arrondissement_id, c.quartier_id, c.quartier)
+        for p in project.precisions()
+        for c in p.precision.candidates
+        if c.quartier_id and c.quartier
+    ]
+    assert named, "the fixture should offer a named quartier"
+    arrondissement_id, quartier_id, name = named[0]
+    group = next(
+        p
+        for p in project.precisions()
+        if any(c.quartier_id == quartier_id for c in p.precision.candidates)
+    )
+    registry.decide_precision(
+        group.writing,
+        group.occurrence.complement,
+        group.precision.period,
+        arrondissement_id,
+        quartier_id,
+        project.project_id,
+    )
+    (candidate,) = next(
+        p
+        for p in project.precisions()
+        if (p.writing, p.occurrence.complement, p.precision.period)
+        == (group.writing, group.occurrence.complement, group.precision.period)
+    ).precision.candidates
+    assert (candidate.clue, candidate.quartier) == ("manual", name)
+
+
 def test_stored_decision_without_arrondissement(
     tmp_path: Path,
     registry: PlaceRegistry,
