@@ -2,6 +2,7 @@ import io
 import json
 import shutil
 import sqlite3
+import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Iterator
 from datetime import datetime
@@ -165,3 +166,119 @@ def test_readme_attributes_paris_table(
     assert table.extraction in readme
     assert "Arrondissements" in readme and "precisions_occurrences" in readme
     assert "{" not in readme
+
+
+DICOTOPO_DEPARTMENTS = {"62": "2026-11-08"}
+FIXTURE_XML = FIXTURES / "dicotopo" / "DT62.xml"
+
+
+def ancient_forms() -> list[str]:
+    root = ET.parse(FIXTURE_XML).getroot()
+    forms = [
+        "".join(i.itertext()).strip(" ,")
+        for f in root.iter("forme_ancienne")
+        for i in f.iter("i")
+    ]
+    assert "Fictimons" in forms and "Fictimontem" in forms
+    return forms
+
+
+@pytest.fixture
+def dicotopo_project(tmp_path: Path, registry: PlaceRegistry, ref: RefData) -> Project:
+    gw = tmp_path / "bases" / "lieux_dicotopo.gw"
+    gw.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / "lieux_dicotopo.gw", gw)
+    registry.validate(
+        ["Fictimont, Hesdin-la-Forêt"],
+        [
+            Level(
+                0,
+                "Fictimont",
+                type="lieu_dit",
+                identifier="P90000002",
+                source="DicoTopo, https://dicotopo.cths.fr/places/P90000002",
+                origin="dicotopo",
+            ),
+            Level(
+                1, "Hesdin-la-Forêt", type="commune", identifier="62447", origin="insee"
+            ),
+        ],
+        None,
+        None,
+        project="p",
+    )
+    return Project.open(gw, registry, ref, tmp_path / "data" / "projects")
+
+
+def test_dicotopo_level_exported_with_link(
+    dicotopo_project: Project, registry: PlaceRegistry, ref: RefData
+) -> None:
+    archive = open_zip(
+        build_archive(
+            dicotopo_project, registry, ref, GENERATED_AT, DICOTOPO_DEPARTMENTS
+        )
+    )
+    rows = [
+        r
+        for r in json.loads(archive.read("lieux_dicotopo.json"))["tables"][
+            "niveaux_lieux"
+        ]
+        if r["origine"] == "dicotopo"
+    ]
+    assert len(rows) == 1
+    assert rows[0]["identifiant"] == "P90000002"
+    assert rows[0]["nom"] == "Fictimont"
+    assert rows[0]["source"] == "DicoTopo, https://dicotopo.cths.fr/places/P90000002"
+
+
+def test_no_ancient_form_in_export(
+    dicotopo_project: Project, registry: PlaceRegistry, ref: RefData
+) -> None:
+    archive = open_zip(
+        build_archive(
+            dicotopo_project, registry, ref, GENERATED_AT, DICOTOPO_DEPARTMENTS
+        )
+    )
+    forms = ancient_forms()
+    assert len(forms) >= 2
+    for name in archive.namelist():
+        data = archive.read(name)
+        for form in forms:
+            assert form.encode("utf-8") not in data, (name, form)
+
+
+def test_readme_cites_dicotopo_only_when_used(
+    project: Project,
+    dicotopo_project: Project,
+    registry: PlaceRegistry,
+    ref: RefData,
+    lyon: str,
+) -> None:
+    used = (
+        open_zip(
+            build_archive(
+                dicotopo_project, registry, ref, GENERATED_AT, DICOTOPO_DEPARTMENTS
+            )
+        )
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "DicoTopo (CTHS, École nationale des chartes)" in used
+    assert "CC BY-NC-ND 3.0 FR" in used
+    assert "Département 62 : téléchargé le 2026-11-08." in used
+    assert "{" not in used
+    unused = (
+        open_zip(
+            build_archive(project, registry, ref, GENERATED_AT, DICOTOPO_DEPARTMENTS)
+        )
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "CTHS" not in unused and "CC BY-NC-ND" not in unused
+    # no sources: the notice stays, without any department
+    bare = (
+        open_zip(build_archive(dicotopo_project, registry, ref, GENERATED_AT))
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "CC BY-NC-ND 3.0 FR" in bare and "Département 62" not in bare

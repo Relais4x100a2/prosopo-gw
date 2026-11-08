@@ -44,9 +44,17 @@ from dataclasses import dataclass
 from geneweb_py.formats.tables import Column, Row, Table, TableSpec
 
 from ..places.collect import split_place
-from ..places.levels import ViewField, chain_label, french_view, validated, view_origins
+from ..places.levels import (
+    Level,
+    ViewField,
+    chain_label,
+    french_view,
+    validated,
+    view_origins,
+)
 from ..project import OccurrencePrecision
 from ..refdata.arrondissements import name_of
+from ..sources.dicotopo.source import article_link
 from ..store.registry import Decision, PlaceRegistry
 
 STATUS_VALUES: dict[str, str] = {"validated": "valide", "rejected": "rejete"}
@@ -60,6 +68,13 @@ ORIGIN_VALUES: dict[str, str] = {
     "geonames": "geonames",
     "llm": "llm",
 }
+
+
+def _level_source(level: Level) -> str | None:
+    """The level's source; a DicoTopo level without one gets its article link."""
+    if level.source is None and level.origin == "dicotopo" and level.identifier:
+        return article_link(level.identifier)
+    return level.source
 
 
 def _french(values: dict[str, str], code: str | None, what: str) -> str | None:
@@ -423,7 +438,7 @@ def build_pivot(
                     "type": level.type,
                     "nature": level.nature,
                     "identifiant": level.identifier,
-                    "source": level.source,
+                    "source": _level_source(level),
                     "debut": level.start,
                     "fin": level.end,
                     "latitude": level.latitude,

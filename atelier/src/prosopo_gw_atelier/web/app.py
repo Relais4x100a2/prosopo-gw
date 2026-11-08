@@ -1262,7 +1262,13 @@ def create_app(
     @app.get("/api/export")
     def export() -> Response:
         with state.lock:
-            data = build_archive(project, registry, ref, datetime.now(UTC))
+            data = build_archive(
+                project,
+                registry,
+                ref,
+                datetime.now(UTC),
+                sources.index.departments() if sources is not None else None,
+            )
         name = f"{base_stem(project.gw_path.name)}_atelier.zip"
         return Response(
             data,
