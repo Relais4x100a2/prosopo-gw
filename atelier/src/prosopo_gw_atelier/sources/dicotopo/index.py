@@ -45,8 +45,10 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from xml.parsers import expat
 
 from ...places.cluster import name_key
+from ..base import SourceError
 
 KINDS = (
     "hameau",
@@ -194,10 +196,46 @@ def _build(element: ET.Element, department: str) -> Article | None:
     )
 
 
+class _RootReached(Exception):
+    """Raised by the prolog scan once the root element starts."""
+
+
+def _refuse_declaration(*args: object) -> None:
+    raise SourceError(
+        "Fichier DicoTopo refusé : il contient une déclaration DOCTYPE ou ENTITY."
+    )
+
+
+def _root_reached(*args: object) -> None:
+    raise _RootReached
+
+
+def _check_prolog(path: Path) -> None:
+    """Refuse a DOCTYPE or ENTITY declaration (both precede the root element)."""
+    scan = expat.ParserCreate()
+    scan.StartDoctypeDeclHandler = _refuse_declaration
+    scan.EntityDeclHandler = _refuse_declaration
+    scan.StartElementHandler = _root_reached
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(64 * 1024):
+                scan.Parse(chunk, False)
+    except _RootReached:
+        pass
+    except expat.ExpatError:
+        pass  # malformed: the real parse reports it
+
+
+def _events(path: Path) -> Iterator[tuple[str, ET.Element]]:
+    """``(event, element)`` pairs of ``path``, once its prolog is accepted."""
+    _check_prolog(path)
+    return ET.iterparse(path, events=("start", "end"))
+
+
 def _iterate(path: Path, counter: list[int] | None) -> Iterator[Article]:
     department = ""
     root: ET.Element | None = None
-    for event, element in ET.iterparse(path, events=("start", "end")):
+    for event, element in _events(path):
         if event == "start":
             if root is None:
                 root = element

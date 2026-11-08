@@ -183,3 +183,29 @@ def test_can_answer_survives_an_index_error(tmp_path: Path) -> None:
     query = LevelQuery(name="X", department="62")
     assert source.can_answer(query) is False
     assert source.covers(query) is False
+
+
+@pytest.mark.parametrize(
+    "prolog",
+    [
+        '<!DOCTYPE DICTIONNAIRE [<!ENTITY a "x">]>',
+        '<!DOCTYPE DICTIONNAIRE SYSTEM "http://invalid.example/x.dtd">',
+        "<!DOCTYPE DICTIONNAIRE>",
+    ],
+)
+def test_xml_with_a_doctype_or_entity_is_refused(tmp_path: Path, prolog: str) -> None:
+    from prosopo_gw_atelier.sources.base import SourceError
+
+    xml = tmp_path / "DT99.xml"
+    xml.write_text(
+        f'<?xml version="1.0" encoding="UTF-8"?>\n{prolog}\n'
+        '<DICTIONNAIRE dep="99"><article id="P1"><vedette>A</vedette>'
+        "<insee>99001</insee></article></DICTIONNAIRE>",
+        encoding="utf-8",
+    )
+    with pytest.raises(SourceError, match="DOCTYPE"):
+        list(parse_dicotopo(xml))
+    index = DicoTopoIndex(tmp_path / "i.sqlite")
+    with pytest.raises(SourceError, match="DOCTYPE"):
+        index.add_department("99", xml, "2026-01-01T00:00:00+00:00")
+    assert index.departments() == {}
