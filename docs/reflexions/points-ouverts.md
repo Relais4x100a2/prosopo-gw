@@ -91,6 +91,13 @@ sources, événements « Autre », organisations) reste dans :
 - Modifier les coordonnées, les dates ou la nature d'un niveau INSEE garde l'origine « insee » :
   l'origine est retrouvée par nom, type et identifiant.
 - Registre v1 migré : une copie de sauvegarde est écrite à chaque tentative, même échouée.
+- Un niveau sans type écrit après la commune l'emporte encore par la longueur de la chaîne : une
+  faute de frappe (`Lille, Nrod`) est proposée pour toutes les écritures `Lille` du groupe.
+- Migration : une variante proche d'un niveau seulement proposé (`Lome` à côté de `Lomme`) est
+  encore proposée ; seuls les niveaux validés servent à la comparaison.
+- `Lomme, Lille` donne deux fois Lille dans la chaîne (commune, puis niveau sans type).
+- Le message « Rang … au niveau … » mêle le rang (compté depuis 0) et le numéro de niveau
+  (compté depuis 1).
 - Région écrite non comparée à la commune ; confiance plafonnée à « moyenne » après fusion par
   similarité ; horodatages non exportés ; suppression concurrente qui lève une `IntegrityError`.
 - Publication : le job de test ne tourne que sous Python 3.12 ; l'ordre des étiquettes
