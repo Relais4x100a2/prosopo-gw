@@ -1,11 +1,25 @@
 """Grouping of decomposed writings into clusters, one per real place (design § 6.2).
 
 Keys
-    A writing whose commune is resolved goes to the cluster ``insee:<code>``.
-    Any other writing is keyed by its normalized name (the commune or former
-    name element, else the first segment that is neither a code nor a
-    department, region or country) plus its department when one was written:
-    ``name:<key>`` or ``name:<key>|<department>``.
+    A writing that names a former commune (fusion, association, delegation:
+    ``Decomposition.historical``) goes to the cluster
+    ``historique:<former code>|<name key>`` (Hesdin and Hesdin-la-Forêt share
+    the code 62447, hence the name). Any other writing whose commune is
+    resolved goes to ``insee:<code>``. Any other writing is keyed by its
+    normalized name (the commune or former name element, else the first
+    segment that is neither a code nor a department, region or country) plus
+    its department when one was written: ``name:<key>`` or
+    ``name:<key>|<department>``.
+
+Partitions
+    The writings of one ``name:`` key are split when their levels contradict
+    (plan choice 7). Two chains are compatible when the normalized names of one
+    are a subsequence of the other's. Writings are taken from the longest chain
+    to the shortest (ties: the smallest writing), each into the first partition
+    whose first (longest) chain is compatible, else into a new partition. The
+    first partition keeps the id ``name:<key>``, the next ones get ``~2``,
+    ``~3``… in creation order. A key split in several partitions is neither
+    merged by similarity nor a similarity target.
 
 Confidence of a writing
     ``high``: resolved from a code (an INSEE code element equal to the commune,
@@ -18,33 +32,40 @@ Confidence of a writing
 Confidence of a cluster
     The best confidence among its members (one ``Roubaix, Nord`` lifts the
     ``Roubaix`` cluster to ``high``), except that a cluster which received a
-    writing by similarity is capped at ``medium``: the merge itself is never
-    more than a proposal. A cluster without INSEE code is always ``low``.
+    writing by similarity, or which carries an alternative reading, is capped
+    at ``medium``: neither the merge nor the reading is more than a proposal.
+    A cluster without INSEE code (``name:``, every partition) is always ``low``.
 
 Similarity
     Only writings with no candidate commune at all (a name the COG does not
     know) are merged by similarity. ``difflib.SequenceMatcher`` ratio on the
     normalized names, at least ``SIMILARITY_THRESHOLD``, inside a block: same
     first character and same department, or a department unknown on either
-    side. A writing goes to the best-scoring cluster of its block (resolved or
-    not, ties to the smallest id); unresolved groups are processed in id order.
-    Writings with several candidates (homonyms written without department, a
-    postal code alone…) keep their own ``low`` cluster: they are neither merged
-    nor merge targets.
+    side. A writing goes to the best-scoring cluster of its block (``insee:``,
+    ``historique:`` or unsplit ``name:``, ties to the smallest id); unresolved
+    groups are processed in id order. Writings with several candidates
+    (homonyms written without department, a postal code alone…) keep their
+    own ``low`` cluster: they are neither merged nor merge targets.
 
 Anchor
-    ``anchor_place_id`` is the already validated place whose INSEE code equals
-    the cluster's, else whose name key equals the cluster's (not across two
-    different INSEE codes, nor across two different departments when both
-    are known: the place's department may be a code or a name); never by
-    similarity alone. Several matches: the smallest ``place_id``.
+    A ``historique:`` cluster is anchored only on the validated place whose
+    ``historical`` equals ``<former code>|<name key>``. The other clusters
+    never anchor on a place that has a ``historical``; among the others,
+    ``anchor_place_id`` is the place whose INSEE code equals the cluster's,
+    else whose name key equals the cluster's (not across two different INSEE
+    codes, nor across two different departments when both are known: the
+    place's department may be a code or a name); never by similarity alone.
+    Several matches: the smallest ``place_id``.
 
-Proposal
-    For each element kind, the value most often written in the cluster (ties
-    to the smallest value); for a cluster without commune element, the most
-    frequent name segment as commune. When the INSEE code is known, the COG
-    fills ``commune`` (official name), ``department`` (code), ``region`` (name)
-    and ``insee_code``.
+Levels
+    The longest ``rule_levels`` chain of the cluster (ties: the most frequent
+    chain, then the smallest writing). For an ``insee:`` or ``historique:``
+    cluster only the writings resolved to it compete, so the chain is the one
+    the COG rebuilds for the commune (``rule_levels``), with the unrecognised
+    written levels of the chosen writing. ``postal_code`` is the most frequent
+    ``written_postal_code`` of the members (ties: the smallest value).
+    ``alternatives`` lists the distinct ``alternative_levels`` of the members,
+    in writing order.
 
 The output is deterministic: clusters sorted by id, writings sorted, whatever
 the order of the input mapping. Sorting for the validation queue (confidence,
@@ -63,7 +84,8 @@ from typing import Literal
 
 from ..refdata import RefData, normalize
 from .decompose import segments
-from .model import Decomposition, ElementKind
+from .levels import Level, alternative_levels, rule_levels, written_postal_code
+from .model import Decomposition
 
 Confidence = Literal["high", "medium", "low"]
 
@@ -88,9 +110,15 @@ class KnownPlace:
 
     place_id: str
     insee: str | None
+    """INSEE code of the commune level; ``None`` when the first validated
+    level is a ``commune_historique``."""
     name_key: str
+    """Name key of the first validated level."""
     department: str | None = None
     """As stored in the place (a code, or a name the COG may know)."""
+    historical: str | None = None
+    """``<former code>|<name key>`` when the first validated level is a
+    ``commune_historique``."""
 
 
 @dataclass
@@ -99,9 +127,11 @@ class Cluster:
 
     id: str
     writings: list[str]
-    proposal: dict[ElementKind, str]
+    levels: tuple[Level, ...]
+    postal_code: str | None
     confidence: Confidence
     anchor_place_id: str | None = None
+    alternatives: tuple[tuple[Level, ...], ...] = ()
 
 
 @dataclass
@@ -110,8 +140,11 @@ class _Group:
     key: str
     department: str | None
     insee: str | None
+    historical: str | None = None
     members: list[Decomposition] = field(default_factory=list)
-    names: list[str] = field(default_factory=list)
+    """Every writing of the cluster, similarity merges included."""
+    own: list[Decomposition] = field(default_factory=list)
+    """The writings keyed to this group (no similarity merge)."""
     merged: bool = False
 
 
@@ -175,33 +208,39 @@ def _majority(values: Iterable[str]) -> str | None:
     return min(counts.items(), key=lambda item: (-item[1], item[0]))[0]
 
 
-def _proposal(group: _Group, ref: RefData) -> dict[ElementKind, str]:
-    by_kind: dict[ElementKind, list[str]] = defaultdict(list)
-    for member in group.members:
-        for element in member.elements:
-            by_kind[element.kind].append(element.value)
-    proposal: dict[ElementKind, str] = {}
-    for kind in sorted(by_kind):
-        value = _majority(by_kind[kind])
-        if value is not None:
-            proposal[kind] = value
-    if "commune" not in proposal and "former_name" not in proposal:
-        name = _majority(n for n in group.names if n)
-        if name is not None:
-            proposal["commune"] = name
-    commune = ref.commune_by_insee(group.insee) if group.insee else None
-    if commune is not None:
-        proposal["commune"] = commune.name
-        proposal["department"] = commune.department
-        region = ref.region_name(commune.region)
-        if region is not None:
-            proposal["region"] = region
-        proposal["insee_code"] = commune.insee
-    return proposal
+def _levels(
+    group: _Group, chains: Mapping[str, tuple[Level, ...]]
+) -> tuple[Level, ...]:
+    contenders = group.own if group.insee is not None else group.members
+    counts = Counter(chains[m.writing] for m in contenders)
+    best = min(
+        contenders,
+        key=lambda m: (
+            -len(chains[m.writing]),
+            -counts[chains[m.writing]],
+            m.writing,
+        ),
+    )
+    return chains[best.writing]
+
+
+def _alternatives(group: _Group, ref: RefData) -> tuple[tuple[Level, ...], ...]:
+    found: list[tuple[Level, ...]] = []
+    for member in sorted(group.members, key=lambda m: m.writing):
+        chain = alternative_levels(member, ref)
+        if chain is not None and chain not in found:
+            found.append(chain)
+    return tuple(found)
 
 
 def _anchor(group: _Group, known: Mapping[str, KnownPlace], ref: RefData) -> str | None:
     places = sorted(known.values(), key=lambda p: p.place_id)
+    if group.historical is not None:
+        for place in places:
+            if place.historical == group.historical:
+                return place.place_id
+        return None
+    places = [place for place in places if place.historical is None]
     if group.insee is not None:
         for place in places:
             if place.insee == group.insee:
@@ -219,7 +258,7 @@ def _anchor(group: _Group, known: Mapping[str, KnownPlace], ref: RefData) -> str
     return None
 
 
-def _confidence(group: _Group, ref: RefData) -> Confidence:
+def _confidence(group: _Group, ref: RefData, alternatives: bool) -> Confidence:
     if group.insee is None:
         return "low"
     best: Confidence = "low"
@@ -227,9 +266,42 @@ def _confidence(group: _Group, ref: RefData) -> Confidence:
         level = _writing_confidence(member, ref)
         if _RANK[level] > _RANK[best]:
             best = level
-    if group.merged and best == "high":
+    if (group.merged or alternatives) and best == "high":
         return "medium"
     return best
+
+
+def _compatible(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """Whether one sequence of names is a subsequence of the other."""
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    rest = iter(long)
+    return all(name in rest for name in short)
+
+
+def _partitions(group: _Group, chains: Mapping[str, tuple[Level, ...]]) -> list[_Group]:
+    """Split a ``name:`` group whose levels contradict (plan choice 7)."""
+    names = {
+        m.writing: tuple(normalize(level.name) for level in chains[m.writing])
+        for m in group.members
+    }
+    ordered = sorted(group.members, key=lambda m: (-len(names[m.writing]), m.writing))
+    heads: list[tuple[str, ...]] = []
+    parts: list[_Group] = []
+    for member in ordered:
+        chain = names[member.writing]
+        index = next(
+            (i for i, head in enumerate(heads) if _compatible(head, chain)), None
+        )
+        if index is None:
+            index = len(parts)
+            heads.append(chain)
+            suffix = "" if index == 0 else f"~{index + 1}"
+            parts.append(
+                _Group(f"{group.id}{suffix}", group.key, group.department, None)
+            )
+        parts[index].members.append(member)
+        parts[index].own.append(member)
+    return parts
 
 
 def _length_range(size: int) -> range:
@@ -305,20 +377,29 @@ def build_clusters(
     known: Mapping[str, KnownPlace],
 ) -> list[Cluster]:
     """Group ``decompositions`` (keyed by writing) into clusters."""
-    groups: dict[str, _Group] = {}
+    chains = {
+        writing: rule_levels(decomposition, ref)
+        for writing, decomposition in decompositions.items()
+    }
+    keyed: dict[str, _Group] = {}
     frozen: set[str] = set()
     for writing in sorted(decompositions):
         decomposition = decompositions[writing]
-        name = ""
+        historical: str | None = None
         if decomposition.insee is not None:
             commune = ref.commune_by_insee(decomposition.insee)
-            group_id = f"insee:{decomposition.insee}"
-            key = name_key(commune.name) if commune else decomposition.insee
             department = commune.department if commune else None
             insee: str | None = decomposition.insee
+            former = decomposition.historical
+            if former is not None:
+                key = name_key(former.name)
+                historical = f"{former.insee}|{key}"
+                group_id = f"historique:{historical}"
+            else:
+                key = name_key(commune.name) if commune else decomposition.insee
+                group_id = f"insee:{decomposition.insee}"
         else:
-            name = _name_segment(decomposition, ref)
-            key = name_key(name)
+            key = name_key(_name_segment(decomposition, ref))
             department = _department(decomposition)
             group_id = (
                 f"name:{key}" if department is None else f"name:{key}|{department}"
@@ -326,10 +407,20 @@ def build_clusters(
             insee = None
             if decomposition.candidates:
                 frozen.add(group_id)
-        group = groups.setdefault(group_id, _Group(group_id, key, department, insee))
+        group = keyed.setdefault(
+            group_id, _Group(group_id, key, department, insee, historical)
+        )
         group.members.append(decomposition)
-        if insee is None:
-            group.names.append(name)
+        group.own.append(decomposition)
+
+    groups: dict[str, _Group] = {}
+    for group_id in sorted(keyed):
+        group = keyed[group_id]
+        parts = [group] if group.insee is not None else _partitions(group, chains)
+        for part in parts:
+            groups[part.id] = part
+            if len(parts) > 1 or group_id in frozen:
+                frozen.add(part.id)
 
     blocks = _Blocks()
     for group_id in sorted(groups):
@@ -348,20 +439,26 @@ def build_clusters(
             blocks.add(group)
             continue
         target.members.extend(group.members)
-        target.names.extend(group.names)
         target.merged = True
         final.setdefault(target.id, target)
 
     clusters = []
     for group_id in sorted(final):
         group = final[group_id]
+        alternatives = _alternatives(group, ref)
         clusters.append(
             Cluster(
                 id=group.id,
                 writings=sorted(m.writing for m in group.members),
-                proposal=_proposal(group, ref),
-                confidence=_confidence(group, ref),
+                levels=_levels(group, chains),
+                postal_code=_majority(
+                    code
+                    for member in group.members
+                    if (code := written_postal_code(member)) is not None
+                ),
+                confidence=_confidence(group, ref, bool(alternatives)),
                 anchor_place_id=_anchor(group, known, ref),
+                alternatives=alternatives,
             )
         )
     return clusters
