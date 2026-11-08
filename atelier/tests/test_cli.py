@@ -134,3 +134,17 @@ def test_port_already_in_use(
         assert run(argv, recorder) == 2
     assert f"Port {port} déjà utilisé" in capsys.readouterr().err
     assert recorder.served == []
+
+
+def test_worker_runs_with_the_served_app(tmp_path: Path, gw: Path) -> None:
+    recorder = Recorder()
+    assert (
+        run([str(gw), "--no-browser", "--data-dir", str(tmp_path / "d")], recorder) == 0
+    )
+    ((app, _),) = recorder.served
+    runtime = app.state.atelier.sources
+    assert runtime is not None
+    assert not runtime.worker.running
+    with TestClient(app, base_url="http://127.0.0.1"):
+        assert runtime.worker.running
+    assert not runtime.worker.running

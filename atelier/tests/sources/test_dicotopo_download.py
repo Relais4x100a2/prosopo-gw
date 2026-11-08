@@ -174,3 +174,25 @@ def test_raw_template_without_placeholder_is_ignored(
 ) -> None:
     monkeypatch.setenv(dl.RAW_ENV, "http://127.0.0.1:8000/all.xml")
     assert dl._raw_url("62") == dl.RAW_URL.replace("{dept}", "62")
+
+
+def test_index_clears_only_that_department_results(
+    tmp_path: Path, queue: SourceQueue
+) -> None:
+    from prosopo_gw_atelier.sources.base import LevelQuery, SourceCandidate
+
+    cache = tmp_path / "cache"
+    index = DicoTopoIndex(tmp_path / "dt.sqlite")
+    (cache / "dicotopo").mkdir(parents=True)
+    (cache / "dicotopo" / "DT62.xml").write_bytes((FIXTURES / "DT62.xml").read_bytes())
+    mine = LevelQuery("Fictimont", department="62").key()
+    other = LevelQuery("Fictimont", department="59").key()
+    found = [SourceCandidate(dl.DICOTOPO, "P1", "Fictimont")]
+    queue.store_result(dl.DICOTOPO, mine, found)
+    queue.store_result(dl.DICOTOPO, other, found)
+    queue.enqueue(dl.DICOTOPO, "index", "DT62", {}, 0)
+    job = queue.next_job()
+    assert job is not None
+    dl.handle_index(job, cache=cache, index=index, queue=queue)
+    assert queue.result(dl.DICOTOPO, mine) is None
+    assert queue.result(dl.DICOTOPO, other) == found

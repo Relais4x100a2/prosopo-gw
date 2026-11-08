@@ -408,6 +408,10 @@ class Worker:
             if not busy:
                 self._stop.wait(self.idle_interval)
 
+    @property
+    def running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return

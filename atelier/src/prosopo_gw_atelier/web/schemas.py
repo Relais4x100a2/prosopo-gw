@@ -121,6 +121,8 @@ class ClusterDetail(BaseModel):
     needs_manual_levels: bool
     alternatives: list[list[LevelModel]]
     historical_writings: dict[str, str]
+    pending_sources: list[str]
+    failed_sources: list[str]
     complements: list[Complement]
     writings: list[WritingOut]
 
@@ -283,4 +285,75 @@ class PrecisionClearIn(BaseModel):
 
 
 class PrecisionDecideOut(BaseModel):
+    entry_id: int | None
+
+
+class DicoTopoDepartment(BaseModel):
+    code: str
+    name: str
+    downloaded_at: str
+    articles: int
+    skipped: int
+
+
+class DicoTopoStatus(BaseModel):
+    coverage: list[str]
+    departments: list[DicoTopoDepartment]
+    api_enabled: bool
+
+
+class QueueError(BaseModel):
+    source: str
+    kind: str
+    key: str
+    error: str
+    attempts: int
+
+
+class QueueStatus(BaseModel):
+    counts: dict[str, dict[str, int]]
+    errors: list[QueueError]
+
+
+class SourcesOut(BaseModel):
+    dicotopo: DicoTopoStatus
+    queue: QueueStatus
+    attributions: list[str]
+
+
+class DownloadIn(BaseModel):
+    departments: list[str]
+
+
+class DownloadOut(BaseModel):
+    queued: list[str]
+
+
+class ApiToggleIn(BaseModel):
+    enabled: bool
+
+
+class ApiToggleOut(BaseModel):
+    api_enabled: bool
+
+
+class CacheClearIn(BaseModel):
+    source: str
+
+
+class CacheClearOut(BaseModel):
+    cleared: str
+
+
+class SourceProposalAcceptIn(BaseModel):
+    level: LevelModel
+
+
+class SourceProposalRefuseIn(BaseModel):
+    subject: str
+    source: str
+    identifier: str
+
+
+class SourceProposalRefuseOut(BaseModel):
     entry_id: int | None

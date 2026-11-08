@@ -336,6 +336,18 @@ class DicoTopoIndex:
             db.close()
         return {str(d): str(t) for d, t in rows}
 
+    def details(self) -> list[tuple[str, str, int, int]]:
+        """Indexed departments: ``(code, downloaded_at, articles, skipped)``."""
+        db = self._connect()
+        try:
+            rows = db.execute(
+                "SELECT department, downloaded_at, articles, skipped"
+                " FROM departments ORDER BY department"
+            ).fetchall()
+        finally:
+            db.close()
+        return [(str(d), str(t), int(a), int(k)) for d, t, a, k in rows]
+
     def lookup(self, key: str, department: str) -> list[Article]:
         """Articles of a department with a headword or form of this key.
 

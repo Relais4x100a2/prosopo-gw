@@ -22,6 +22,7 @@ from fastapi import FastAPI
 
 from .project import Project
 from .refdata import RefData, load_refdata
+from .sources import SourceRuntime
 from .store.paths import data_dir
 from .store.registry import PlaceRegistry
 from .web.app import create_app
@@ -117,7 +118,8 @@ def main(
         except Exception as exc:  # the parser's errors are not one family
             print(f"Impossible de lire {base} : {exc}", file=sys.stderr)
             return 1
-        app = create_app(project, registry, ref)
+        runtime = SourceRuntime.build(directory, ref)
+        app = create_app(project, registry, ref, sources=runtime)
         port = args.port if args.port is not None else free_port()
         url = f"http://{HOST}:{port}/"
         print(f"Atelier ouvert sur {url} (Ctrl+C pour arrêter)", flush=True)

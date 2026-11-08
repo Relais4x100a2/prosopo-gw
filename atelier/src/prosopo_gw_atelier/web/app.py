@@ -40,7 +40,8 @@ import json
 import re
 import threading
 from collections import Counter
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,9 @@ from ..places.precision import PrecisionStatus
 from ..project import ClusterState, ClusterView, PrecisionGroup, Project
 from ..refdata import RefData
 from ..refdata.arrondissements import name_of
+from ..sources import DICOTOPO, SourceRuntime
+from ..sources.base import SourceError
+from ..sources.dicotopo.download import remove_department, request_download
 from ..store.exchange import (
     Conflict,
     RegistryFormatError,
@@ -108,6 +112,16 @@ _FIXED_KINDS = {
     "deces": ("death", "Décès"),
     "mariage": ("marriage", "Mariage"),
 }
+
+ATTRIBUTIONS = [
+    "DicoTopo : dictionnaire topographique de la France, École nationale des "
+    "chartes et Comité des travaux historiques et scientifiques (CTHS), "
+    "licence CC BY-NC-ND 4.0 (usage non commercial, sans modification).",
+    "Source et conditions : https://github.com/chartes/dico-topo",
+]
+"""Credits shown on the Sources screen."""
+
+_SOURCES_OFF = "Les sources externes ne sont pas disponibles."
 
 RefKind = Literal["registry", "project"]
 
@@ -143,6 +157,7 @@ class AppState:
     undo: list[_Action] = field(default_factory=list)
     conflicts: dict[str, Conflict] = field(default_factory=dict)
     labels: _Labels | None = None
+    sources: SourceRuntime | None = None
 
 
 _PERIOD_LABELS = {
@@ -420,6 +435,8 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
             for chain in view.cluster.alternatives
         ],
         historical_writings=dict(view.historical_writings),
+        pending_sources=list(view.pending_sources),
+        failed_sources=list(view.failed_sources),
         complements=[
             schemas.Complement(text=text, occurrences=count)
             for text, count in sorted(complements.items(), key=lambda i: (-i[1], i[0]))
@@ -686,14 +703,40 @@ def _split_out(
 # -- app -----------------------------------------------------------------------
 
 
-def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastAPI:
-    """The atelier's web app over ``project`` and ``registry``."""
-    state = AppState(project, registry, ref)
+def create_app(
+    project: Project,
+    registry: PlaceRegistry,
+    ref: RefData,
+    *,
+    sources: SourceRuntime | None = None,
+    start_worker: bool = True,
+) -> FastAPI:
+    """The atelier's web app over ``project`` and ``registry``.
+
+    With ``sources`` the project is attached to the source queue; the worker
+    thread runs between the app's startup and shutdown only if ``start_worker``
+    (tests pass ``False`` and drive ``sources.worker.run_once()``).
+    """
+    state = AppState(project, registry, ref, sources=sources)
+    if sources is not None:
+        project.attach_sources(sources.queue, sources.sources)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if sources is not None and start_worker:
+            sources.start()
+        try:
+            yield
+        finally:
+            if sources is not None:
+                sources.stop()
+
     app = FastAPI(
         title="Atelier prosopo-gw",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.atelier = state
 
@@ -791,6 +834,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
     @app.get("/api/clusters/{cluster_id:path}")
     def get_cluster(cluster_id: str) -> schemas.ClusterDetail:
         with state.lock:
+            _cluster_or_404(project, cluster_id)
+            project.touch(cluster_id)
             return _detail(state, _cluster_or_404(project, cluster_id))
 
     @app.post("/api/clusters/{cluster_id:path}/validate")
@@ -942,6 +987,153 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 raise _error(409, _PROPOSAL_GONE) from None
             _push_correct(entry)
             return _place_out(registry.place(place_id))
+
+    # -- external sources ---------------------------------------------------
+
+    def _runtime() -> SourceRuntime:
+        if sources is None:
+            raise _error(503, _SOURCES_OFF)
+        return sources
+
+    def _queue_status(runtime: SourceRuntime) -> schemas.QueueStatus:
+        return schemas.QueueStatus(
+            counts={
+                name: {str(k): v for k, v in per.items()}
+                for name, per in runtime.queue.counts().items()
+            },
+            errors=[
+                schemas.QueueError(
+                    source=job.source,
+                    kind=job.kind,
+                    key=job.key,
+                    error=job.error or "",
+                    attempts=job.attempts,
+                )
+                for job in runtime.queue.errors()
+            ],
+        )
+
+    @app.get("/api/sources")
+    def get_sources() -> schemas.SourcesOut:
+        runtime = _runtime()
+        covered = runtime.coverage()  # may read the network once, then cached
+        return schemas.SourcesOut(
+            dicotopo=schemas.DicoTopoStatus(
+                coverage=covered,
+                departments=[
+                    schemas.DicoTopoDepartment(
+                        code=code,
+                        name=ref.department_name(code) or "",
+                        downloaded_at=at,
+                        articles=articles,
+                        skipped=skipped,
+                    )
+                    for code, at, articles, skipped in runtime.index.details()
+                ],
+                api_enabled=runtime.config.dicotopo_api,
+            ),
+            queue=_queue_status(runtime),
+            attributions=list(ATTRIBUTIONS),
+        )
+
+    @app.post("/api/sources/dicotopo/download")
+    def download_dicotopo(body: schemas.DownloadIn) -> schemas.DownloadOut:
+        runtime = _runtime()
+        try:
+            request_download(
+                runtime.queue, body.departments, covered=runtime.coverage()
+            )
+        except SourceError as exc:
+            raise _error(400, str(exc)) from None
+        return schemas.DownloadOut(queued=[d.strip().upper() for d in body.departments])
+
+    @app.delete("/api/sources/dicotopo/departments/{code}")
+    def delete_dicotopo_department(code: str) -> schemas.SourcesOut:
+        runtime = _runtime()
+        try:
+            remove_department(runtime.cache, runtime.index, code, queue=runtime.queue)
+        except SourceError as exc:
+            raise _error(400, str(exc)) from None
+        runtime.queue.clear_results(DICOTOPO, code.strip().upper())
+        return get_sources()
+
+    @app.put("/api/sources/dicotopo/api")
+    def set_dicotopo_api(body: schemas.ApiToggleIn) -> schemas.ApiToggleOut:
+        runtime = _runtime()
+        with state.lock:
+            runtime.set_api_enabled(body.enabled)
+            project.attach_sources(runtime.queue, runtime.sources)
+        return schemas.ApiToggleOut(api_enabled=runtime.config.dicotopo_api)
+
+    @app.post("/api/sources/queue/retry")
+    def retry_sources_queue() -> schemas.QueueStatus:
+        runtime = _runtime()
+        runtime.queue.retry_failed()
+        return _queue_status(runtime)
+
+    @app.post("/api/sources/cache/clear")
+    def clear_sources_cache(body: schemas.CacheClearIn) -> schemas.CacheClearOut:
+        runtime = _runtime()
+        if body.source not in runtime.sources:
+            raise _error(400, f"Source inconnue : {body.source!r}.")
+        with state.lock:
+            runtime.queue.clear(body.source)
+            project.attach_sources(runtime.queue, runtime.sources)
+        return schemas.CacheClearOut(cleared=body.source)
+
+    @app.post("/api/places/{place_id}/source-proposals/accept")
+    def accept_source_proposal(
+        place_id: str, body: schemas.SourceProposalAcceptIn
+    ) -> schemas.PlaceOut:
+        """Add a level proposed by a source to a place (validated)."""
+        model = body.level
+        level = Level(
+            rank=model.rank,
+            name=model.name.strip(),
+            written=_blank_to_none(model.written),
+            type=_blank_to_none(model.type),
+            identifier=_blank_to_none(model.identifier),
+            source=_blank_to_none(model.source),
+            start=_blank_to_none(model.start),
+            end=_blank_to_none(model.end),
+            latitude=model.latitude,
+            longitude=model.longitude,
+            nature=model.nature,
+            origin=model.origin,
+            status="validated",
+        )
+        if not level.name:
+            raise _error(400, "Le niveau proposé n'a pas de nom.")
+        with state.lock:
+            try:
+                entry = registry.add_level(place_id, level, project.project_id)
+            except KeyError:
+                raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
+            except ValueError as exc:
+                raise _error(400, str(exc)) from None
+            _push_correct(entry)
+            return _place_out(registry.place(place_id))
+
+    @app.post("/api/source-proposals/refuse")
+    def refuse_source_proposal(
+        body: schemas.SourceProposalRefuseIn,
+    ) -> schemas.SourceProposalRefuseOut:
+        """Remember that the user refused a source's proposal for a subject."""
+        prefix, _, rest = body.subject.partition(":")
+        if prefix not in ("place", "writing") or not rest:
+            raise _error(
+                400,
+                "Sujet invalide : « place:<identifiant> » ou « writing:<écriture> » "
+                "attendu.",
+            )
+        if not body.source.strip() or not body.identifier.strip():
+            raise _error(400, "La source et l'identifiant sont obligatoires.")
+        with state.lock:
+            entry = registry.refuse_source_proposal(
+                body.subject, body.source, body.identifier, project.project_id
+            )
+            _push_correct(entry)
+            return schemas.SourceProposalRefuseOut(entry_id=entry)
 
     # -- occurrences --------------------------------------------------------
 
