@@ -270,3 +270,50 @@ a.button:hover, button:hover:not(:disabled) { border-color: var(--accent); }
 .registry tr.undone td { color: var(--mute); }
 .registry tr.undone .state { margin-left: 6px; }
 .registry .place-id { margin-left: 6px; font-family: ui-monospace, monospace; }
+
+/* -- level chain editor ------------------------------------------------------ */
+.fields input[readonly] { background: #f3f2ee; color: var(--mute); }
+.card > .warning, .card > .notice { margin: 10px 0 0; }
+.chain { margin-top: 14px; }
+.levels { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.level {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.level input {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+}
+.level .level-name { flex: 2 1 180px; }
+.level .level-type { flex: 1 1 130px; }
+.level.proposed {
+  margin-left: 24px;
+  padding: 4px 8px;
+  background: #fbf6e9;
+  border: 1px dashed #e0c98a;
+  border-radius: 6px;
+}
+.pill {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--selected);
+  border-radius: 8px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.level-proposal, .level-buttons { display: inline-flex; gap: 4px; align-items: center; }
+.level-buttons { margin-left: auto; }
+button.small { font-size: 12px; padding: 2px 8px; }
+.chain-footer { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.chain-footer .postal { font-size: 11px; color: var(--mute); display: flex; gap: 6px; align-items: center; }
+.chain-footer .postal input {
+  width: 110px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+}

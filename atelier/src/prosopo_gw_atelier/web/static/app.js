@@ -1,5 +1,6 @@
 /*
- * Atelier prosopo-gw: place validation screen (design § 7), data export
+ * Atelier prosopo-gw: place validation screen (design § 7; a place is a chain
+ * of levels, edited row by row), data export
  * (§ 9) and the personal registry screen (§ 6.3: export, import, conflicts,
  * journal).
  *
@@ -21,12 +22,11 @@
     ["department", "Département"],
     ["region", "Région"],
     ["country", "Pays"],
-    ["former_name", "Ancien nom"],
+    ["historical_commune", "Commune historique"],
+    ["historical_insee", "Code INSEE historique"],
   ];
-  /** Fields always shown; the others only when the place or proposal has them. */
-  const ALWAYS_SHOWN = new Set([
-    "commune", "insee_code", "department", "region", "country", "former_name",
-  ]);
+  /** Fields always shown; the others only when the place has them. */
+  const ALWAYS_SHOWN = new Set(["commune", "insee_code", "department", "region", "country"]);
   const STATE_LABELS = {
     todo: "à traiter",
     validated: "validé",
@@ -36,7 +36,9 @@
   const STATE_ICONS = { todo: "○", validated: "✓", rejected: "✕", already_decided: "●" };
   const CONFIDENCE_LABELS = { high: "haute", medium: "moyenne", low: "faible" };
   const ORIGIN_LABELS = {
-    rule: "règle", manual: "manuel", reference: "référentiel", llm: "LLM",
+    written: "écrit", rule: "règle", manual: "manuel", insee: "INSEE",
+    paris: "Paris", dicotopo: "DicoTopo", geonames: "GeoNames", llm: "LLM",
+    reference: "référentiel",
   };
   const DECIDED_LABELS = { validated: "déjà validée", rejected: "déjà rejetée" };
   const FILTERS = [
@@ -50,14 +52,14 @@
     validate: "validation",
     split: "sortie d'écritures",
     reject: "rejet",
-    correct: "correction d'un champ",
+    correct: "correction des niveaux d'un lieu",
     import: "import du référentiel",
     resolve: "résolution d'un conflit",
   };
   const JOURNAL_ACTIONS = {
     validate: "Validation",
     reject: "Rejet",
-    correct: "Correction d'un champ",
+    correct: "Correction des niveaux d'un lieu",
     detach: "Écritures sorties d'un lieu",
     import: "Import du référentiel",
     resolve: "Conflit tranché : décision importée retenue",
@@ -77,7 +79,8 @@
     detail: null, // GET /api/clusters/{id}
     detailError: null, // message when the open cluster could not be loaded
     unchecked: new Set(), // writings of the open cluster to take out
-    drafts: {}, // field kind -> value typed in the form
+    chain: [], // level chain being edited, most precise first
+    postal: "", // postal code being edited
     notice: null, // {fromId, toId, writings, label} after a split
     flashId: null, // cluster to flash in the queue
     occurrences: null, // null: hidden; else Map writing -> list or Error
@@ -286,9 +289,7 @@
   // -- detail --------------------------------------------------------------------
 
   function shownFields(detail) {
-    return FIELDS.filter(
-      ([kind]) => ALWAYS_SHOWN.has(kind) || kind in detail.proposal || kind in detail.origins,
-    );
+    return FIELDS.filter(([kind]) => ALWAYS_SHOWN.has(kind) || kind in detail.view);
   }
 
   function renderNotice(detail) {
@@ -331,40 +332,294 @@
       parent
         ? el("div", { class: "sub", text: `Sorti du lieu « ${parent.label} ».` })
         : null,
+      renderView(detail),
+      renderHistorical(detail),
+      renderAlternatives(detail),
+      renderChain(detail),
+    );
+  }
+
+  /** French fixed-field view of the place, read only, with each origin. */
+  function renderView(detail) {
+    return el(
+      "div",
+      { class: "fields" },
+      shownFields(detail).map(([kind, label]) => {
+        const origin = detail.view_origins[kind];
+        return el(
+          "div",
+          null,
+          el(
+            "label",
+            { for: `field-${kind}` },
+            label,
+            origin ? el("span", { class: "origin", text: `(${ORIGIN_LABELS[origin] || origin})` }) : null,
+          ),
+          el("input", {
+            id: `field-${kind}`,
+            type: "text",
+            readonly: true,
+            tabindex: "-1",
+            value: detail.view[kind] ?? "",
+          }),
+        );
+      }),
+    );
+  }
+
+  function renderHistorical(detail) {
+    const writings = Object.entries(detail.historical_writings || {});
+    if (!writings.length) return null;
+    return el(
+      "div",
+      { class: "warning" },
+      el(
+        "span",
+        null,
+        "Ces écritures désignent une ancienne commune : ",
+        writings.map(([writing, name], index) => [
+          index ? ", " : "",
+          el("code", { text: writing }),
+          name ? ` (${name})` : "",
+        ]),
+        ". Séparez-les pour en faire un lieu distinct.",
+      ),
+      el("button", {
+        type: "button",
+        text: "Séparer ces écritures",
+        title: "Décocher ces écritures puis les sortir (S)",
+        onclick: () => {
+          for (const [writing] of writings) state.unchecked.add(writing);
+          renderDetail();
+        },
+      }),
+    );
+  }
+
+  function chainLabel(levels) {
+    return levels.map((level) => level.name).join(", ");
+  }
+
+  function renderAlternatives(detail) {
+    if (!(detail.alternatives || []).length) return null;
+    return el(
+      "div",
+      null,
+      detail.alternatives.map((chain) =>
+        el(
+          "div",
+          { class: "notice" },
+          el("span", { text: "Autre lecture possible :" }),
+          el("strong", { text: chainLabel(chain) }),
+          el("button", {
+            type: "button",
+            text: "Retenir cette lecture",
+            onclick: () => {
+              state.chain = chain.map(toDraftLevel);
+              renderDetail();
+            },
+          }),
+        ),
+      ),
+    );
+  }
+
+  // -- level chain editor -----------------------------------------------------
+
+  /** Copy of a level from the API, with what the editor needs to remember. */
+  function toDraftLevel(level) {
+    return { ...level, serverRank: level.rank, originalName: level.name, originalType: level.type };
+  }
+
+  function typeLabel(value) {
+    const found = ((state.project && state.project.level_types) || []).find((t) => t.value === value);
+    return found ? found.label : value || "";
+  }
+
+  /** The type behind what was typed: a known label or slug, else the text itself. */
+  function typeValue(text) {
+    const typed = text.trim();
+    if (!typed) return null;
+    const wanted = typed.toLowerCase();
+    const found = ((state.project && state.project.level_types) || []).find(
+      (t) => t.label.toLowerCase() === wanted || t.value === wanted,
+    );
+    return found ? found.value : typed;
+  }
+
+  function moveLevel(index, step) {
+    const target = index + step;
+    if (target < 0 || target >= state.chain.length) return;
+    const [level] = state.chain.splice(index, 1);
+    state.chain.splice(target, 0, level);
+    renderDetail();
+  }
+
+  function removeLevel(index) {
+    state.chain.splice(index, 1);
+    renderDetail();
+  }
+
+  function addLevel() {
+    state.chain.push(toDraftLevel({ rank: state.chain.length, name: "", type: null, origin: "manual", status: "validated" }));
+    renderDetail();
+    const names = document.querySelectorAll(".level-name");
+    if (names.length) names[names.length - 1].focus();
+  }
+
+  function levelButton(text, title, onclick, disabled) {
+    return el("button", { type: "button", class: "small", text, title, "aria-label": title, onclick, disabled });
+  }
+
+  function renderLevel(level, index) {
+    const proposed = level.status === "proposed";
+    const pill = el("span", { class: "pill", text: ORIGIN_LABELS[level.origin] || level.origin });
+    const last = state.chain.length - 1;
+    const row = el(
+      "li",
+      { class: proposed ? "level proposed" : "level" },
+      el("input", {
+        type: "text",
+        class: "level-name",
+        autocomplete: "off",
+        spellcheck: "false",
+        placeholder: "Nom du niveau",
+        "aria-label": `Nom du niveau ${index + 1}`,
+        value: level.name,
+        oninput: (event) => {
+          level.name = event.target.value;
+          touched(level, pill);
+        },
+      }),
+      el("input", {
+        type: "text",
+        class: "level-type",
+        autocomplete: "off",
+        spellcheck: "false",
+        placeholder: "Type",
+        list: "level-types",
+        "aria-label": `Type du niveau ${index + 1}`,
+        value: typeLabel(level.type),
+        oninput: (event) => {
+          level.type = typeValue(event.target.value);
+          touched(level, pill);
+        },
+      }),
+      pill,
+      proposed
+        ? el(
+            "span",
+            { class: "level-proposal" },
+            level.source ? el("span", { class: "sub", text: `proposé (${level.source})` }) : el("span", { class: "sub", text: "proposé" }),
+            el("button", { type: "button", class: "small", text: "Accepter", onclick: () => run(() => acceptLevel(level)) }),
+            el("button", { type: "button", class: "small", text: "Refuser", onclick: () => run(() => refuseLevel(level)) }),
+          )
+        : null,
+      el(
+        "span",
+        { class: "level-buttons" },
+        levelButton("↑", "Monter", () => moveLevel(index, -1), index === 0),
+        levelButton("↓", "Descendre", () => moveLevel(index, 1), index === last),
+        levelButton("✕", "Retirer ce niveau", () => removeLevel(index)),
+      ),
+    );
+    return row;
+  }
+
+  /** An edited name or type makes the level manual; refresh its pill. */
+  function touched(level, pill) {
+    const changed = level.name !== level.originalName || (level.type || null) !== (level.originalType || null);
+    level.origin = changed ? "manual" : level.originalOrigin ?? level.origin;
+    pill.textContent = ORIGIN_LABELS[level.origin] || level.origin;
+  }
+
+  function renderChain(detail) {
+    const types = (state.project && state.project.level_types) || [];
+    return el(
+      "div",
+      { class: "chain" },
+      el("h3", { text: "Niveaux du lieu, du plus précis au plus large" }),
+      el("datalist", { id: "level-types" }, types.map((t) => el("option", { value: t.label }))),
+      detail.needs_manual_levels
+        ? el("p", { class: "sub", text: "Aucun niveau n'a pu être déduit : saisissez au moins un niveau." })
+        : null,
+      el("ol", { class: "levels" }, state.chain.map(renderLevel)),
       el(
         "div",
-        { class: "fields" },
-        shownFields(detail).map(([kind, label]) => {
-          const id = `field-${kind}`;
-          const origin = detail.origins[kind];
-          return el(
-            "div",
-            null,
-            el(
-              "label",
-              { for: id },
-              label,
-              origin ? el("span", { class: "origin", text: `(${ORIGIN_LABELS[origin] || origin})` }) : null,
-            ),
-            el("input", {
-              id,
-              type: "text",
-              autocomplete: "off",
-              spellcheck: "false",
-              placeholder: "vide = supprimer",
-              value: state.drafts[kind] ?? "",
-              oninput: (event) => {
-                state.drafts[kind] = event.target.value;
-              },
-            }),
-          );
-        }),
+        { class: "chain-footer" },
+        el("button", { type: "button", text: "Ajouter un niveau", onclick: addLevel }),
+        el(
+          "label",
+          { class: "postal" },
+          "Code postal",
+          el("input", {
+            type: "text",
+            id: "field-postal",
+            autocomplete: "off",
+            spellcheck: "false",
+            value: state.postal,
+            oninput: (event) => {
+              state.postal = event.target.value;
+            },
+          }),
+        ),
       ),
       el("p", {
         class: "sub",
-        text: "Forme retenue : modifiez les champs puis validez. Un champ vidé est retiré du lieu.",
+        text: "Modifiez les niveaux puis validez. Un niveau retiré n'appartient plus au lieu.",
       }),
     );
+  }
+
+  /** Levels to send: validated ones and proposals left untouched. */
+  function chainBody() {
+    return state.chain.map((level, rank) => {
+      const { serverRank, originalName, originalType, originalOrigin, ...sent } = level;
+      return { ...sent, rank };
+    });
+  }
+
+  async function acceptLevel(level) {
+    const detail = state.detail;
+    if (detail.from_registry && detail.place_id) {
+      await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/accept`);
+      state.history.push(detail.id);
+      await refresh();
+      await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+      showMessage(`Niveau « ${level.name} » accepté.`, "info");
+      return;
+    }
+    // A rule proposal not stored yet: it just joins the chain being edited.
+    level.status = "validated";
+    renderDetail();
+  }
+
+  async function refuseLevel(level) {
+    const detail = state.detail;
+    if (detail.from_registry && detail.place_id) {
+      await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/refuse`);
+      state.history.push(detail.id);
+      await refresh();
+      await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+      showMessage(`Niveau « ${level.name} » refusé.`, "info");
+      return;
+    }
+    state.chain = state.chain.filter((other) => other !== level);
+    renderDetail();
+  }
+
+  /** Save the chain of a place already in the registry (PUT levels). */
+  async function saveLevels() {
+    const detail = state.detail;
+    if (!detail || !detail.from_registry || !detail.place_id) return;
+    await api("PUT", `/api/places/${encodeURIComponent(detail.place_id)}/levels`, {
+      levels: chainBody(),
+      postal_code: state.postal.trim() || null,
+    });
+    state.history.push(detail.id);
+    await refresh();
+    await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+    showMessage(`« ${detail.label || "Lieu"} » enregistré.`, "info");
   }
 
   function renderComplements(detail) {
@@ -456,6 +711,14 @@
       "div",
       { class: "actions" },
       el("button", { type: "button", class: "primary", text: "Valider", title: "Valider (V)", onclick: () => run(validate) }),
+      state.detail && state.detail.from_registry
+        ? el("button", {
+            type: "button",
+            text: "Enregistrer",
+            title: "Enregistrer les niveaux de ce lieu du référentiel",
+            onclick: () => run(saveLevels),
+          })
+        : null,
       el("button", { type: "button", id: "split-button", title: "Sortir (S)", onclick: () => run(splitOut) }),
       el("button", { type: "button", class: "danger", text: "Rejeter", title: "Pas un lieu exploitable (R)", onclick: () => run(reject) }),
       el("button", {
@@ -851,7 +1114,9 @@
     try {
       if (id !== null) {
         state.detail = await api("GET", clusterPath(id));
-        state.drafts = { ...state.detail.proposal };
+        state.chain = state.detail.levels.map(toDraftLevel);
+        for (const level of state.chain) level.originalOrigin = level.origin;
+        state.postal = state.detail.postal_code || "";
       }
     } catch (error) {
       // Shown in the detail pane; run() also shows it in the message.
@@ -919,13 +1184,15 @@
   async function validate() {
     const detail = state.detail;
     if (!detail) return;
-    const fields = {};
-    for (const [kind] of shownFields(detail)) fields[kind] = state.drafts[kind] ?? "";
     const writings = detail.writings.map((w) => w.text);
     const checked = writings.filter((w) => !state.unchecked.has(w));
     const taken = writings.filter((w) => state.unchecked.has(w));
     const next = nextAfterCurrent();
-    const result = await api("POST", clusterPath(detail.id, "validate"), { fields, checked });
+    const result = await api("POST", clusterPath(detail.id, "validate"), {
+      levels: chainBody(),
+      postal_code: state.postal.trim() || null,
+      checked,
+    });
     state.history.push(detail.id);
     const placeCluster = `place:${result.place_id}`;
     await refresh();
