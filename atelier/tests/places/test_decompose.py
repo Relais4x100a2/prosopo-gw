@@ -279,3 +279,24 @@ def test_split_arrondissement_forms():
         assert split_arrondissement(text) == (rest, number), text
     for text in ("Paris", "Lille 2025", "Mercy"):
         assert split_arrondissement(text) is None, text
+
+
+def test_words_around_an_ordinal_are_not_an_arrondissement(ref):
+    for writing in (
+        "Saint-Ier",
+        "Mix",
+        "Ivry",
+        "Merville 1er",
+        "Henri IV, Paris",
+        "rue Henri IV, Paris",
+        "Louis XIV, Paris",
+        "Lyon, 3e section",
+        "Paris, 1er étage",
+        "Paris, 2e rang",
+    ):
+        assert decompose(writing, ref).arrondissement is None, writing
+    assert decompose("Lyon, 3e section", ref).insee == "69123"
+    assert decompose("rue Henri IV, Paris", ref).insee == "75056"
+    assert decompose("Paris VII", ref).arrondissement == WrittenArrondissement(
+        "paris", 7, "number"
+    )

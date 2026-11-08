@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import cast
 
 from ..refdata import Former, NameMatch, RefData
 from ..refdata.arrondissements import (
@@ -274,6 +275,8 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
     found = False
     for text in written:
         token = None if is_code(text) else _arrondissement_token(text)
+        if token is not None and token[0] and not _names_a_city(token[0], ref):
+            token = None  # "Henri IV", "1er étage": the rest is not a city name
         if token is None:
             expanded.append(_Part(text))
             continue
@@ -286,9 +289,13 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
         result = _build(writing, expanded, ref, need_number=True)
         if result is not None:
             return result
-    result = _build(writing, parts, ref, need_number=False)
-    assert result is not None
-    return result
+    # Without ``need_number`` the build always yields a decomposition.
+    return cast(Decomposition, _build(writing, parts, ref, need_number=False))
+
+
+def _names_a_city(name: str, ref: RefData) -> bool:
+    """Tell whether ``name`` is the name of Paris, Lyon or Marseille."""
+    return any(city_of(m.commune.insee) for m in ref.communes_by_name(name))
 
 
 @dataclass(frozen=True)
