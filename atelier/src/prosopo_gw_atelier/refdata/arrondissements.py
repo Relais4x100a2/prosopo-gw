@@ -14,11 +14,9 @@ Creation dates, checked against public sources (2026-11-08):
   (archives-lyon.fr, dates_creation_arrondissements.pdf): 1st-5th by decree of
   24 March 1852; 6th by law of 17 July 1867; 7th by law of 8 March 1912; 8th by
   presidential ordinance of 9 February 1959; 9th by decree of 12 August 1964.
-  (The task brief gave 1867-03-08, 1912-07-08, 1959-07-12 and 1964-02-12; the
-  municipal archives contradict them, so their dates are used.)
 * Marseille: decree no. 46-2285 of 18 October 1946 divides the commune into
   sixteen arrondissements (Code general des collectivites territoriales,
-  art. D2513-1). The brief's 1946-03-12 is not supported by that text.
+  art. D2513-1).
 """
 
 from __future__ import annotations

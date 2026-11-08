@@ -132,10 +132,13 @@ L'onglet **Précisions** liste les occurrences dont l'arrondissement n'est pas t
 - **conflit** : le code, le numéro et la rue désignent deux arrondissements ;
 - **incertaine** : la date, ou l'intervalle d'une date approximative, touche 1859-1861
   (annexion de 1860), donc la numérotation d'avant ou d'après ne peut pas être choisie ;
+  ou bien le code désigne l'arrondissement actuel sur une occurrence d'avant 1860, ou
+  l'arrondissement de Lyon ou de Marseille n'existait pas encore à cette date ;
 - **ambiguë** : une rue traverse plusieurs arrondissements.
 
 Rien n'est choisi à votre place. Vous choisissez un candidat, ou « aucun arrondissement », et la
-décision est inscrite au journal et peut être annulée. Pour Lyon et Marseille, seuls le code et le
+décision est inscrite au journal ; elle peut être annulée, ou retirée avec « Revenir au calcul »
+(même après un redémarrage). Pour Lyon et Marseille, seuls le code et le
 numéro comptent ; pour Paris, la rue lue dans le complément (« 12 rue Saint-Honoré ») s'ajoute.
 
 La table des rues de Paris est livrée dans le paquet (`refdata/paris/`). Elle est dérivée de

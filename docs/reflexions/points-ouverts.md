@@ -114,8 +114,8 @@ sources, événements « Autre », organisations) reste dans :
 - Marseille 1946 (création des arrondissements actuels) traité à l'année près.
 - Un import dont le seul effet est de garder des précisions locales n'écrit pas d'entrée de
   journal.
-- Un groupe de précisions décidé ne peut être modifié qu'en annulant : pas de choix direct d'un
-  autre candidat.
+- Rue disparue listée dans un « 5e ancien » : rattachée au 5e arrondissement actuel (période après
+  1860) ; à vérifier sur des données réelles.
 
 ## 6. Moteur `core`
 
