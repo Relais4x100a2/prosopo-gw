@@ -819,6 +819,21 @@ def test_accept_and_refuse_proposal_routes(tmp_path: Path, ref: RefData) -> None
         assert client.post("/api/undo").status_code == 409
 
 
+def test_refusing_the_only_level_is_a_clear_409(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    place_id, _ = validated_roubaix(client)
+    only = Level(rank=0, name="Roubaix", origin="written", status="proposed")
+    registry.set_levels(place_id, [only], None, None, "p1")
+    before = registry.place(place_id)
+    response = client.post(f"/api/places/{place_id}/levels/0/refuse")
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Ce niveau est le seul du lieu : ajoutez-en un autre avant de le refuser."
+    )
+    assert registry.place(place_id) == before
+
+
 def test_undo_conflict_is_409(client: TestClient, registry: PlaceRegistry) -> None:
     client.post(cluster_url("name:en mer", "reject"))
     # Another session decides the same writing: the undo would overwrite it.

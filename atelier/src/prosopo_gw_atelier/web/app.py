@@ -820,13 +820,14 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             _push_correct(entry)
             return _place_out(registry.place(place_id))
 
-    def _proposal_or_error(place_id: str, rank: int) -> None:
+    def _proposal_or_error(place_id: str, rank: int) -> Place:
         place = _place_or_404(place_id)
         level = next((lv for lv in place.levels if lv.rank == rank), None)
         if level is None:
             raise _error(404, f"Ce lieu n'a pas de niveau de rang {rank}.")
         if level.status != "proposed":
             raise _error(409, f"Le niveau de rang {rank} n'est pas une proposition.")
+        return place
 
     @app.post("/api/places/{place_id}/levels/{rank}/accept")
     def accept_level(place_id: str, rank: int) -> schemas.PlaceOut:
@@ -846,7 +847,13 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
     def refuse_level(place_id: str, rank: int) -> schemas.PlaceOut:
         """Remove a proposed level of a place."""
         with state.lock:
-            _proposal_or_error(place_id, rank)
+            place = _proposal_or_error(place_id, rank)
+            if len(place.levels) == 1:
+                raise _error(
+                    409,
+                    "Ce niveau est le seul du lieu : ajoutez-en un autre "
+                    "avant de le refuser.",
+                )
             try:
                 entry = registry.refuse_proposal(place_id, rank, project.project_id)
             except KeyError:
