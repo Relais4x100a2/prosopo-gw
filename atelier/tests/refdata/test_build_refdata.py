@@ -7,6 +7,7 @@ them) and exercise the resolution of chained mergers.
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import sys
 from pathlib import Path
@@ -159,3 +160,56 @@ def test_communes_depuis_1943_is_optional(tmp_path: Path) -> None:
     assert builder.main(argv) == 0
     ref = load_refdata(tmp_path)
     assert [m.former_name for m in ref.communes_by_name("Teteghem")] == ["Téteghem"]
+
+
+def _history() -> dict[str, tuple[str, str, str, str]]:
+    cog = builder.read_communes(SOURCES / "v_commune_2026.csv")
+    movements = builder.read_source(SOURCES / "v_mvt_commune_2026.csv").records(
+        "MOD", "DATE_EFF", "TYPECOM_AV", "COM_AV", "LIBELLE_AV", "TYPECOM_AP", "COM_AP"
+    )
+    since = builder.read_source(SOURCES / "v_commune_depuis_1943.csv").records(
+        "TYPECOM", "COM", "LIBELLE", "DATE_FIN"
+    )
+    rows = builder.build_history(cog, movements, since)
+    return {
+        name: (old, current, nature, date) for name, old, current, nature, date in rows
+    }
+
+
+def test_history_associated_commune() -> None:
+    assert _history()["Lomme"] == ("59355", "59350", "associee", "2000-02-27")
+
+
+def test_history_delegated_commune_keeps_its_code_and_date() -> None:
+    history = _history()
+    assert history["Coudekerque-Village"] == (
+        "59154",
+        "59588",
+        "deleguee",
+        "2016-01-01",
+    )
+    assert history["Téteghem"] == ("59588", "59588", "deleguee", "2016-01-01")
+
+
+def test_history_merger_chain() -> None:
+    history = _history()
+    assert history["Ancienville"] == ("99001", "59512", "fusion", "1970-01-01")
+    assert history["Villemilieu"] == ("99002", "59512", "fusion", "1980-01-01")
+
+
+def test_history_rename_is_not_a_historical_commune() -> None:
+    assert _history()["Saint-Omer-en-Artois"] == (
+        "62765",
+        "62765",
+        "renommage",
+        "1962-01-01",
+    )
+
+
+def test_history_header(tmp_path: Path) -> None:
+    assert builder.main(_args(tmp_path)) == 0
+    with gzip.open(tmp_path / "historique.csv.gz", "rt", encoding="utf-8") as f:
+        assert (
+            f.readline().strip()
+            == "ancien_nom;ancien_insee;insee_actuel;nature;date_effet"
+        )

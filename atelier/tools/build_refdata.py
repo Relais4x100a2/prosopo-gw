@@ -175,14 +175,15 @@ class Cog:
 
     communes: dict[str, tuple[str, str, str]]  # insee -> (name, dep, reg)
     parent: dict[str, str]  # COMA/COMD/ARM code -> current commune
-    delegated: list[tuple[str, str]]  # (COMA/COMD name, current commune)
+    # (TYPECOM, code, name, COMPARENT) of every COMA/COMD row
+    former: list[tuple[str, str, str, str]]
 
 
 def read_communes(path: Path) -> Cog:
     table = read_source(path)
     communes: dict[str, tuple[str, str, str]] = {}
     parent: dict[str, str] = {}
-    delegated: list[tuple[str, str]] = []
+    former: list[tuple[str, str, str, str]] = []
     for row in table.records("TYPECOM", "COM", "DEP", "REG", "LIBELLE", "COMPARENT"):
         kind, code = row["TYPECOM"].upper(), row["COM"]
         if kind == "COM":
@@ -190,8 +191,8 @@ def read_communes(path: Path) -> Cog:
         elif kind in ("COMA", "COMD", "ARM") and row["COMPARENT"]:
             parent.setdefault(code, row["COMPARENT"])
             if kind != "ARM":
-                delegated.append((row["LIBELLE"], row["COMPARENT"]))
-    return Cog(communes, parent, delegated)
+                former.append((kind, code, row["LIBELLE"], row["COMPARENT"]))
+    return Cog(communes, parent, former)
 
 
 class Resolver:
@@ -228,23 +229,42 @@ def build_history(
     cog: Cog,
     movements: list[dict[str, str]],
     since_1943: list[dict[str, str]],
-) -> list[tuple[str, str, str]]:
-    """Return ``(former name, current INSEE code, effective date)`` rows."""
-    resolver = Resolver(cog, movements)
-    entries: dict[tuple[str, str], tuple[str, str]] = {}
+) -> list[tuple[str, str, str, str, str]]:
+    """Return ``(former name, former INSEE, current INSEE, nature, date)`` rows.
 
-    def add(name: str, insee: str | None, date: str) -> None:
+    ``nature`` is ``associee`` / ``deleguee`` when the pair (former code, name)
+    is a COMA / COMD row of the current COG, else ``renommage`` for a renaming
+    (movement ``MOD = 10``, or a past name under the commune's own code), else
+    ``fusion``. The date is that of the latest movement for the pair.
+    """
+    resolver = Resolver(cog, movements)
+    status = {
+        (code, normalize(name)): "associee" if kind == "COMA" else "deleguee"
+        for kind, code, name, _ in cog.former
+    }
+    # (normalized name, current code) -> (name, former code, nature, date)
+    entries: dict[tuple[str, str], tuple[str, str, str, str]] = {}
+
+    def add(
+        name: str, old_code: str, insee: str | None, date: str, renaming: bool
+    ) -> None:
         if not name or insee is None or insee not in cog.communes:
             return
         key = normalize(name)
         if key == normalize(cog.communes[insee][0]):
             return
+        nature = status.get((old_code, key)) or ("renommage" if renaming else "fusion")
         previous = entries.get((key, insee))
-        if previous is None or date > previous[1]:
-            entries[(key, insee)] = (previous[0] if previous else name, date)
+        if previous is None or date > previous[3]:
+            entries[(key, insee)] = (
+                previous[0] if previous else name,
+                old_code,
+                nature,
+                date,
+            )
 
-    for name, comparent in cog.delegated:
-        add(name, resolver.resolve(comparent), "")
+    for _, code, name, comparent in cog.former:
+        add(name, code, resolver.resolve(comparent), "", False)
     for row in movements:
         if row["TYPECOM_AV"].upper() != "COM":
             continue
@@ -254,13 +274,19 @@ def build_history(
         # of a split) keeps its own name: it is not a former name of another.
         if old_code in cog.communes and old_code != target:
             continue
-        add(row["LIBELLE_AV"], target, row["DATE_EFF"])
+        add(row["LIBELLE_AV"], old_code, target, row["DATE_EFF"], row["MOD"] == "10")
     for row in since_1943:
         if row["TYPECOM"].upper() != "COM" or not row["DATE_FIN"]:
             continue
-        add(row["LIBELLE"], resolver.resolve(row["COM"]), row["DATE_FIN"])
+        target = resolver.resolve(row["COM"])
+        add(row["LIBELLE"], row["COM"], target, row["DATE_FIN"], target == row["COM"])
 
-    return sorted((name, insee, date) for (_, insee), (name, date) in entries.items())
+    return [
+        (name, old_code, insee, nature, date)
+        for (_, insee), (name, old_code, nature, date) in sorted(
+            entries.items(), key=lambda item: (item[1][0], item[0][1])
+        )
+    ]
 
 
 def read_departments(path: Path) -> list[tuple[str, str, str]]:
@@ -350,7 +376,7 @@ def build(args: argparse.Namespace) -> None:
             [(code, *values) for code, values in sorted(cog.communes.items())],
         ),
         "historique.csv.gz": (
-            ("ancien_nom", "insee_actuel", "date_effet"),
+            ("ancien_nom", "ancien_insee", "insee_actuel", "nature", "date_effet"),
             build_history(cog, movements, since_1943),
         ),
         "departements.csv.gz": (
