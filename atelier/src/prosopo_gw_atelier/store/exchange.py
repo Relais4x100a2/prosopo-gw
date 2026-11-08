@@ -48,6 +48,13 @@ Precisions
     the incoming one differs (identical ones are skipped silently); an empty
     id is read as ``null``; a duplicate key is a format error.
 
+Refused proposals
+    The optional ``propositions_refusees`` list holds the source proposals the
+    user refused (``PlaceRegistry.refuse_source_proposal``), sorted by ``sujet``
+    (``place:<place_id>`` or ``writing:<text>``), ``source``, ``identifiant``. A
+    document without the key has none. On import the refusals absent locally are
+    applied, the others are skipped silently; a duplicate is a format error.
+
 Versions
     Version 2 is read as is. Version 1 (fixed ``fields`` per place) is still
     accepted: each place is converted by ``migrate.levels_from_v1`` with the
@@ -190,6 +197,10 @@ def export_registry(registry: PlaceRegistry) -> dict[str, Any]:
                 "project": d.project,
             }
             for d in registry.all_decisions()
+        ],
+        "propositions_refusees": [
+            {"sujet": subject, "source": source, "identifiant": identifier}
+            for subject, source, identifier in registry.all_refusals()
         ],
         "precisions": [
             {
@@ -409,9 +420,34 @@ def _parse_precision(index: int, raw: Any) -> PrecisionDecision:
     return PrecisionDecision(writing, complement, period, ids[0], ids[1], None, "")
 
 
+def _parse_refusals(raw: object) -> list[tuple[str, str, str]]:
+    if not isinstance(raw, list):
+        raise _fail("propositions_refusees must be a list")
+    refusals: list[tuple[str, str, str]] = []
+    for index, item in enumerate(raw):
+        where = f"propositions_refusees[{index}]"
+        if not isinstance(item, Mapping):
+            raise _fail(f"{where} must be an object")
+        refusal = (
+            _text(_get(item, "sujet", where), f"{where}.sujet"),
+            _text(_get(item, "source", where), f"{where}.source"),
+            _text(_get(item, "identifiant", where), f"{where}.identifiant"),
+        )
+        if refusal in refusals:
+            raise _fail(f"{where}: duplicate refusal {refusal!r}")
+        refusals.append(refusal)
+    return refusals
+
+
 def _parse(
     data: object, local_places: set[str], ref: RefData | None
-) -> tuple[str, dict[str, Place], list[Decision], list[PrecisionDecision]]:
+) -> tuple[
+    str,
+    dict[str, Place],
+    list[Decision],
+    list[PrecisionDecision],
+    list[tuple[str, str, str]],
+]:
     if not isinstance(data, Mapping):
         raise _fail("the document must be a JSON object")
     fmt = _get(data, "format", "document")
@@ -435,6 +471,7 @@ def _parse(
     raw_precisions = data.get("precisions", [])
     if not isinstance(raw_precisions, list):
         raise _fail("precisions must be a list")
+    refusals = _parse_refusals(data.get("propositions_refusees", []))
     precisions: list[PrecisionDecision] = []
     seen_keys: set[tuple[str, str, str]] = set()
     for index, raw in enumerate(raw_precisions):
@@ -473,7 +510,7 @@ def _parse(
                 f"writings[{index}]: place_id {pid!r} is neither in the document "
                 "nor in the registry"
             )
-    return exported_at, places, writings, precisions
+    return exported_at, places, writings, precisions, refusals
 
 
 # -- import ---------------------------------------------------------------
@@ -567,7 +604,11 @@ def _import_once(
     registry: PlaceRegistry, data: object, ref: RefData | None
 ) -> ImportResult:
     local_places = {place.place_id for place in registry.places()}
-    exported_at, places, incoming, precisions = _parse(data, local_places, ref)
+    exported_at, places, incoming, precisions, refusals = _parse(
+        data, local_places, ref
+    )
+    known_refusals = set(registry.all_refusals())
+    new_refusals = [r for r in refusals if r not in known_refusals]
     local = registry.decisions(d.writing for d in incoming)
     known_precisions = registry.precision_decisions()
     new_precisions = [
@@ -619,6 +660,14 @@ def _import_once(
         )
         for p in new_precisions
     )
+    changes.extend(
+        RowChange(
+            "refused_proposals",
+            {"subject": subject, "source": source, "identifier": identifier},
+            {"project": None, "decided_at": now},
+        )
+        for subject, source, identifier in new_refusals
+    )
     relied_on = needed - set(created)
 
     def plan_holds() -> None:
@@ -631,6 +680,8 @@ def _import_once(
                 (p.writing, p.complement, p.period) in current for p in new_precisions
             ):
                 raise _PlanOutdated
+        if new_refusals and known_refusals != set(registry.all_refusals()):
+            raise _PlanOutdated
         if any(_known(registry, place_id) for place_id in created):
             raise _PlanOutdated
         if not all(_known(registry, place_id) for place_id in relied_on):

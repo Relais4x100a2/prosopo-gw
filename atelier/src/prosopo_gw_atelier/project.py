@@ -124,6 +124,26 @@ Splits
     holding the most of those writings (ties to the smallest id); with none,
     the split is shown at top level (``parent_id=None``).
 
+Source proposals
+    ``attach_sources(queue, sources)`` connects the background queue of the
+    external sources (DicoTopo). The project then enqueues one ``match`` job per
+    query of every cluster (``dicotopo.queries_for`` on the cluster's chain, for
+    each of its writings; priority: the occurrences of the cluster) whose result
+    is not cached, at attach, at ``reload`` and when a view meets a query not yet
+    enqueued. ``touch(cluster_id)`` raises the priority of the queries of the
+    cluster the user opens. When every query of a source has its (possibly empty)
+    result, ``proposals`` is laid over the cluster's chain: ``cluster.levels``
+    then holds the proposed levels (``status="proposed"``, ``origin="dicotopo"``)
+    and ``cluster.alternatives`` the whole-chain readings, after the cluster's own.
+    ``pending_sources`` names the sources still awaited. Nothing is written to
+    the registry: validating a proposal is ``add_level`` / ``set_levels`` and
+    refusing it ``refuse_source_proposal`` (subject ``place:<place_id>`` for a
+    place, else ``writing:<text>`` for each writing of the cluster); a refused
+    ``(source, identifier)`` is left out of the candidates before the proposals
+    are computed, for every subject of the cluster. Results are cached per
+    cluster once complete, until a reload, attach or change of the cluster, its
+    chain or its refusals; a cleared queue result is seen after a reload.
+
 Order of ``clusters()``
     Top-level clusters by state (``todo``, ``already_decided``, ``validated``,
     ``rejected``), confidence (high first), occurrences (descending), then id;
@@ -137,7 +157,7 @@ import sqlite3
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -162,6 +182,11 @@ from .places.precision import Candidate, Precision, PrecisionStatus, precise
 from .refdata import RefData
 from .refdata.arrondissements import level_name
 from .refdata.paris_table import ParisTable, load_paris_table
+from .sources.base import LevelQuery, Source, SourceCandidate
+from .sources.dicotopo.source import DICOTOPO
+from .sources.dicotopo.source import proposals as dicotopo_proposals
+from .sources.dicotopo.source import queries_for as dicotopo_queries
+from .sources.queue import SourceQueue, match_payload
 from .store.registry import (
     Decision,
     PlaceRegistry,
@@ -207,6 +232,17 @@ PRAGMA user_version = 2;
 """,
 }
 
+_QueriesFor = Callable[[Sequence[Level], Decomposition], list[LevelQuery]]
+_Proposals = Callable[
+    [Sequence[Level], Sequence[SourceCandidate]],
+    tuple[tuple[Level, ...], tuple[tuple[Level, ...], ...]],
+]
+# source name -> (queries of a chain, proposals from the candidates).
+_ADAPTERS: dict[str, tuple[_QueriesFor, _Proposals]] = {
+    DICOTOPO: (dicotopo_queries, dicotopo_proposals),
+}
+_TOUCH_PRIORITY = 10**9
+
 _PLACE = "place:"
 _REJECTED = "rejected:"
 _SPLIT = "split:"
@@ -242,6 +278,13 @@ class ClusterView:
     historical_writings: dict[str, str] = field(default_factory=dict)
     """Writing -> the other commune (former or current) it names, when the
     place mixes communes (see the module docstring)."""
+    pending_sources: tuple[str, ...] = ()
+    """Sources whose result is still awaited for this cluster."""
+
+    @property
+    def alternatives(self) -> tuple[tuple[Level, ...], ...]:
+        """Whole-chain readings: the cluster's own, then the sources'."""
+        return self.cluster.alternatives
 
     @property
     def needs_manual_levels(self) -> bool:
@@ -292,6 +335,13 @@ class _Split:
     parent_id: str
     writings: tuple[str, ...]
     parent_writings: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class _Overlay:
+    levels: tuple[Level, ...]
+    alternatives: tuple[tuple[Level, ...], ...]
+    pending: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -364,6 +414,11 @@ class Project:
         self._paris_table = paris_table
         self._precisions: tuple[object, list[OccurrencePrecision]] | None = None
         self._raw_precisions: tuple[object, list[PrecisionGroup]] | None = None
+        self._queue: SourceQueue | None = None
+        self._sources: dict[str, Source] = {}
+        self._enqueued: set[tuple[str, str]] = set()
+        self._overlays: dict[object, _Overlay] = {}
+        self._queries: dict[str, list[tuple[str, LevelQuery]]] = {}
         self.gw_changed = False
         self.tables = []
         self.writings = {}
@@ -411,6 +466,38 @@ class Project:
             self._cache = None
             self._precisions = None
             self._raw_precisions = None
+            self._overlays = {}
+            self._enqueued = set()
+            if self._queue is not None:
+                self._views()
+
+    def attach_sources(self, queue: SourceQueue, sources: Mapping[str, Source]) -> None:
+        """Connect the source queue (module docstring) and enqueue the matches."""
+        with self._lock:
+            self._queue = queue
+            self._sources = dict(sources)
+            self._overlays = {}
+            self._enqueued = set()
+            self._views()
+
+    def touch(self, cluster_id: str) -> None:
+        """The user opens ``cluster_id``: match its queries first."""
+        with self._lock:
+            queue = self._queue
+            if queue is None:
+                return
+            self._views()
+            for source, query in self._queries.get(cluster_id, []):
+                key = query.key()
+                if queue.result(source, key) is not None:
+                    continue
+                if (source, key) not in self._enqueued:
+                    queue.enqueue(
+                        source, "match", key, match_payload(query), _TOUCH_PRIORITY
+                    )
+                    self._enqueued.add((source, key))
+                else:
+                    queue.bump(source, key, _TOUCH_PRIORITY)
 
     # -- queries --------------------------------------------------------------
 
@@ -641,6 +728,11 @@ class Project:
         decisions = self._registry.decisions(self._decompositions)
         built = self._built(decisions)
         places = {place.place_id: place for place in self._registry.places()}
+        refusals: dict[str, set[tuple[str, str]]] = defaultdict(set)
+        for subject, source, identifier in self._registry.all_refusals():
+            refusals[subject].add((source, identifier))
+        overlays: dict[object, _Overlay] = {}
+        queries: dict[str, list[tuple[str, LevelQuery]]] = {}
         views = []
         for item in built:
             cluster = item.cluster
@@ -654,6 +746,18 @@ class Project:
                 place = places[place_id]
                 levels, postal_code = place.levels, place.postal_code
                 historical = self._historical_writings(cluster.writings, levels)
+            occurrences = sum(
+                len(self.writings[w].occurrences) for w in cluster.writings
+            )
+            subjects = (
+                [f"{_PLACE}{place_id}"]
+                if place_id is not None
+                else [f"writing:{w}" for w in cluster.writings]
+            )
+            refused = frozenset().union(*(refusals[s] for s in subjects))
+            overlay = self._overlay(
+                cluster, levels, occurrences, refused, overlays, queries
+            )
             state: ClusterState
             if any(d is None for d in found):
                 state = "todo"
@@ -668,21 +772,80 @@ class Project:
                     cluster=replace(
                         cluster,
                         writings=list(cluster.writings),
-                        levels=levels,
+                        levels=overlay.levels,
                         postal_code=postal_code,
+                        alternatives=overlay.alternatives,
                     ),
                     state=state,
-                    occurrences=sum(
-                        len(self.writings[w].occurrences) for w in cluster.writings
-                    ),
+                    occurrences=occurrences,
                     parent_id=item.parent_id,
                     provisional_name=item.provisional_name,
                     place_id=place_id,
                     from_registry=place_id is not None,
                     historical_writings=historical,
+                    pending_sources=overlay.pending,
                 )
             )
+        self._overlays = overlays
+        self._queries = queries
         return views
+
+    def _overlay(
+        self,
+        cluster: Cluster,
+        levels: tuple[Level, ...],
+        occurrences: int,
+        refused: frozenset[tuple[str, str]],
+        overlays: dict[object, _Overlay],
+        queries: dict[str, list[tuple[str, LevelQuery]]],
+    ) -> _Overlay:
+        """The chain and alternatives of a cluster with the sources' proposals."""
+        plain = _Overlay(levels, cluster.alternatives, ())
+        queue = self._queue
+        if queue is None or not levels:
+            return plain
+        key = (cluster.id, levels, tuple(cluster.writings), refused)
+        cached = self._overlays.get(key)
+        if cached is not None:
+            overlays[key] = cached
+            return cached
+        chain, alternatives = levels, cluster.alternatives
+        pending: list[str] = []
+        asked: list[tuple[str, LevelQuery]] = []
+        for name, source_adapter in _ADAPTERS.items():
+            if name not in self._sources:
+                continue
+            wanted: dict[str, LevelQuery] = {}
+            for writing in cluster.writings:
+                for query in source_adapter[0](levels, self._decompositions[writing]):
+                    wanted.setdefault(query.key(), query)
+            candidates: list[SourceCandidate] = []
+            waiting = False
+            for query_key, query in wanted.items():
+                asked.append((name, query))
+                found = queue.result(name, query_key)
+                if found is None:
+                    waiting = True
+                    if (name, query_key) not in self._enqueued:
+                        queue.enqueue(
+                            name, "match", query_key, match_payload(query), occurrences
+                        )
+                        self._enqueued.add((name, query_key))
+                else:
+                    candidates += found
+            if waiting:
+                pending.append(name)
+                continue
+            usable = [c for c in candidates if (name, c.identifier) not in refused]
+            proposed, readings = source_adapter[1](chain, usable)
+            if proposed:
+                chain = proposed
+            alternatives = alternatives + readings
+        queries[cluster.id] = asked
+        result = _Overlay(chain, alternatives, tuple(pending))
+        if not pending:
+            overlays[key] = result
+        return result
 
     def _historical_writings(
         self, writings: Sequence[str], levels: Sequence[Level]

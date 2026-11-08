@@ -319,10 +319,10 @@ def test_known_places_skip_historical_commune_without_code(
     assert registry.known_places() == []
 
 
-def test_new_registry_is_version_3(tmp_path: Path) -> None:
+def test_new_registry_is_version_4(tmp_path: Path) -> None:
     PlaceRegistry(tmp_path / "r.sqlite").close()
     con = sqlite3.connect(tmp_path / "r.sqlite")
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master")}
     assert {"place_levels", "place_attributes", "precisions"} <= tables
     assert "place_fields" not in tables
@@ -689,7 +689,7 @@ def test_creates_missing_file_and_parent_dirs(tmp_path: Path) -> None:
         assert reg.journal() == []
     assert path.exists()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -707,9 +707,9 @@ def test_reopen_keeps_data(tmp_path: Path) -> None:
 def test_newer_schema_version_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "ref.sqlite"
     con = sqlite3.connect(path)
-    con.execute("PRAGMA user_version = 4")
+    con.execute("PRAGMA user_version = 5")
     con.close()
-    with pytest.raises(SchemaVersionError, match="version 4"):
+    with pytest.raises(SchemaVersionError, match="version 5"):
         PlaceRegistry(path)
 
 
@@ -862,3 +862,89 @@ def test_empty_ids_store_the_same_as_none(registry: PlaceRegistry) -> None:
 def test_clear_missing_precision_writes_nothing(registry: PlaceRegistry) -> None:
     assert registry.clear_precision("Paris", None, "", "p") is None
     assert registry.journal() == []
+
+
+# --- refused source proposals, add_level, schema 4 ------------------------------
+
+
+def test_refuse_then_undo(registry: PlaceRegistry) -> None:
+    entry = registry.refuse_source_proposal("writing:Fictimont", "dicotopo", "P1", "p")
+    assert entry is not None
+    assert registry.refused("writing:Fictimont") == {("dicotopo", "P1")}
+    assert registry.refused("writing:Autre") == set()
+    assert (
+        registry.refuse_source_proposal("writing:Fictimont", "dicotopo", "P1", "p")
+        is None
+    )
+    assert registry.journal(1)[0].action == "correct"
+    registry.undo(entry)
+    assert registry.refused("writing:Fictimont") == set()
+
+
+def test_schema3_file_upgraded_to_4(tmp_path: Path) -> None:
+    path = tmp_path / "r.sqlite"
+    with PlaceRegistry(path) as reg:
+        reg.validate(["Roubaix"], ROUBAIX, None, None, "p")
+    con = sqlite3.connect(path)
+    con.execute("DROP TABLE refused_proposals")
+    con.execute("PRAGMA user_version = 3")
+    con.commit()
+    con.close()
+    with PlaceRegistry(path) as reg:
+        assert reg.refused("x") == set()
+        reg.refuse_source_proposal("x", "dicotopo", "P1", "p")
+        assert len(reg.places()) == 1
+    con = sqlite3.connect(path)
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 4
+    con.close()
+
+
+def test_add_level_renumbers(registry: PlaceRegistry) -> None:
+    place = registry.validate(["Roubaix"], ROUBAIX, None, None, "p").place_id
+    hamlet = Level(
+        0,
+        "Le Fictibois",
+        type="lieu_dit",
+        identifier="P7",
+        origin="dicotopo",
+        status="proposed",
+    )
+    entry = registry.add_level(place, hamlet, "p")
+    assert entry is not None
+    levels = registry.place(place).levels
+    assert [(lv.rank, lv.name, lv.status) for lv in levels] == [
+        (0, "Le Fictibois", "validated"),
+        (1, "Roubaix", "validated"),
+        (2, "Nord", "validated"),
+    ]
+    assert registry.add_level(place, levels[0], "p") is None
+    registry.undo(entry)
+    assert registry.place(place).levels == ROUBAIX
+    with pytest.raises(ValueError):
+        registry.add_level(place, Level(9, "X", origin="manual"), "p")
+    with pytest.raises(KeyError):
+        registry.add_level("nope", hamlet, "p")
+
+
+def test_add_level_replaces_the_written_level_it_makes_precise(
+    registry: PlaceRegistry,
+) -> None:
+    written = (
+        Level(0, "Fictimont", origin="written"),
+        Level(1, "Roubaix", type="commune", identifier="59512", origin="rule"),
+    )
+    place = registry.validate(["Fictimont"], written, None, None, "p").place_id
+    typed = Level(
+        0,
+        "Fictimont",
+        type="lieu_dit",
+        identifier="P2",
+        origin="dicotopo",
+        status="proposed",
+    )
+    registry.add_level(place, typed, "p")
+    levels = registry.place(place).levels
+    assert [(lv.name, lv.type, lv.status) for lv in levels] == [
+        ("Fictimont", "lieu_dit", "validated"),
+        ("Roubaix", "commune", "validated"),
+    ]

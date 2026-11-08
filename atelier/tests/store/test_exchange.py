@@ -1112,3 +1112,35 @@ def test_duplicate_precision_is_a_format_error(target: PlaceRegistry) -> None:
     }
     with pytest.raises(RegistryFormatError, match="duplicate"):
         import_registry(target, data)
+
+
+def test_export_import_refused_proposals(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    source.refuse_source_proposal("writing:Fictimont", "dicotopo", "P2", "p")
+    source.refuse_source_proposal("place:abc", "dicotopo", "P1", "p")
+    data = json.loads(json.dumps(export_registry(source)))
+    assert data["propositions_refusees"] == [
+        {"sujet": "place:abc", "source": "dicotopo", "identifiant": "P1"},
+        {"sujet": "writing:Fictimont", "source": "dicotopo", "identifiant": "P2"},
+    ]
+    assert import_registry(target, data).entry_id is not None
+    assert target.all_refusals() == source.all_refusals()
+    assert import_registry(target, data).entry_id is None
+    target.undo(target.journal()[0].entry_id)
+    assert target.all_refusals() == []
+
+
+def test_import_without_refusals_key_and_bad_ones(target: PlaceRegistry) -> None:
+    base = {
+        "format": FORMAT,
+        "version": 2,
+        "exported_at": "x",
+        "places": [],
+        "writings": [],
+    }
+    assert import_registry(target, base).entry_id is None
+    row = {"sujet": "writing:a", "source": "dicotopo", "identifiant": "P1"}
+    for bad in ("x", [1], [row, row], [{"sujet": "a"}]):
+        with pytest.raises(RegistryFormatError):
+            import_registry(target, {**base, "propositions_refusees": bad})

@@ -81,7 +81,7 @@ _ORIGINS: dict[str, LevelOrigin] = {
 }
 # place_attributes admits no ``llm`` origin: an LLM postal code becomes ``rule``.
 _POSTAL_ORIGINS: dict[str, LevelOrigin] = {**_ORIGINS, "llm": "rule"}
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Current schema version of the registry file (re-exported by ``registry``)."""
 
 _LEVEL_COLUMNS = (

@@ -1,4 +1,4 @@
--- Personal place registry (design § 6.3), schema version 3.
+-- Personal place registry (design § 6.3), schema version 4.
 -- Applied by PlaceRegistry on a database whose user_version is 0, and replayed
 -- on a database of an older version 2 or more (only CREATE ... IF NOT EXISTS).
 
@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS precisions (
     PRIMARY KEY (writing, complement, period)
 );
 
+-- Source proposals the user refused, per subject (``place:<id>`` or
+-- ``writing:<text>``), source and proposed article identifier.
+CREATE TABLE IF NOT EXISTS refused_proposals (
+    subject    TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    identifier TEXT NOT NULL,
+    project    TEXT,
+    decided_at TEXT NOT NULL,
+    PRIMARY KEY (subject, source, identifier)
+);
+
 -- Append-only: rows are never deleted, only flagged undone.
 CREATE TABLE IF NOT EXISTS journal (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,4 +84,4 @@ CREATE TABLE IF NOT EXISTS journal (
     undone   INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1))
 );
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;

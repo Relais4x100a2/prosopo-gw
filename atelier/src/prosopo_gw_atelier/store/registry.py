@@ -116,6 +116,10 @@ _TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("writing", "complement", "period"),
         ("arrondissement_id", "quartier_id", "project", "decided_at"),
     ),
+    "refused_proposals": (
+        ("subject", "source", "identifier"),
+        ("project", "decided_at"),
+    ),
 }
 _ORDER = list(_TABLES)
 _TABLE_LABELS = {
@@ -124,6 +128,7 @@ _TABLE_LABELS = {
     "place_attributes": "le code postal du lieu",
     "writings": "une écriture",
     "precisions": "une précision d'arrondissement",
+    "refused_proposals": "un refus de proposition",
 }
 """What a journaled table holds, for the French undo conflict message."""
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
@@ -385,6 +390,25 @@ class PlaceRegistry:
             ).fetchall()
         return {(r[0], r[1], r[2]): PrecisionDecision(*r) for r in rows}
 
+    def refused(self, subject: str) -> set[tuple[str, str]]:
+        """``(source, identifier)`` of the proposals refused for ``subject``
+        (``place:<place_id>`` or ``writing:<text>``)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT source, identifier FROM refused_proposals WHERE subject = ?",
+                (subject,),
+            ).fetchall()
+        return {(r[0], r[1]) for r in rows}
+
+    def all_refusals(self) -> list[tuple[str, str, str]]:
+        """Every refusal as ``(subject, source, identifier)``, sorted."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT subject, source, identifier FROM refused_proposals "
+                "ORDER BY subject, source, identifier"
+            ).fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
     def all_decisions(self) -> list[Decision]:
         """Every decision, sorted by writing (for the registry export)."""
         with self._lock:
@@ -625,6 +649,70 @@ class PlaceRegistry:
             changes = self._level_changes(place_id, kept, len(levels))
             return self._record(
                 "correct", project, changes, {"place_id": place_id, "rank": rank}
+            )
+
+    def add_level(self, place_id: str, level: Level, project: str) -> int | None:
+        """Insert ``level`` as a validated level of a place, at ``level.rank``
+        (``correct``), and renumber the levels after it.
+
+        The level is validated whatever its status. If the level now at that rank
+        has the same name key and is untyped (the written level the new one makes
+        precise) or of the same type and identifier, it is replaced instead of
+        duplicated. ``KeyError`` if the place is unknown, ``ValueError`` if the
+        rank is beyond the end of the chain or the chain is invalid. ``None`` if
+        the chain does not change.
+        """
+        with self._transaction():
+            if not self._place_exists(place_id):
+                raise KeyError(place_id)
+            levels = list(self._levels_by_place(place_id).get(place_id, ()))
+            previous = len(levels)
+            if not 0 <= level.rank <= len(levels):
+                raise ValueError(
+                    f"rank {level.rank} is outside the chain of place {place_id}"
+                )
+            new = replace(level, status="validated")
+            at = levels[level.rank] if level.rank < len(levels) else None
+            if (
+                at is not None
+                and name_key(at.name) == name_key(new.name)
+                and (
+                    at.type is None
+                    or (at.type, at.identifier) == (new.type, new.identifier)
+                )
+            ):
+                levels[level.rank] = new
+            else:
+                levels.insert(level.rank, new)
+            kept = renumber(levels)
+            check_chain(kept)
+            changes = self._level_changes(place_id, kept, previous)
+            return self._record(
+                "correct", project, changes, {"place_id": place_id, "rank": level.rank}
+            )
+
+    def refuse_source_proposal(
+        self, subject: str, source: str, identifier: str, project: str
+    ) -> int | None:
+        """Remember that the user refused ``identifier`` of ``source`` for
+        ``subject`` (``place:<place_id>`` or ``writing:<text>``); ``correct``
+        journal entry (details ``{"kind": "refusal", …}``), ``None`` if already
+        refused. Undone like any entry."""
+        key = {"subject": subject, "source": source, "identifier": identifier}
+        with self._transaction():
+            if self._read("refused_proposals", key) is not None:
+                return None
+            return self._record(
+                "correct",
+                project,
+                [
+                    RowChange(
+                        "refused_proposals",
+                        key,
+                        {"project": project, "decided_at": _now()},
+                    )
+                ],
+                {"kind": "refusal", **key},
             )
 
     def detach(self, writings: Sequence[str], project: str) -> int | None:

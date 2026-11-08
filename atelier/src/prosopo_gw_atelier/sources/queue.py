@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Literal, cast
 
 from prosopo_gw_atelier.places.levels import Level
-from prosopo_gw_atelier.sources.base import SourceCandidate, SourceError
+from prosopo_gw_atelier.sources.base import (
+    LevelQuery,
+    Source,
+    SourceCandidate,
+    SourceError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -343,3 +348,30 @@ class Worker:
             self._thread.join(timeout=5)
             if not self._thread.is_alive():
                 self._thread = None
+
+
+def match_payload(query: LevelQuery) -> dict[str, object]:
+    """Payload of the ``match`` job of ``query`` (read back by ``handle_match``)."""
+    return {
+        "name": query.name,
+        "type": query.type,
+        "parents": list(query.parents),
+        "country": query.country,
+        "department": query.department,
+        "insee": query.insee,
+    }
+
+
+def handle_match(job: Job, *, source: Source, queue: SourceQueue) -> None:
+    """Run the ``match`` job: search ``source`` and store the candidates
+    (an empty list too: "searched, nothing found")."""
+    raw = job.payload
+    query = LevelQuery(
+        name=str(raw["name"]),
+        type=cast("str | None", raw.get("type")),
+        parents=tuple(cast("list[str]", raw.get("parents") or [])),
+        country=cast("str | None", raw.get("country")),
+        department=cast("str | None", raw.get("department")),
+        insee=cast("str | None", raw.get("insee")),
+    )
+    queue.store_result(job.source, job.key, source.search(query))

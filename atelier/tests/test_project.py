@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from prosopo_gw_atelier.places import precision as precision_module
-from prosopo_gw_atelier.places.levels import Level, LevelOrigin, renumber
+from prosopo_gw_atelier.places.decompose import decompose
+from prosopo_gw_atelier.places.levels import Level, LevelOrigin, renumber, rule_levels
 from prosopo_gw_atelier.project import ClusterView, Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
@@ -1135,3 +1136,199 @@ def test_precisions_are_cached_until_reload(
     project.reload()
     project.precisions()
     assert calls > done
+
+
+# --- source proposals (DicoTopo overlay) -------------------------------------
+
+from prosopo_gw_atelier.sources.dicotopo.index import DicoTopoIndex  # noqa: E402
+from prosopo_gw_atelier.sources.dicotopo.source import (  # noqa: E402
+    DICOTOPO,
+    DicoTopoSource,
+)
+from prosopo_gw_atelier.sources.queue import SourceQueue, Worker, handle_match  # noqa: E402
+
+HAMLET = "Fictimont, Hesdin-la-Forêt"
+
+
+@pytest.fixture
+def queue(tmp_path: Path) -> SourceQueue:
+    return SourceQueue(tmp_path / "data" / "queue.sqlite")
+
+
+@pytest.fixture
+def dicotopo(tmp_path: Path, ref: RefData) -> DicoTopoSource:
+    index = DicoTopoIndex(tmp_path / "dt.sqlite")
+    index.add_department("62", FIXTURES / "dicotopo" / "DT62.xml", "2026-11-08")
+    return DicoTopoSource(index, ref, api_enabled=False)
+
+
+@pytest.fixture
+def hamlet_gw(tmp_path: Path) -> Path:
+    return copy_fixture(tmp_path, "lieux_dicotopo.gw")
+
+
+def worker_for(queue: SourceQueue, source: DicoTopoSource) -> Worker:
+    return Worker(
+        queue,
+        {
+            (DICOTOPO, "match"): lambda job: handle_match(
+                job, source=source, queue=queue
+            )
+        },
+    )
+
+
+def drain(worker: Worker) -> int:
+    count = 0
+    while worker.run_once():
+        count += 1
+    return count
+
+
+def attached(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    source: DicoTopoSource,
+) -> Project:
+    project = Project.open(hamlet_gw, registry, ref, projects_dir)
+    project.attach_sources(queue, {DICOTOPO: source})
+    return project
+
+
+def hamlet_view(project: Project) -> ClusterView:
+    return next(v for v in project.clusters() if HAMLET in v.cluster.writings)
+
+
+def test_project_overlays_dicotopo_proposal(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    assert hamlet_view(project).pending_sources == (DICOTOPO,)
+    assert drain(worker_for(queue, dicotopo)) >= 1
+    view = hamlet_view(project)
+    assert view.pending_sources == ()
+    first = view.cluster.levels[0]
+    assert (first.name, first.type, first.origin, first.status) == (
+        "Fictimont",
+        "lieu_dit",
+        "dicotopo",
+        "proposed",
+    )
+    assert first.identifier == "P90000002"
+    assert view.alternatives == ()
+    # reload keeps (and re-reads) the cached results: nothing pending
+    project.reload()
+    assert hamlet_view(project).cluster.levels[0].status == "proposed"
+
+
+def test_refused_proposal_stays_refused(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    view = hamlet_view(project)
+    assert view.cluster.levels[0].status == "proposed"
+    for writing in view.cluster.writings:
+        registry.refuse_source_proposal(
+            f"writing:{writing}", DICOTOPO, "P90000002", project.project_id
+        )
+    assert all(lv.origin != "dicotopo" for lv in hamlet_view(project).cluster.levels)
+    project.reload()
+    queue.clear(DICOTOPO)
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    assert all(lv.origin != "dicotopo" for lv in hamlet_view(project).cluster.levels)
+
+
+def test_refusal_by_place_subject_and_undo(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    view = hamlet_view(project)
+    place = registry.validate(
+        view.cluster.writings,
+        rule_levels(decompose(HAMLET, ref), ref),
+        None,
+        None,
+        project.project_id,
+    ).place_id
+    # validated place: the proposal is still overlaid on its chain, subject place:
+    view = hamlet_view(project)
+    assert view.place_id == place
+    assert any(lv.origin == "dicotopo" for lv in view.cluster.levels)
+    entry = registry.refuse_source_proposal(
+        f"place:{place}", DICOTOPO, "P90000002", project.project_id
+    )
+    assert entry is not None
+    assert all(lv.origin != "dicotopo" for lv in hamlet_view(project).cluster.levels)
+    registry.undo(entry)
+    assert any(lv.origin == "dicotopo" for lv in hamlet_view(project).cluster.levels)
+
+
+def test_opened_cluster_is_matched_first(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    other = copy_fixture(hamlet_gw.parent.parent, "lieux_varies.gw")
+    other_project = Project.open(other, registry, ref, projects_dir)
+    other_project.attach_sources(queue, {DICOTOPO: dicotopo})
+    # the other project's jobs may exist; touching the hamlet cluster moves it first
+    project.touch(hamlet_view(project).cluster.id)
+    job = queue.next_job()
+    assert job is not None
+    assert json_name(job.payload) == "Fictimont"
+
+
+def json_name(payload: dict[str, object]) -> object:
+    return payload["name"]
+
+
+def test_overlay_does_not_write_registry(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    before = registry.journal()
+    places = registry.places()
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    drain(worker_for(queue, dicotopo))
+    hamlet_view(project)
+    assert registry.journal() == before
+    assert registry.places() == places
+
+
+def test_no_sources_attached_changes_nothing(
+    hamlet_gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = Project.open(hamlet_gw, registry, ref, projects_dir)
+    view = hamlet_view(project)
+    assert view.pending_sources == ()
+    assert all(lv.origin != "dicotopo" for lv in view.cluster.levels)
+    project.touch(view.cluster.id)  # no-op without a queue
