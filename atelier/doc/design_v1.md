@@ -213,11 +213,13 @@ se réapplique à tout `.gw` chargé ensuite.
 - **Référentiel personnel** : il vit **hors des projets**, dans le dossier de données de
   l'utilisateur (par exemple `~/.local/share/prosopo-gw-atelier/`, selon le système). On peut le
   déplacer avec une option ou une variable d'environnement. **(choix de conception)**
-  - `lieux` : lieu retenu, avec un identifiant **stable** (UUID), les éléments décomposés et
-    l'origine de chaque élément (`regle`, `manuel`, plus tard `referentiel` ou `llm`).
+  - `lieux` : lieu retenu, avec un identifiant **stable** (UUID), sa chaîne de niveaux (du plus
+    précis au plus large), chaque niveau avec son origine (`ecrit`, `regle`, `manuel`, `insee`,
+    plus tard `paris`, `dicotopo`, `geonames`, `llm`) et son statut (`valide` ou `propose`), et
+    son code postal.
   - `ecritures` : écriture → `lieu_id`, ou statut `rejete` (pas un lieu exploitable : « en mer »).
-  - `journal` : chaque action (valider, sortir des écritures, rejeter, corriger un champ,
-    annuler), horodatée et ajoutée sans jamais rien effacer. C'est la trace détaillée.
+  - `journal` : chaque action (valider, sortir des écritures, rejeter, corriger un niveau,
+    accepter ou refuser une proposition, annuler), horodatée et ajoutée sans jamais rien effacer. C'est la trace détaillée.
 - **Au rechargement d'un `.gw`** :
   - les écritures connues sont rattachées d'office et apparaissent « déjà décidé » ;
   - seules les écritures nouvelles entrent dans la file. Si elles ressemblent à un lieu déjà
@@ -249,8 +251,9 @@ Disposition **liste + détail**, retenue par l'auteur après un prototype cliqua
   provisoire égal à sa première écriture.
 
 **Cluster ouvert (à droite)**
-- **La forme retenue, décomposée**, en champs modifiables : commune, code INSEE, département,
-  région, pays, ancienne commune ; la chaîne des niveaux est modifiable.
+- **La forme retenue** : sa chaîne de niveaux, du plus précis au plus large, chacun avec son nom,
+  son type et son origine ; on peut corriger un niveau, en ajouter, en retirer, les réordonner,
+  accepter ou refuser un niveau proposé. Le code postal est un attribut du lieu, à part.
 - **Les compléments**, affichés à part : ils ne sont pas des variantes de la commune.
 - **Les écritures d'origine** : une case à cocher, le nombre d'occurrences et l'indice de
   rattachement pour chacune.

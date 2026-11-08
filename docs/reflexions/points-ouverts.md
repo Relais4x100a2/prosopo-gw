@@ -90,8 +90,6 @@ sources, événements « Autre », organisations) reste dans :
 - L'ancrage par nom peut réunir des lieux étrangers que la partition par codes avait séparés.
 - Modifier les coordonnées, les dates ou la nature d'un niveau INSEE garde l'origine « insee » :
   l'origine est retrouvée par nom, type et identifiant.
-- Accepter ou refuser une proposition sur un lieu du référentiel recharge la fiche : les
-  modifications non enregistrées sont perdues.
 - Registre v1 migré : une copie de sauvegarde est écrite à chaque tentative, même échouée.
 - Région écrite non comparée à la commune ; confiance plafonnée à « moyenne » après fusion par
   similarité ; horodatages non exportés ; suppression concurrente qui lève une `IntegrityError`.
