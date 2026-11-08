@@ -415,7 +415,7 @@
             type: "button",
             text: "Retenir cette lecture",
             onclick: () => {
-              state.chain = chain.map(toDraftLevel);
+              state.chain = chain.map((level) => toDraftLevel(level, false));
               renderDetail();
             },
           }),
@@ -426,9 +426,18 @@
 
   // -- level chain editor -----------------------------------------------------
 
-  /** Copy of a level from the API, with what the editor needs to remember. */
-  function toDraftLevel(level) {
-    return { ...level, serverRank: level.rank, originalName: level.name, originalType: level.type };
+  /**
+   * Copy of a level, with what the editor needs to remember. `stored`: the level
+   * comes from the place's chain (`detail.levels`), so its rank is the server's.
+   */
+  function toDraftLevel(level, stored) {
+    return {
+      ...level,
+      serverRank: stored ? level.rank : null,
+      originalName: level.name,
+      originalType: level.type,
+      originalOrigin: level.origin,
+    };
   }
 
   function typeLabel(value) {
@@ -461,7 +470,9 @@
   }
 
   function addLevel() {
-    state.chain.push(toDraftLevel({ rank: state.chain.length, name: "", type: null, origin: "manual", status: "validated" }));
+    state.chain.push(
+      toDraftLevel({ rank: state.chain.length, name: "", type: null, origin: "manual", status: "validated" }, false),
+    );
     renderDetail();
     const names = document.querySelectorAll(".level-name");
     if (names.length) names[names.length - 1].focus();
@@ -579,9 +590,32 @@
     });
   }
 
+  /** Whether the chain or the postal code differ from the stored place. */
+  function hasUnsavedEdits() {
+    const detail = state.detail;
+    const stored = detail.levels.map((level, rank) => ({ ...level, rank }));
+    return (
+      JSON.stringify(chainBody()) !== JSON.stringify(stored) ||
+      state.postal.trim() !== (detail.postal_code || "")
+    );
+  }
+
+  /** Accept or refuse go to the registry for a stored proposal of a stored place. */
+  function storedProposal(level) {
+    const detail = state.detail;
+    if (!(detail.from_registry && detail.place_id && level.serverRank !== null)) return false;
+    if (hasUnsavedEdits()) {
+      throw new Error(
+        "Des modifications de la chaîne ou du code postal ne sont pas enregistrées : " +
+          "cliquez d'abord sur « Enregistrer », ou rouvrez le lieu pour les abandonner.",
+      );
+    }
+    return true;
+  }
+
   async function acceptLevel(level) {
     const detail = state.detail;
-    if (detail.from_registry && detail.place_id) {
+    if (storedProposal(level)) {
       await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/accept`);
       state.history.push(detail.id);
       await refresh();
@@ -596,7 +630,7 @@
 
   async function refuseLevel(level) {
     const detail = state.detail;
-    if (detail.from_registry && detail.place_id) {
+    if (storedProposal(level)) {
       await api("POST", `/api/places/${encodeURIComponent(detail.place_id)}/levels/${level.serverRank}/refuse`);
       state.history.push(detail.id);
       await refresh();
@@ -1114,8 +1148,7 @@
     try {
       if (id !== null) {
         state.detail = await api("GET", clusterPath(id));
-        state.chain = state.detail.levels.map(toDraftLevel);
-        for (const level of state.chain) level.originalOrigin = level.origin;
+        state.chain = state.detail.levels.map((level) => toDraftLevel(level, true));
         state.postal = state.detail.postal_code || "";
       }
     } catch (error) {
