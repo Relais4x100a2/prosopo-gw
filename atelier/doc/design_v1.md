@@ -239,6 +239,19 @@ traitement : la file, les clusters en cours, les filtres. Il est stocké sur dis
 le quitter puis le reprendre plusieurs jours après. L'empreinte permet de signaler que le `.gw` a
 changé ; on recharge alors en gardant toutes les décisions (§ 6.3).
 
+### 6.5 Arrondissements
+
+Paris, Lyon et Marseille : les arrondissements forment un niveau du lieu et une précision par
+occurrence, datée. La conception complète est dans
+`docs/superpowers/specs/2026-11-08-atelier-lieux-niveaux-design.md` § 6. Rappels :
+
+- La table des rues de Paris (`refdata/paris/`) est sous licence ODbL (Ville de Paris, ALPAGE) ;
+  les exports reprennent l'attribution.
+- Approximation connue : une rue disparue dont la date d'arrêt est inconnue est rattachée
+  entièrement à la période d'après 1860 (`paris-1860`). La table dérivée d'ALPAGE ne dit pas mieux.
+- Une occurrence est incertaine quand sa date, ou l'intervalle d'une date approximative, touche
+  1859-1861.
+
 ## 7. Écran de validation (validé par prototype, 7 novembre 2026)
 
 Disposition **liste + détail**, retenue par l'auteur après un prototype cliquable.

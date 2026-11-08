@@ -38,8 +38,10 @@ Arrondissements
   l'arrondissement : code (code INSEE ou postal), numero (écrit, lu selon la
   date), rue (croisée avec la date) ou manuel (décision de l'utilisateur). Le
   statut est applique (un seul arrondissement), conflit (deux indices désignent
-  deux arrondissements), incertain (date proche de 1860 ou arrondissement pas
-  encore créé) ou ambigu (une rue qui traverse plusieurs arrondissements). Pour
+  deux arrondissements), incertain (la date, ou l'intervalle d'une date approximative,
+  touche 1859-1861 : la numérotation d'avant ou d'après 1860 ne peut pas être
+  choisie ; ou arrondissement pas encore créé ; ou code d'un arrondissement actuel
+  sur une occurrence d'avant 1860) ou ambigu (une rue qui traverse plusieurs arrondissements). Pour
   un conflit ou une ambiguïté, il y a une ligne par candidat : rien n'est
   tranché à la place de l'utilisateur. Une ligne sans arrondissement signifie
   « aucun arrondissement » (numéro qui n'existait pas alors, ou décision

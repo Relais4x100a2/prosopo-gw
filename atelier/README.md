@@ -118,6 +118,30 @@ L'export pivot contient les tables de `geneweb-py`, puis `lieux`, `niveaux_lieux
 `type`, `nature`, `identifiant`, `source`, `debut`, `fin`, `latitude`, `longitude`, `origine`. Les niveaux
 seulement proposés ne sont pas exportés. `lieux` en donne la vue française (commune, département, région,
 pays, ancienne commune et son code INSEE) et le `libelle`. Le dictionnaire de l'export décrit chaque colonne.
+`precisions_occurrences` donne, pour chaque occurrence d'un lieu de Paris, Lyon ou Marseille,
+l'arrondissement (et le quartier de Paris) qu'elle désigne, avec la période, l'indice et le statut
+(`applique`, `conflit`, `incertain`, `ambigu`). Une ligne par candidat quand rien n'est tranché.
+
+## Arrondissements et précisions
+
+Une écriture qui nomme un arrondissement (« Paris 7e », « 75007 Paris », « Lyon, 3e arr. ») forme un
+niveau et un lieu à part de la ville seule. Les numéros d'avant 1860 (12 anciens arrondissements de
+Paris) et d'après sont distingués selon la date de l'acte.
+
+L'onglet **Précisions** liste les occurrences dont l'arrondissement n'est pas tranché :
+- **conflit** : le code, le numéro et la rue désignent deux arrondissements ;
+- **incertaine** : la date, ou l'intervalle d'une date approximative, touche 1859-1861
+  (annexion de 1860), donc la numérotation d'avant ou d'après ne peut pas être choisie ;
+- **ambiguë** : une rue traverse plusieurs arrondissements.
+
+Rien n'est choisi à votre place. Vous choisissez un candidat, ou « aucun arrondissement », et la
+décision est inscrite au journal et peut être annulée. Pour Lyon et Marseille, seuls le code et le
+numéro comptent ; pour Paris, la rue lue dans le complément (« 12 rue Saint-Honoré ») s'ajoute.
+
+La table des rues de Paris est livrée dans le paquet (`refdata/paris/`). Elle est dérivée de
+données de la Ville de Paris et du consortium ALPAGE, sous licence **ODbL 1.0**. Les exports
+reprennent la note d'attribution dans leur `LISEZMOI.txt`. Détails : `doc/design_v1.md` § 6.5 et
+`docs/superpowers/specs/2026-11-08-atelier-lieux-niveaux-design.md` § 6.
 
 ## Publication (mainteneurs)
 

@@ -102,6 +102,20 @@ sources, événements « Autre », organisations) reste dans :
   similarité ; horodatages non exportés ; suppression concurrente qui lève une `IntegrityError`.
 - Publication : le job de test ne tourne que sous Python 3.12 ; l'ordre des étiquettes
   (`core-v*` avant `atelier-v*`) est documenté, pas imposé.
+- Arrondissements : la correspondance entre anciens et nouveaux arrondissements n'est pas livrée,
+  car elle n'est jamais univoque à l'échelle d'un arrondissement entier.
+- Arrondissements : si les couches ALPAGE ne répondent plus, la table sort sans rues ni quartiers
+  d'avant 1860 (repli prévu, non utilisé à ce jour).
+- Rues disparues sans date d'arrêt : toutes rattachées à la période d'après 1860.
+- La couverture mypy de `atelier/tools` est absente de la CI.
+- « Paris 7 » (sans ordinal) ne résout aucune commune.
+- Un « Q. » isolé est lu comme « quai ».
+- Dates ouvertes (`<`, `>`) proches de 1860 : laissées « appliquée ».
+- Marseille 1946 (création des arrondissements actuels) traité à l'année près.
+- Un import dont le seul effet est de garder des précisions locales n'écrit pas d'entrée de
+  journal.
+- Un groupe de précisions décidé ne peut être modifié qu'en annulant : pas de choix direct d'un
+  autre candidat.
 
 ## 6. Moteur `core`
 
