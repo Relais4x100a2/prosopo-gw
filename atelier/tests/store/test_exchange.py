@@ -69,8 +69,15 @@ def _all_decisions(reg: PlaceRegistry) -> list[Decision]:
     return reg.all_decisions()
 
 
-def _counts(reg: PlaceRegistry) -> tuple[int, int, int]:
-    return len(reg.all_decisions()), len(reg.places()), len(reg.journal())
+def _counts(reg: PlaceRegistry) -> tuple[int, int, int, int, int]:
+    places = reg.places()
+    return (
+        len(reg.all_decisions()),
+        len(places),
+        len(reg.journal()),
+        sum(len(p.levels) for p in places),
+        sum(p.postal_code is not None for p in places),
+    )
 
 
 # --- export ----------------------------------------------------------------
@@ -789,7 +796,7 @@ def test_import_v1_conversion_error_writes_nothing(
     data = _v1_document([_v1_lille()], [_writing("Lille", "p-lille")])
     with pytest.raises(RegistryFormatError, match="p-lille"):
         import_registry(target, data)
-    assert _counts(target) == (0, 0, 0)
+    assert _counts(target) == (0, 0, 0, 0, 0)
 
 
 @pytest.mark.parametrize("kind", [3, ("commune",)])
@@ -800,7 +807,7 @@ def test_import_v1_non_string_kind_is_a_format_error(
     place["fields"][kind] = place["fields"].pop("commune")
     with pytest.raises(RegistryFormatError):
         import_registry(target, _v1_document([place], []))
-    assert _counts(target) == (0, 0, 0)
+    assert _counts(target) == (0, 0, 0, 0, 0)
 
 
 def test_invalid_level_rejected(source: PlaceRegistry, target: PlaceRegistry) -> None:
@@ -809,7 +816,7 @@ def test_invalid_level_rejected(source: PlaceRegistry, target: PlaceRegistry) ->
     del data["places"][0]["levels"][2]["name"]
     with pytest.raises(RegistryFormatError, match="name"):
         import_registry(target, data)
-    assert _counts(target) == (0, 0, 0)
+    assert _counts(target) == (0, 0, 0, 0, 0)
 
 
 def test_invalid_chain_error_names_the_place_in_french(
@@ -821,4 +828,62 @@ def test_invalid_chain_error_names_the_place_in_french(
     with pytest.raises(RegistryFormatError, match=place_id) as caught:
         import_registry(target, data)
     assert "Rang 7" in str(caught.value)
-    assert _counts(target) == (0, 0, 0)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+def _v1_mutations() -> dict[str, Any]:
+    def change(mutate: Any) -> Any:
+        def apply(place: dict[str, Any]) -> None:
+            mutate(place)
+
+        return apply
+
+    def set_field(name: str, value: Any) -> Any:
+        return change(lambda p: p["fields"].__setitem__(name, value))
+
+    return {
+        "fields not object": change(lambda p: p.__setitem__("fields", [])),
+        "unknown kind": set_field("street", _v1_field("x", "rule")),
+        "field not object": set_field("commune", "Lille"),
+        "field without origin": change(lambda p: p["fields"]["commune"].pop("origin")),
+        "unknown origin": set_field("commune", _v1_field("Lille", "ai")),
+        "origin list": set_field("commune", _v1_field("Lille", [])),
+        "value not str": set_field("commune", {"value": 59, "origin": "rule"}),
+        "place_id list": change(lambda p: p.__setitem__("place_id", [])),
+        "place_id object": change(lambda p: p.__setitem__("place_id", {"a": 1})),
+        "place_id empty": change(lambda p: p.__setitem__("place_id", "")),
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate", list(_v1_mutations().values()), ids=list(_v1_mutations())
+)
+def test_invalid_v1_place_writes_nothing(target: PlaceRegistry, mutate: Any) -> None:
+    place = _v1_lille()
+    mutate(place)
+    data = _v1_document([place], [_writing("Lille", "p-lille")])
+    with pytest.raises(RegistryFormatError):
+        import_registry(target, data)
+    assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda lv: lv.__setitem__("rank", "0"),
+        lambda lv: lv.pop("name"),
+        lambda lv: lv.__setitem__("origin", "ai"),
+        lambda lv: lv.__setitem__("latitude", "n"),
+    ],
+    ids=["rank as string", "level without name", "unknown origin", "bad latitude"],
+)
+def test_level_errors_name_the_place(
+    source: PlaceRegistry, target: PlaceRegistry, mutate: Any
+) -> None:
+    place_id = source.validate(["Marconne"], MARCONNE, None, None, "p1").place_id
+    data = export_registry(source)
+    mutate(data["places"][0]["levels"][1])
+    with pytest.raises(RegistryFormatError, match=place_id) as caught:
+        import_registry(target, data)
+    assert "lieu" in str(caught.value)
+    assert _counts(target) == (0, 0, 0, 0, 0)

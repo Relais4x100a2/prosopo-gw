@@ -38,8 +38,9 @@ Versions
     see that function; a ``former_name`` becomes an untyped proposed level). A
     version 1 place left without validated level is named after its first
     validated writing of the document (sorted), one untyped validated level of
-    origin ``written``; with no such writing it keeps no level. Any other
-    version is refused.
+    origin ``written``; with no such writing it keeps no level. Unlike the
+    schema migration, a version 1 import adds no proposals read from the
+    writings. Any other version is refused.
 
 Import
     The whole document is validated first (:class:`RegistryFormatError`,
@@ -270,9 +271,16 @@ def _parse_place_v2(index: int, raw: Any) -> Place:
     raw_levels = _get(raw, "levels", where)
     if not isinstance(raw_levels, list):
         raise _fail(f"{where}.levels must be a list")
-    levels = tuple(
-        _parse_level(f"{where}.levels[{i}]", item) for i, item in enumerate(raw_levels)
-    )
+    parsed: list[Level] = []
+    for i, item in enumerate(raw_levels):
+        try:
+            parsed.append(_parse_level(f"levels[{i}]", item))
+        except RegistryFormatError as exc:
+            raise RegistryFormatError(
+                f"Export de référentiel invalide : le lieu {place_id} a un niveau "
+                f"incorrect ({exc})."
+            ) from exc
+    levels = tuple(parsed)
     postal = raw.get("postal_code")
     postal_code: str | None = None
     postal_origin: LevelOrigin | None = None
@@ -366,7 +374,7 @@ def _parse(
     if type(version) is not int or version not in _READABLE_VERSIONS:
         raise _fail(
             f"version {version!r} is not supported (this atelier reads "
-            f"version {VERSION}); upgrade the atelier"
+            "versions 1 and 2)"
         )
     exported_at = _get(data, "exported_at", "document")
     if not isinstance(exported_at, str):
@@ -392,7 +400,8 @@ def _parse(
     for index, raw in enumerate(raw_places):
         if version == 1:
             pid = raw.get("place_id") if isinstance(raw, Mapping) else None
-            place = _parse_place_v1(index, raw, attached.get(pid, []), ref)  # type: ignore[arg-type]
+            names = attached.get(pid, []) if isinstance(pid, str) else []
+            place = _parse_place_v1(index, raw, names, ref)
         else:
             place = _parse_place_v2(index, raw)
         if place.place_id in places:
