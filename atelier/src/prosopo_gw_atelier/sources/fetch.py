@@ -1,0 +1,98 @@
+"""Safe HTTP helpers for sources: streamed download and JSON fetch."""
+
+from __future__ import annotations
+
+import json
+import os
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from importlib import metadata
+from pathlib import Path
+from typing import BinaryIO
+
+from prosopo_gw_atelier.sources.base import SourceError
+
+Opener = Callable[[urllib.request.Request, float], BinaryIO]
+
+REPOSITORY_URL = "https://github.com/Relais4x100a2/prosopo-gw"
+_CHUNK = 64 * 1024
+
+
+def _version() -> str:
+    try:
+        return metadata.version("prosopo-gw-atelier")
+    except metadata.PackageNotFoundError:
+        return "0+unknown"
+
+
+USER_AGENT = f"prosopo-gw-atelier/{_version()} (+{REPOSITORY_URL})"
+
+
+def _default_opener(request: urllib.request.Request, timeout: float) -> BinaryIO:
+    # Looked up at call time so tests can patch urllib.request.urlopen.
+    return urllib.request.urlopen(request, timeout=timeout)  # type: ignore[no-any-return]  # noqa: S310
+
+
+def _describe(exc: BaseException) -> str:
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 429:
+            return "le service limite le nombre de requêtes, réessayez plus tard"
+        if exc.code >= 500:
+            return f"service indisponible (HTTP {exc.code})"
+        return f"réponse inattendue du service (HTTP {exc.code})"
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError)):
+        return "erreur réseau ou délai dépassé"
+    if isinstance(exc, OSError):
+        return f"erreur d'entrée/sortie ({exc})"
+    return str(exc)
+
+
+def _request(url: str) -> urllib.request.Request:
+    return urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+
+
+def download(
+    url: str,
+    target: Path,
+    *,
+    opener: Opener | None = None,
+    timeout: float = 60.0,
+    max_bytes: int | None = None,
+) -> int:
+    """Stream ``url`` to ``target`` through a ``.part`` file; return the size."""
+    open_url = opener or _default_opener
+    target.parent.mkdir(parents=True, exist_ok=True)
+    part = target.with_suffix(target.suffix + ".part")
+    try:
+        total = 0
+        with open_url(_request(url), timeout) as response, part.open("wb") as out:
+            while chunk := response.read(_CHUNK):
+                total += len(chunk)
+                if max_bytes is not None and total > max_bytes:
+                    raise SourceError(
+                        f"fichier trop volumineux (plus de {max_bytes} octets)"
+                    )
+                out.write(chunk)
+        os.replace(part, target)
+        return total
+    except Exception as exc:
+        part.unlink(missing_ok=True)
+        message = str(exc) if isinstance(exc, SourceError) else _describe(exc)
+        raise SourceError(f"Téléchargement impossible : {message}") from exc
+
+
+def get_json(
+    url: str, *, opener: Opener | None = None, timeout: float = 30.0
+) -> object:
+    """Fetch ``url`` and decode it as JSON."""
+    open_url = opener or _default_opener
+    try:
+        with open_url(_request(url), timeout) as response:
+            return json.load(response)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            message = "réponse non valide (JSON attendu)"
+        else:
+            message = _describe(exc)
+        raise SourceError(f"Requête impossible : {message}") from exc
