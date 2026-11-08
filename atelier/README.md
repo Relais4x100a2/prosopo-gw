@@ -98,3 +98,13 @@ avec un message clair si une colonne attendue manque. Il écrit dans
 `src/prosopo_gw_atelier/refdata/data/` (option `--output` pour un autre dossier). Seules les
 lignes `COM` du COG sont des communes actuelles ; les communes associées ou déléguées et les
 anciens noms tirés des mouvements alimentent l'historique (recherche par ancien nom).
+
+## Publication (mainteneurs)
+
+La publication sur PyPI part d'une étiquette Git (`.github/workflows/release.yml`) :
+`core-vX.Y.Z` publie `geneweb-py`, `atelier-vX.Y.Z` publie `prosopo-gw-atelier`. Le flux
+rejoue d'abord les tests du paquet étiqueté, puis construit et publie.
+
+L'atelier dépend de `geneweb-py` : quand une version de l'atelier exige une nouvelle version
+du moteur, poser et laisser aboutir **`core-vX.Y.Z` avant `atelier-vX.Y.Z`**. Sinon
+`pip install prosopo-gw-atelier` échoue faute de trouver la version de `geneweb-py` demandée.
