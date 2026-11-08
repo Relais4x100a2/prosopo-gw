@@ -113,24 +113,30 @@ class Level:
 
 
 def check_chain(levels: Sequence[Level]) -> None:
-    """Lève ``ValueError`` (message en français) si la chaîne est invalide."""
+    """Lève ``ValueError`` (message en français) si la chaîne est invalide.
+
+    Les messages numérotent les niveaux à partir de 1, comme l'écran.
+    """
     if not levels:
         raise ValueError("Une chaîne doit contenir au moins un niveau.")
     for index, level in enumerate(levels):
+        number = index + 1  # numbered from 1, as on the screen
         if not level.name.strip():
-            raise ValueError(f"Le nom du niveau {index} est vide.")
+            raise ValueError(f"Le nom du niveau {number} est vide.")
         if level.type is not None and not TYPE_PATTERN.fullmatch(level.type):
             raise ValueError(
-                f"Le type du niveau {index} est invalide : {level.type!r}."
+                f"Le type du niveau {number} est invalide : {level.type!r}."
             )
         if level.rank != index:
             raise ValueError(
-                f"Rang {level.rank} au niveau {index} : rangs attendus de 0 à n-1."
+                f"Rang {level.rank} au niveau {number} : rangs attendus de 0 à n-1."
             )
         if level.latitude is not None and not -90 <= level.latitude <= 90:
-            raise ValueError(f"La latitude du niveau {index} est hors de [-90, 90].")
+            raise ValueError(f"La latitude du niveau {number} est hors de [-90, 90].")
         if level.longitude is not None and not -180 <= level.longitude <= 180:
-            raise ValueError(f"La longitude du niveau {index} est hors de [-180, 180].")
+            raise ValueError(
+                f"La longitude du niveau {number} est hors de [-180, 180]."
+            )
 
 
 def renumber(levels: Sequence[Level]) -> tuple[Level, ...]:

@@ -524,11 +524,11 @@ def test_undo_twice_or_undo_of_undo_raises(registry: PlaceRegistry) -> None:
     registry.reject(["en mer"], "p")
     original = registry.journal()[0].entry_id
     registry.undo(original)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="déjà annulée"):
         registry.undo(original)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="est une annulation"):
         registry.undo(registry.journal()[0].entry_id)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Aucune entrée 9999"):
         registry.undo(9999)
 
 
@@ -537,7 +537,7 @@ def test_undo_conflicting_with_later_entry_raises(registry: PlaceRegistry) -> No
     first = registry.journal()[0].entry_id
     registry.reject(["Roubaix"], "p")
     later = registry.journal()[0].entry_id
-    with pytest.raises(ValueError, match=f"entry {later}"):
+    with pytest.raises(ValueError, match=f"Impossible d'annuler .*entrée {later}"):
         registry.undo(first)
     assert registry.decision("Roubaix") == Decision("Roubaix", None, "rejected", "p")
     assert registry.place(place_id).levels == ROUBAIX
@@ -554,7 +554,7 @@ def test_undo_conflicting_with_later_level_change_raises(
     first = registry.set_levels(place_id, chain("Roubaix"), None, None, "p")
     later = registry.set_levels(place_id, chain("Roubaix-Ville"), None, None, "p")
     assert first is not None
-    with pytest.raises(ValueError, match=f"entry {later}"):
+    with pytest.raises(ValueError, match=f"Impossible d'annuler .*entrée {later}"):
         registry.undo(first)
     assert registry.place(place_id).levels == chain("Roubaix-Ville")
 
@@ -566,7 +566,7 @@ def test_undo_place_creation_conflicts_with_later_attachment(
     first = registry.journal()[0].entry_id
     registry.validate(["ROUBAIX"], ROUBAIX, None, None, "p", place_id=place_id)
     later = registry.journal()[0].entry_id
-    with pytest.raises(ValueError, match=f"entry {later}"):
+    with pytest.raises(ValueError, match=f"Impossible d'annuler .*entrée {later}"):
         registry.undo(first)
     assert registry.decision("Roubaix") is not None
 
@@ -577,7 +577,7 @@ def test_undo_place_creation_conflicts_with_later_level(
     place_id = registry.validate(["Roubaix"], ROUBAIX[:1], None, None, "p").place_id
     first = registry.journal()[0].entry_id
     later = registry.set_levels(place_id, ROUBAIX, None, None, "p")
-    with pytest.raises(ValueError, match=f"entry {later}"):
+    with pytest.raises(ValueError, match=f"Impossible d'annuler .*entrée {later}"):
         registry.undo(first)
 
 

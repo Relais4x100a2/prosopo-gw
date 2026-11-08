@@ -111,6 +111,13 @@ _TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "writings": (("writing",), ("place_id", "status", "project", "decided_at")),
 }
 _ORDER = list(_TABLES)
+_TABLE_LABELS = {
+    "places": "le lieu",
+    "place_levels": "un niveau du lieu",
+    "place_attributes": "le code postal du lieu",
+    "writings": "une écriture",
+}
+"""What a journaled table holds, for the French undo conflict message."""
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
 _LEVEL_STATUSES = frozenset(get_args(LevelStatus))
 _NATURES = frozenset(get_args(HistoricalNature))
@@ -565,7 +572,7 @@ class PlaceRegistry:
                 (entry_id,),
             ).fetchone()
             if row is None:
-                raise ValueError(f"no journal entry {entry_id}")
+                raise ValueError(f"Aucune entrée {entry_id} au journal.")
             action, payload, undone = row
             if action == "migrate":
                 backup = json.loads(payload).get("backup")
@@ -583,9 +590,11 @@ class PlaceRegistry:
                     f"(entrée {migrated}) et ne s'annule plus"
                 )
             if action == "undo":
-                raise ValueError(f"entry {entry_id} is an undo and cannot be undone")
+                raise ValueError(
+                    f"L'entrée {entry_id} est une annulation : elle ne s'annule pas."
+                )
             if undone:
-                raise ValueError(f"entry {entry_id} is already undone")
+                raise ValueError(f"L'entrée {entry_id} est déjà annulée.")
             rows: list[State] = json.loads(payload)["rows"]
             touched = {_row_id(r["table"], r["key"]) for r in rows}
             for r in rows:
@@ -823,10 +832,11 @@ class PlaceRegistry:
 
     def _conflict(self, entry_id: int, table: str, key: Mapping[str, Any]) -> None:
         later = self._latest_touching(entry_id, table, key)
-        by = f"entry {later}" if later is not None else "a later change"
+        by = f"l'entrée {later}" if later is not None else "un changement ultérieur"
+        what = _TABLE_LABELS.get(table, table)
         raise ValueError(
-            f"cannot undo entry {entry_id}: {table} {dict(key)} was changed "
-            f"since by {by}; undo it first"
+            f"Impossible d'annuler l'entrée {entry_id} : {what} a changé depuis, "
+            f"par {by} ; annulez d'abord ce changement."
         )
 
     def _check_unreferenced(

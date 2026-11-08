@@ -120,6 +120,11 @@ def test_check_chain_rejects(chain: tuple[Level, ...], message: str) -> None:
         check_chain(chain)
 
 
+def test_check_chain_numbers_levels_from_one() -> None:
+    with pytest.raises(ValueError, match="nom du niveau 2 est vide"):
+        check_chain((Level(0, "A"), Level(1, " ")))
+
+
 def test_check_chain_accepts_valid_chain() -> None:
     check_chain(MARCONNE)
 

@@ -224,15 +224,28 @@ def _levels_in(
     return renumber(levels)
 
 
+_PROPOSAL_GONE = (
+    "Ce niveau n'est plus une proposition : il a changé entre-temps ; "
+    "rechargez le lieu."
+)
+"""409 of accept/refuse when the registry no longer holds the proposal."""
+
+
 def _checked_levels(
     sent: Sequence[schemas.LevelModel], known: Sequence[Level]
 ) -> tuple[Level, ...]:
-    """:func:`_levels_in`, then :func:`check_chain` (400 with its message)."""
+    """:func:`_levels_in`, then :func:`check_chain` (400 with its message).
+
+    A chain sent by the user must also hold a validated level (400): only
+    recorded data, such as a migrated place, may hold proposals alone.
+    """
     levels = _levels_in(sent, known)
     try:
         check_chain(levels)
     except ValueError as exc:
         raise _error(400, str(exc)) from None
+    if not any(level.status == "validated" for level in levels):
+        raise _error(400, "La chaîne doit contenir au moins un niveau validé.")
     return levels
 
 
@@ -824,8 +837,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 entry = registry.accept_proposal(place_id, rank, project.project_id)
             except KeyError:
                 raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
-            except ValueError as exc:
-                raise _error(409, str(exc)) from None
+            except ValueError:
+                raise _error(409, _PROPOSAL_GONE) from None
             _push_correct(entry)
             return _place_out(registry.place(place_id))
 
@@ -838,8 +851,8 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 entry = registry.refuse_proposal(place_id, rank, project.project_id)
             except KeyError:
                 raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
-            except ValueError as exc:
-                raise _error(409, str(exc)) from None
+            except ValueError:
+                raise _error(409, _PROPOSAL_GONE) from None
             _push_correct(entry)
             return _place_out(registry.place(place_id))
 

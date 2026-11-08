@@ -402,9 +402,9 @@ def test_validate_renumbers_the_levels(
     ("change", "message"),
     [
         ("empty", "au moins un niveau"),
-        ("blank_name", "nom du niveau 0 est vide"),
-        ("bad_type", "type du niveau 0 est invalide"),
-        ("bad_latitude", "latitude du niveau 0"),
+        ("blank_name", "nom du niveau 1 est vide"),
+        ("bad_type", "type du niveau 1 est invalide"),
+        ("bad_latitude", "latitude du niveau 1"),
     ],
 )
 def test_validate_rejects_bad_levels(
@@ -426,6 +426,20 @@ def test_validate_rejects_bad_levels(
     assert message in response.json()["detail"]
     assert registry.decisions(writings_of(roubaix)) == {}
     assert client.post("/api/undo").status_code == 409
+
+
+def test_validate_needs_a_validated_level(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    roubaix = detail(client, ROUBAIX)
+    levels = [dict(lv, status="proposed") for lv in roubaix["levels"]]
+    body = {"levels": levels, "postal_code": None, "checked": writings_of(roubaix)}
+    response = client.post(cluster_url(ROUBAIX, "validate"), json=body)
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "La chaîne doit contenir au moins un niveau validé."
+    )
+    assert registry.decisions(writings_of(roubaix)) == {}
 
 
 def test_validate_rejects_bad_level_values(client: TestClient) -> None:
@@ -688,6 +702,61 @@ def test_put_levels_errors(client: TestClient, registry: PlaceRegistry) -> None:
     # The old field-by-field route is gone.
     old = client.patch(f"/api/places/{place_id}", json={"field": "commune"})
     assert old.status_code == 404
+
+
+def test_put_levels_needs_a_validated_level(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    place_id, roubaix = validated_roubaix(client)
+    before = registry.place(place_id)
+    levels = [dict(lv, status="proposed") for lv in roubaix["levels"]]
+    response = client.put(
+        f"/api/places/{place_id}/levels",
+        json={"levels": levels, "postal_code": roubaix["postal_code"]},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "La chaîne doit contenir au moins un niveau validé."
+    )
+    assert registry.place(place_id) == before
+
+
+def test_noop_put_levels_pushes_no_undo_entry(
+    client: TestClient, registry: PlaceRegistry
+) -> None:
+    place_id, roubaix = validated_roubaix(client)
+    journal = registry.journal()
+    response = client.put(
+        f"/api/places/{place_id}/levels",
+        json={"levels": roubaix["levels"], "postal_code": roubaix["postal_code"]},
+    )
+    assert response.status_code == 200, response.text
+    assert registry.journal() == journal
+    # The only undoable action is still the validation.
+    assert client.post("/api/undo").json() == {"action": "validate"}
+    assert client.post("/api/undo").status_code == 409
+
+
+@pytest.mark.parametrize("action", ["accept", "refuse"])
+def test_proposal_race_is_a_french_409(
+    tmp_path: Path, ref: RefData, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    path = tmp_path / "data" / "referentiel.sqlite"
+    path.parent.mkdir(parents=True)
+    v1_registry(path)
+    with PlaceRegistry(path, ref) as registry:
+        client = make_client(tmp_path, registry, ref, "lieux_varies.gw")
+
+        def raced(*args: object) -> None:
+            raise ValueError("place p-lille has no proposed level at rank 0")
+
+        monkeypatch.setattr(registry, f"{action}_proposal", raced)
+        response = client.post(f"/api/places/p-lille/levels/0/{action}")
+        assert response.status_code == 409
+        assert response.json()["detail"] == (
+            "Ce niveau n'est plus une proposition : il a changé entre-temps ; "
+            "rechargez le lieu."
+        )
 
 
 def test_put_levels_removing_a_level_then_undo(
