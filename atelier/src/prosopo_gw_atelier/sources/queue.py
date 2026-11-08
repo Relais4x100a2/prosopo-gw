@@ -22,6 +22,7 @@ from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.sources.base import (
     LevelQuery,
     PermanentSourceError,
+    QuotaReached,
     Source,
     SourceCandidate,
     SourceError,
@@ -49,6 +50,9 @@ CREATE TABLE IF NOT EXISTS results (
 );
 CREATE TABLE IF NOT EXISTS epochs (
   name TEXT PRIMARY KEY, value INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pauses (
+  source TEXT PRIMARY KEY, until REAL NOT NULL
 );
 INSERT OR IGNORE INTO epochs(name, value) VALUES ('stored', 0), ('reset', 0);
 """
@@ -168,13 +172,40 @@ class SourceQueue:
             row = db.execute(
                 "SELECT * FROM jobs WHERE state='pending'"
                 " AND (not_before IS NULL OR not_before<=?)"
+                " AND source NOT IN (SELECT source FROM pauses WHERE until>?)"
                 " ORDER BY priority DESC, id ASC LIMIT 1",
-                (now,),
+                (now, self._clock()),
             ).fetchone()
             if row is None:
                 return None
             db.execute("UPDATE jobs SET state='running' WHERE id=?", (row["id"],))
             return replace(_job(row), state="running")
+
+    def pause(self, source: str, until: float) -> None:
+        """Keep the pending jobs of ``source`` back until the timestamp ``until``."""
+        with self._db() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO pauses(source, until) VALUES (?,?)",
+                (source, until),
+            )
+
+    def paused_until(self, source: str) -> float | None:
+        """End of the pause of ``source``, or ``None`` when it is not paused."""
+        with self._reader() as db:
+            row = db.execute(
+                "SELECT until FROM pauses WHERE source=?", (source,)
+            ).fetchone()
+        if row is None or float(row["until"]) <= self._clock():
+            return None
+        return float(row["until"])
+
+    def requeue(self, job_id: int) -> None:
+        """Put a running job back to ``pending``: no attempt counted, no error."""
+        with self._db() as db:
+            db.execute(
+                "UPDATE jobs SET state='pending' WHERE id=? AND state='running'",
+                (job_id,),
+            )
 
     def finish(self, job_id: int) -> None:
         with self._db() as db:
@@ -399,6 +430,9 @@ class Worker:
             if handler is None:
                 raise SourceError(f"Aucun traitement pour {job.source}/{job.kind}.")
             handler(job)
+        except QuotaReached as exc:
+            self._queue.pause(job.source, exc.retry_at)
+            self._queue.requeue(job.id)
         except PermanentSourceError as exc:
             self._queue.fail(job.id, str(exc), permanent=True)
         except SourceError as exc:

@@ -51,6 +51,7 @@ class SourceCandidate:
     longitude: float | None = None
     link: str | None = None
     insee: str | None = None
+    source_text: str | None = None  # citation, e.g. "GeoNames 2026-11-08"
 
 
 class SourceError(Exception):
@@ -59,6 +60,15 @@ class SourceError(Exception):
 
 class PermanentSourceError(SourceError):
     """A failure that retrying cannot fix (e.g. HTTP 404): the job fails at once."""
+
+
+class QuotaReached(SourceError):
+    """A source quota is exhausted: nothing can be asked before ``retry_at``
+    (a POSIX timestamp). The worker pauses the source instead of failing the job."""
+
+    def __init__(self, message: str, retry_at: float) -> None:
+        super().__init__(message)
+        self.retry_at = retry_at
 
 
 class Source(Protocol):
