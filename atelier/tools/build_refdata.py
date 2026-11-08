@@ -58,6 +58,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     # v_pays_territoire_<year>
     "LIBCOG": ("LIBCOG",),
     "LIBENR": ("LIBENR",),
+    "CODEISO2": ("CODEISO2",),
     # La Poste, base officielle des codes postaux (hexasmal)
     "CODE_COMMUNE_INSEE": ("CODE_COMMUNE_INSEE",),
     "CODE_POSTAL": ("CODE_POSTAL",),
@@ -314,11 +315,11 @@ def read_regions(current: Path, before_2016: Path) -> list[tuple[str, str, str]]
     return rows
 
 
-def read_countries(path: Path) -> list[tuple[str, str]]:
+def read_countries(path: Path) -> list[tuple[str, str, str]]:
     table = read_source(path)
     countries = {
-        (row["LIBCOG"], row["LIBENR"])
-        for row in table.records("LIBCOG", "LIBENR")
+        (row["LIBCOG"], row["LIBENR"], row["CODEISO2"].upper())
+        for row in table.records("LIBCOG", "LIBENR", "CODEISO2")
         if row["LIBCOG"]
     }
     return sorted(countries)
@@ -387,7 +388,7 @@ def build(args: argparse.Namespace) -> None:
             ("code", "nom", "avant_2016"),
             read_regions(args.regions, args.regions_2015),
         ),
-        "pays.csv.gz": (("nom", "nom_officiel"), read_countries(args.pays)),
+        "pays.csv.gz": (("nom", "nom_officiel", "iso2"), read_countries(args.pays)),
         "codes_postaux.csv.gz": (
             ("code_postal", "insee"),
             read_postal_codes(args.codes_postaux, resolver),

@@ -140,6 +140,7 @@ def test_end_to_end_output_is_loadable(tmp_path: Path) -> None:
     assert ref.region("Midi-Pyrénées") == ("Midi-Pyrénées", True)
     assert ref.region("Ile-de-France") == ("Île-de-France", False)
     assert ref.country("royaume de belgique") == "Belgique"
+    assert ref.country_iso("royaume de belgique") == "BE"
 
     version = (tmp_path / "VERSION").read_text(encoding="utf-8")
     assert version == "cog=2026\npostal=2026-11-07\n"
@@ -213,3 +214,10 @@ def test_history_header(tmp_path: Path) -> None:
             f.readline().strip()
             == "ancien_nom;ancien_insee;insee_actuel;nature;date_effet"
         )
+
+
+def test_build_keeps_iso2() -> None:
+    assert builder.read_countries(SOURCES / "v_pays_territoire_2026.csv") == [
+        ("Belgique", "Royaume de Belgique", "BE"),
+        ("France", "République française", "FR"),
+    ]

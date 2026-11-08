@@ -11,7 +11,7 @@ table, plus a ``VERSION`` file. It is produced by ``atelier/tools/build_refdata.
   ``deleguee`` or ``renommage``) and its effective date (empty if unknown).
 - ``departements.csv.gz``: ``code;nom;region``.
 - ``regions.csv.gz``: ``code;nom;avant_2016`` (``1`` for a pre-2016 region).
-- ``pays.csv.gz``: ``nom;nom_officiel``.
+- ``pays.csv.gz``: ``nom;nom_officiel;iso2`` (ISO 3166-1 alpha-2, empty if none).
 - ``codes_postaux.csv.gz``: ``code_postal;insee``.
 - ``VERSION``: ``cog=<vintage>`` and ``postal=<vintage>`` lines.
 """
@@ -95,7 +95,7 @@ class RefData:
         former: list[Former],
         departments: list[tuple[str, str]],
         regions: list[tuple[str, bool]],
-        countries: list[tuple[str, str]],
+        countries: list[tuple[str, str, str]],
         postal_codes: list[tuple[str, str]],
         region_codes: list[tuple[str, str, bool]] | None = None,
     ) -> None:
@@ -144,9 +144,12 @@ class RefData:
             self._region_by_code.setdefault(code.strip(), name)
 
         self._country_by_name: dict[str, str] = {}
-        for name, _ in countries:
+        self._country_iso: dict[str, str] = {}
+        for name, _, iso2 in countries:
             self._country_by_name.setdefault(normalize(name), name)
-        for name, official_name in countries:
+            if iso2:
+                self._country_iso.setdefault(name, iso2)
+        for name, official_name, _ in countries:
             if official_name:
                 self._country_by_name.setdefault(normalize(official_name), name)
 
@@ -242,6 +245,11 @@ class RefData:
         """Return the canonical name of a country from its usual or official name."""
         return self._country_by_name.get(normalize(token))
 
+    def country_iso(self, token: str) -> str | None:
+        """Return the ISO 3166-1 alpha-2 code of a country (usual or official name)."""
+        name = self.country(token)
+        return self._country_iso.get(name) if name is not None else None
+
 
 def _read_table(directory: Path, name: str) -> Iterator[dict[str, str]]:
     with gzip.open(directory / name, "rt", encoding="utf-8", newline="") as handle:
@@ -307,7 +315,7 @@ def _load_cached(directory: Path) -> RefData:
             for row in _read_table(directory, "regions.csv.gz")
         ],
         countries=[
-            (row["nom"], row["nom_officiel"])
+            (row["nom"], row["nom_officiel"], row["iso2"])
             for row in _read_table(directory, "pays.csv.gz")
         ],
         postal_codes=[

@@ -77,11 +77,11 @@ TABLES: dict[str, list[list[str]]] = {
         ["82", "Rhône-Alpes", "1"],
     ],
     "pays.csv.gz": [
-        ["nom", "nom_officiel"],
-        ["Belgique", "Royaume de Belgique"],
-        ["Canada", "Canada"],
-        ["France", "République française"],
-        ["Royaume-Uni", "Royaume-Uni de Grande-Bretagne et d'Irlande du Nord"],
+        ["nom", "nom_officiel", "iso2"],
+        ["Belgique", "Royaume de Belgique", "BE"],
+        ["Canada", "Canada", "CA"],
+        ["France", "République française", "FR"],
+        ["Royaume-Uni", "Royaume-Uni de Grande-Bretagne et d'Irlande du Nord", "GB"],
     ],
     "codes_postaux.csv.gz": [
         ["code_postal", "insee"],

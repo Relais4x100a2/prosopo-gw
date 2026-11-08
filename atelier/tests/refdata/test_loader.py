@@ -184,3 +184,10 @@ def test_current_of_shared_code_uses_name(ref: RefData) -> None:
     same = ref.current_of("62447", name="Hesdin-la-Forêt")
     assert same is not None
     assert same[1] is None
+
+
+def test_country_iso(ref: RefData) -> None:
+    assert ref.country_iso("Canada") == "CA"
+    assert ref.country_iso("royaume-uni") == "GB"
+    assert ref.country_iso("Royaume de Belgique") == "BE"
+    assert ref.country_iso("Prusse") is None
