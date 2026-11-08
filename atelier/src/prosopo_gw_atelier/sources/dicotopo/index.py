@@ -63,6 +63,9 @@ _TRAILING = re.compile(r"[\s,;:.!?]+$")
 _ITALIC_MARKUP = re.compile(r"</?i>|''+|\*+")
 
 
+_INVERTED = re.compile(r"^(.*?)\s*\((le|la|les|l['\u2019])\)$", re.IGNORECASE)
+
+
 @dataclass(frozen=True)
 class Article:
     """One DicoTopo article."""
@@ -80,6 +83,21 @@ def form_key(text: str) -> str:
     """Index key of a form: ``name_key`` without markup nor trailing punctuation."""
     cleaned = _ITALIC_MARKUP.sub("", text)
     return name_key(_TRAILING.sub("", cleaned.strip()))
+
+
+def form_keys(text: str) -> set[str]:
+    """Keys of a headword or form: ``form_key`` plus the fronted variant.
+
+    ``Quesnoy-Fictif (Le)`` gives its own key and that of ``Le Quesnoy-Fictif``.
+    """
+    cleaned = _TRAILING.sub("", _ITALIC_MARKUP.sub("", text).strip())
+    keys = {name_key(cleaned)}
+    match = _INVERTED.match(cleaned)
+    if match and match.group(1):
+        article = match.group(2)
+        sep = "" if article.endswith(("'", "\u2019")) else " "
+        keys.add(name_key(f"{article}{sep}{match.group(1)}"))
+    return {k for k in keys if k}
 
 
 def _text(element: ET.Element) -> str:
@@ -155,8 +173,11 @@ def _build(element: ET.Element, department: str) -> Article | None:
 
 def _iterate(path: Path, counter: list[int] | None) -> Iterator[Article]:
     department = ""
+    root: ET.Element | None = None
     for event, element in ET.iterparse(path, events=("start", "end")):
         if event == "start":
+            if root is None:
+                root = element
             if element.tag == "DICTIONNAIRE":
                 department = (element.get("dep") or "").strip()
             continue
@@ -164,6 +185,8 @@ def _iterate(path: Path, counter: list[int] | None) -> Iterator[Article]:
             continue
         article = _build(element, department)
         element.clear()
+        if root is not None and root is not element:
+            root.clear()
         if article is None:
             if counter is not None:
                 counter[0] += 1
@@ -224,12 +247,14 @@ class DicoTopoIndex:
         self, department: str, xml: Path, downloaded_at: str
     ) -> tuple[int, int]:
         """(Re)index a department in one transaction: ``(indexed, skipped)``."""
-        articles, skipped = parse_with_stats(xml)
+        counter = [0]
+        indexed = 0
         db = self._connect()
         try:
-            with db:
+            with db:  # rolled back on any parse or SQL error
                 self._delete(db, department)
-                for article in articles:
+                for article in _iterate(xml, counter):
+                    db.execute("DELETE FROM forms WHERE article_id = ?", (article.id,))
                     db.execute(
                         f"INSERT OR REPLACE INTO articles ({_COLUMNS}) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -243,18 +268,21 @@ class DicoTopoIndex:
                             json.dumps(article.forms, ensure_ascii=False),
                         ),
                     )
-                    keys = {form_key(f) for f in (article.headword, *article.forms)}
+                    keys: set[str] = set()
+                    for text in (article.headword, *article.forms):
+                        keys |= form_keys(text)
                     db.executemany(
                         "INSERT INTO forms (key, article_id) VALUES (?, ?)",
-                        [(k, article.id) for k in sorted(keys) if k],
+                        [(k, article.id) for k in sorted(keys)],
                     )
+                    indexed += 1
                 db.execute(
                     "INSERT OR REPLACE INTO departments VALUES (?, ?, ?, ?)",
-                    (department, downloaded_at, len(articles), skipped),
+                    (department, downloaded_at, indexed, counter[0]),
                 )
         finally:
             db.close()
-        return len(articles), skipped
+        return indexed, counter[0]
 
     @staticmethod
     def _delete(db: sqlite3.Connection, department: str) -> None:
@@ -287,7 +315,10 @@ class DicoTopoIndex:
         return {str(d): str(t) for d, t in rows}
 
     def lookup(self, key: str, department: str) -> list[Article]:
-        """Articles of a department with a headword or form of this key."""
+        """Articles of a department with a headword or form of this key.
+
+        ``key`` is already normalised: pass ``form_key(text)``.
+        """
         db = self._connect()
         try:
             rows = db.execute(

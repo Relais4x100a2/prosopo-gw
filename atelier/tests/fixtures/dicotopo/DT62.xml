@@ -23,6 +23,10 @@
     <definition><typologie>château</typologie>, <localisation>commune de <commune insee="62765" precision="certain">Saint-Omer</commune></localisation>.</definition>
     <forme_ancienne>— <i>Le Quesnoy-Fictif,</i> <date>1600</date> <reference>(Arch. test)</reference>.</forme_ancienne>
   </article>
+  <article id="P90000007" old-id="DT62-00007" pg="2">
+    <vedette><sm>Pré-Inventé (Le),</sm></vedette>
+    <definition><typologie>ferme</typologie>, <localisation>commune de <commune insee="62041" precision="certain">Arras</commune></localisation>.</definition>
+  </article>
   <article id="P90000005" old-id="DT62-00005" pg="3">
     <definition><typologie>ferme</typologie>, <localisation>commune de <commune insee="62041" precision="certain">Arras</commune></localisation>.</definition>
     <forme_ancienne>— <i>Sans Vedette,</i> <date>1700</date> <reference>(Arch. test)</reference>.</forme_ancienne>
