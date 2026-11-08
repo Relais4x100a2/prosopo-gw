@@ -14,7 +14,9 @@ from ..refdata import normalize
 # count with their dot so that stray letters do not match.
 _TYPE_WORD = re.compile(
     r"(?<!\w)(?:rue|boulevard|bd|boul|bould|avenue|av|place|quai|impasse|imp"
-    r"|passage|pass|faubourg|faub|fbg|fg)(?!\w)\.?"
+    r"|passage|pass|faubourg|faub|fbg|fg|cours?|all[eé]e|chauss[eé]e|cit[eé]|villa"
+    r"|square|pont|port|chemin|route|ruelle|cul[- ]de[- ]sac|carrefour|march[eé]"
+    r"|parvis|promenade|sentier|galerie|cl[oô]?[iî]tre|enclos)(?!\w)\.?"
     r"|(?<!\w)(?:r|pl|q)\.",
     re.IGNORECASE,
 )
@@ -25,17 +27,20 @@ _NUMBER_MARK = re.compile(
 )
 _TRAILING_NUMBER = re.compile(r"\s+\d+\s*(?:bis|ter|quater)?\.?\s*$", re.IGNORECASE)
 
-_EXPANSION = {
+# One- or two-letter abbreviations are expanded in first position only.
+_SHORT_EXPANSION = {
     "r": "rue",
     "bd": "boulevard",
-    "boul": "boulevard",
-    "bould": "boulevard",
     "av": "avenue",
     "pl": "place",
     "fg": "faubourg",
+    "q": "quai",
+}
+_EXPANSION = {
+    "boul": "boulevard",
+    "bould": "boulevard",
     "fbg": "faubourg",
     "faub": "faubourg",
-    "q": "quai",
     "imp": "impasse",
     "pass": "passage",
     "ste": "sainte",
@@ -79,12 +84,16 @@ def street_key(street: str) -> str:
     inside the name (``rue du 4 septembre``) is kept.
     """
     text = _SEGMENT_END.sub(" ", _NUMBER_MARK.sub("", street))
-    tokens = [_EXPANSION.get(word, word) for word in normalize(text).split()]
+    tokens = normalize(text).split()
     while tokens and tokens[0].isdigit():
         tokens.pop(0)
         if tokens and tokens[0] in _SUFFIXES:
             tokens.pop(0)
     while tokens and (tokens[-1].isdigit() or tokens[-1] in _SUFFIXES):
         tokens.pop()
+    tokens = [
+        (_SHORT_EXPANSION.get(t, t) if i == 0 else t) for i, t in enumerate(tokens)
+    ]
+    tokens = [_EXPANSION.get(t, t) for t in tokens]
     kept = [t for i, t in enumerate(tokens) if i == 0 or t not in _ARTICLES]
     return " ".join(kept)

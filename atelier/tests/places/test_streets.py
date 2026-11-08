@@ -39,3 +39,24 @@ def test_street_key_edge_cases():
     assert street_key("rue du 4 Septembre") == "rue 4 septembre"
     assert street_key("av. d'Italie") == "avenue italie"
     assert street_key("imp. des Boeufs") == street_key("impasse des Bœufs")
+
+
+def test_street_of_other_street_types():
+    assert street_of("Cité Trévise, Paris") == "Cité Trévise"
+    assert street_of("cours la Reine") == "cours la Reine"
+    assert street_of("2 allée des Cygnes") == "allée des Cygnes"
+    assert street_of("cul-de-sac Saint-Pierre") == "cul-de-sac Saint-Pierre"
+    assert street_of("cloître Saint-Merri, 1er") == "cloître Saint-Merri"
+    assert street_of("Chaussée d'Antin") == "Chaussée d'Antin"
+    assert street_of("place du Marché") == "place du Marché"
+
+
+def test_street_key_other_street_types():
+    assert street_key("Cité Trévise") == "cite trevise"
+    assert street_key("cours la Reine") == "cours reine"
+    assert street_key("Chaussée d'Antin") == "chaussee antin"
+
+
+def test_street_key_short_abbreviation_only_first():
+    assert street_key("rue Pierre Q. Dupont") == "rue pierre q dupont"
+    assert street_key("pl. du Marché") == "place marche"
