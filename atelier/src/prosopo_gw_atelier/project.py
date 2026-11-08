@@ -481,6 +481,14 @@ class Project:
             self._cache = None
             self._precisions = None
 
+    @property
+    def paris_table(self) -> ParisTable:
+        """The Paris street table (loaded on first use unless injected)."""
+        with self._lock:
+            if self._paris_table is None:
+                self._paris_table = load_paris_table()
+            return self._paris_table
+
     def precisions(self) -> list[OccurrencePrecision]:
         """The precision of every occurrence that has one (module docstring)."""
         with self._lock:
@@ -549,9 +557,7 @@ class Project:
     def _compute_precisions(
         self, stored: dict[tuple[str, str, str], PrecisionDecision]
     ) -> list[OccurrencePrecision]:
-        if self._paris_table is None:
-            self._paris_table = load_paris_table()
-        table = self._paris_table
+        table = self.paris_table
         found: list[OccurrencePrecision] = []
         for view in self._views():
             for writing in view.cluster.writings:

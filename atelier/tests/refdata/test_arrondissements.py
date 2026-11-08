@@ -49,3 +49,15 @@ def test_is_insee_code_tells_insee_from_postal():
     assert is_insee_code("75107") and is_insee_code("69381") and is_insee_code("13208")
     assert not is_insee_code("75007") and not is_insee_code("69001")
     assert not is_insee_code("59350")
+
+
+def test_name_of_reads_every_identifier_form():
+    from prosopo_gw_atelier.refdata.arrondissements import name_of
+
+    assert name_of("75107") == "7e arrondissement"
+    assert name_of("paris-07") == "7e arrondissement"
+    assert name_of("paris-1795-01") == "1er arrondissement"
+    assert name_of("69381") == "1er arrondissement"
+    assert name_of("13216") == "16e arrondissement"
+    assert name_of("") is None and name_of("59350") is None
+    assert name_of("paris-99") is None

@@ -75,6 +75,21 @@ def level_name(number: int) -> str:
     return f"{number}{'er' if number == 1 else 'e'} arrondissement"
 
 
+def name_of(identifier: str) -> str | None:
+    """Name of the arrondissement an identifier designates, or None.
+
+    Reads ``paris-07``, ``paris-1795-07`` and the INSEE or postal codes
+    (``75107``, ``69381``, ``13216``).
+    """
+    if identifier.startswith("paris-"):
+        number = identifier.rsplit("-", 1)[-1]
+        if number.isdigit() and int(number) in numbers("paris"):
+            return level_name(int(number))
+        return None
+    found = by_code(identifier)
+    return level_name(found[1]) if found is not None else None
+
+
 def _insee_code(city: City, number: int) -> str:
     if city == "paris":
         return f"751{number:02d}"

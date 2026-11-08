@@ -29,6 +29,22 @@ Niveaux
   les noms des niveaux séparés par une virgule. Les niveaux seulement proposés,
   non validés, ne sont pas exportés.
 
+Arrondissements
+  Pour Paris, Lyon et Marseille, la table precisions_occurrences dit, pour chaque
+  occurrence d'un lieu (table, ligne_id, colonne), de quel arrondissement et de
+  quel quartier il s'agit. La periode donne le découpage en vigueur à la date de
+  l'acte : paris-1795 (avant 1860), paris-1860, lyon ou marseille ; elle est
+  vide si l'occurrence n'a pas de date. L'indice dit ce qui désigne
+  l'arrondissement : code (code INSEE ou postal), numero (écrit, lu selon la
+  date), rue (croisée avec la date) ou manuel (décision de l'utilisateur). Le
+  statut est applique (un seul arrondissement), conflit (deux indices désignent
+  deux arrondissements), incertain (date proche de 1860 ou arrondissement pas
+  encore créé) ou ambigu (une rue qui traverse plusieurs arrondissements). Pour
+  un conflit ou une ambiguïté, il y a une ligne par candidat : rien n'est
+  tranché à la place de l'utilisateur. Une ligne sans arrondissement signifie
+  « aucun arrondissement » (numéro qui n'existait pas alors, ou décision
+  manuelle).
+
 Origine des valeurs
   Dans la table lieux, chaque colonne <champ>_origine, et dans niveaux_lieux la
   colonne origine, dit d'où vient la valeur : ecrit (écrite dans la base),
@@ -42,6 +58,9 @@ Référentiels
   Source : INSEE et La Poste, données publiées sur data.gouv.fr sous
   Licence Ouverte 2.0 (Etalab). Les anciennes communes (fusions, associations,
   délégations) viennent du COG.
+  Table des rues de Paris (arrondissements et quartiers), extraite le
+  {paris_extraction}, sous licence ODbL 1.0. Attribution :
+{paris_attribution}
 
 Les identifiants (personne_id, famille_id, evenement_id…) ne valent que pour ce
 fichier .gw. Les lieu_id sont ceux de votre référentiel personnel, stables d'un

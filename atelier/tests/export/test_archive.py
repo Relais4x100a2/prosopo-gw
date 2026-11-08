@@ -68,6 +68,7 @@ def test_exact_file_list(
         "sources.csv",
         "lieux.csv",
         "niveaux_lieux.csv",
+        "precisions_occurrences.csv",
         "ecritures_lieux.csv",
         "lieux_varies.json",
         "lieux_varies.sqlite",
@@ -151,3 +152,16 @@ def test_deterministic_with_an_odd_second(
     assert build_archive(project, registry, ref, odd) == first
     json_text = open_zip(first).read("lieux_varies.json").decode("utf-8")
     assert '"generated_at": "2026-11-07T14:30:13"' in json_text
+
+
+def test_readme_attributes_paris_table(
+    project: Project, registry: PlaceRegistry, ref: RefData
+) -> None:
+    archive = open_zip(build_archive(project, registry, ref, GENERATED_AT))
+    readme = archive.read("LISEZMOI.txt").decode("utf-8")
+    table = project.paris_table
+    assert "ODbL" in readme and "ALPAGE" in readme
+    assert table.attribution.strip().splitlines()[2].strip() in readme
+    assert table.extraction in readme
+    assert "Arrondissements" in readme and "precisions_occurrences" in readme
+    assert "{" not in readme
