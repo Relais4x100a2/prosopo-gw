@@ -65,6 +65,18 @@
     resolve: "Conflit tranché : décision importée retenue",
     undo: "Annulation",
   };
+  const PRECISION_STATUS_LABELS = {
+    applied: "appliquée", conflict: "conflit", uncertain: "incertaine", ambiguous: "ambiguë",
+  };
+  const PRECISION_TODO = new Set(["conflict", "uncertain", "ambiguous"]);
+  const CLUE_LABELS = {
+    code: "code", number: "numéro écrit", street: "rue", manual: "choix manuel",
+  };
+  const PRECISION_FILTERS = [
+    ["todo", "À traiter"],
+    ["applied", "Appliquées"],
+    ["all", "Toutes"],
+  ];
   const JOURNAL_LIMIT = 50;
   const FLASH_MS = 1700;
   const INFO_MS = 6000;
@@ -86,8 +98,10 @@
     occurrences: null, // null: hidden; else Map writing -> list or Error
     busy: false,
     history: [], // cluster open before each action, to come back on undo
-    view: "places", // "places" (validation screen) or "registry"
+    view: "places", // "places" (validation screen), "registry" or "precisions"
     conflicts: [], // GET /api/registry/conflicts: pending import conflicts
+    precisions: [], // GET /api/precisions: every precision group
+    precisionFilter: "todo",
     journal: [], // GET /api/registry/journal, newest first
     importSummary: null, // text shown after the last import
   };
@@ -222,6 +236,14 @@
       ? "← Retour aux lieux"
       : pending ? `Référentiel (${plural(pending, "conflit", "conflits")})` : "Référentiel";
     registryButton.classList.toggle("alert", pending > 0 && !inRegistry);
+    const precisionsButton = $("precisions-button");
+    const inPrecisions = state.view === "precisions";
+    const toProcess = state.precisions.filter((g) => PRECISION_TODO.has(g.status)).length;
+    precisionsButton.setAttribute("aria-pressed", String(inPrecisions));
+    precisionsButton.textContent = inPrecisions
+      ? "← Retour aux lieux"
+      : toProcess ? `Précisions (${toProcess})` : "Précisions";
+    precisionsButton.classList.toggle("alert", toProcess > 0 && !inPrecisions);
   }
 
   function renderFilters() {
@@ -277,13 +299,16 @@
 
   function renderAll() {
     const inRegistry = state.view === "registry";
-    $("layout").hidden = inRegistry;
+    const inPrecisions = state.view === "precisions";
+    $("layout").hidden = inRegistry || inPrecisions;
     $("registry").hidden = !inRegistry;
+    $("precisions").hidden = !inPrecisions;
     renderHeader();
     renderFilters();
     renderQueue();
     renderDetail();
     if (inRegistry) renderRegistry();
+    if (inPrecisions) renderPrecisions();
   }
 
   // -- detail --------------------------------------------------------------------
@@ -1067,9 +1092,143 @@
     state.journal = journal.entries;
   }
 
+  // -- precisions (arrondissements) ----------------------------------------------
+
+  const NO_ARRONDISSEMENT = "aucun (n'existait pas à cette date)";
+
+  function candidateLabel(candidate) {
+    if (!candidate.arrondissement) return NO_ARRONDISSEMENT;
+    return candidate.quartier
+      ? `${candidate.arrondissement} · ${candidate.quartier}`
+      : candidate.arrondissement;
+  }
+
+  function visiblePrecisions() {
+    return state.precisions.filter((g) => {
+      if (state.precisionFilter === "all") return true;
+      return state.precisionFilter === "applied"
+        ? g.status === "applied"
+        : PRECISION_TODO.has(g.status);
+    });
+  }
+
+  function renderPrecisionFilters() {
+    return el(
+      "div",
+      { class: "filters", role: "toolbar", "aria-label": "Filtrer les précisions" },
+      ...PRECISION_FILTERS.map(([key, label]) => {
+        const count = state.precisions.filter((g) => key === "all"
+          || (key === "applied" ? g.status === "applied" : PRECISION_TODO.has(g.status))).length;
+        return el("button", {
+          type: "button",
+          "aria-pressed": String(state.precisionFilter === key),
+          onclick: () => {
+            state.precisionFilter = key;
+            renderAll();
+          },
+          text: `${label} (${count})`,
+        });
+      }),
+    );
+  }
+
+  function renderPrecisionGroup(group) {
+    const decided = group.status === "applied" && group.candidates.some((c) => c.clue === "manual");
+    const choices = group.candidates
+      .filter((c) => c.arrondissement_id !== "" && !decided)
+      .map((c) => el(
+        "li",
+        null,
+        el("button", {
+          type: "button",
+          class: "small",
+          text: "Retenir",
+          title: "Retenir cet arrondissement pour toutes les occurrences du groupe",
+          disabled: state.busy,
+          onclick: () => run(() => decidePrecision(group, c.arrondissement_id, c.quartier_id)),
+        }),
+        " ",
+        el("strong", { text: candidateLabel(c) }),
+        " ",
+        el("span", { class: "pill", text: CLUE_LABELS[c.clue] || c.clue }),
+      ));
+    const none = group.candidates.find((c) => c.arrondissement_id === "");
+    return el(
+      "div",
+      { class: "card" },
+      el(
+        "h2",
+        null,
+        el("code", { text: group.writing }),
+        group.complement ? el("code", { text: group.complement }) : null,
+        el("span", { class: `state precision-${group.status}`, text: PRECISION_STATUS_LABELS[group.status] || group.status }),
+      ),
+      el("p", { class: "sub", text: `${group.period_label} · ${plural(group.occurrences, "occurrence", "occurrences")}` }),
+      none
+        ? el("p", { class: "sub" }, el("span", { class: "pill", text: CLUE_LABELS[none.clue] || none.clue }), ` ${NO_ARRONDISSEMENT}`)
+        : null,
+      choices.length ? el("ul", { class: "precision-candidates" }, choices) : null,
+      decided
+        ? el("p", { class: "sub", text: "Décision prise : pour la changer, annulez-la (Annuler) puis choisissez à nouveau." })
+        : el(
+          "div",
+          { class: "actions" },
+          el("button", {
+            type: "button",
+            text: "Aucun arrondissement",
+            title: "Aucun arrondissement ne s'applique à ce groupe",
+            disabled: state.busy,
+            onclick: () => run(() => decidePrecision(group, "", null)),
+          }),
+        ),
+    );
+  }
+
+  function renderPrecisions() {
+    const shown = visiblePrecisions();
+    $("precisions").replaceChildren(
+      el("h2", { text: "Précisions d'arrondissement" }),
+      el("p", { class: "sub", text: "Chaque groupe rassemble les occurrences d'une même écriture, d'un même complément et d'une même période. Rien n'est tranché en silence : choisissez l'arrondissement à retenir." }),
+      renderPrecisionFilters(),
+      ...(shown.length
+        ? shown.map(renderPrecisionGroup)
+        : [el("p", { class: "empty", text: "Aucune précision dans ce filtre." })]),
+    );
+  }
+
+  async function loadPrecisions() {
+    const result = await api("GET", "/api/precisions");
+    state.precisions = result.groups;
+  }
+
+  async function decidePrecision(group, arrondissementId, quartierId) {
+    await api("POST", "/api/precisions/decide", {
+      writing: group.writing,
+      complement: group.complement,
+      period: group.period,
+      arrondissement_id: arrondissementId,
+      quartier_id: quartierId,
+    });
+    state.history.push(state.currentId);
+    await loadPrecisions();
+    renderAll();
+    showMessage(
+      arrondissementId === ""
+        ? `« ${group.writing} » : aucun arrondissement retenu.`
+        : `« ${group.writing} » : arrondissement retenu.`,
+      "info",
+    );
+  }
+
   async function showView(view) {
     state.view = view;
-    if (view === "registry") {
+    if (view === "precisions") {
+      try {
+        await loadPrecisions();
+      } finally {
+        renderAll();
+      }
+    } else if (view === "registry") {
       try {
         await loadRegistry();
       } finally {
@@ -1127,11 +1286,13 @@
   // -- loading -------------------------------------------------------------------
 
   async function refresh() {
-    const [project, clusters, conflicts] = await Promise.all([
+    const [project, clusters, conflicts, precisions] = await Promise.all([
       api("GET", "/api/project"),
       api("GET", "/api/clusters"),
       api("GET", "/api/registry/conflicts"),
+      api("GET", "/api/precisions"),
     ]);
+    state.precisions = precisions.groups;
     state.project = project;
     state.clusters = clusters;
     state.conflicts = conflicts.conflicts;
@@ -1304,7 +1465,12 @@
       await loadRegistry();
       renderAll();
     }
-    showMessage(`Action annulée : ${UNDO_LABELS[result.action] || result.action}.`, "info");
+    renderAll(); // the precision list and its counter follow the undo
+    // A precision decision is journaled as a "correct" action.
+    const label = state.view === "precisions" && result.action === "correct"
+      ? "décision de précision d'arrondissement"
+      : UNDO_LABELS[result.action] || result.action;
+    showMessage(`Action annulée : ${label}.`, "info");
   }
 
   async function reloadGw() {
@@ -1347,8 +1513,8 @@
       run(undo);
       return;
     }
-    if (state.view === "registry") {
-      // The place shortcuts act on the hidden cluster: off on this screen.
+    if (state.view !== "places") {
+      // The place shortcuts act on the hidden cluster: off on these screens.
       if (key === "Escape") run(() => showView("places"));
       return;
     }
@@ -1375,6 +1541,9 @@
     $("message-close").addEventListener("click", hideMessage);
     $("registry-button").addEventListener("click", () => {
       run(() => showView(state.view === "registry" ? "places" : "registry"));
+    });
+    $("precisions-button").addEventListener("click", () => {
+      run(() => showView(state.view === "precisions" ? "places" : "precisions"));
     });
     document.addEventListener("keydown", onKeyDown);
     run(async () => {

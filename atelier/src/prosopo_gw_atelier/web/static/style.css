@@ -317,3 +317,13 @@ button.small { font-size: 12px; padding: 2px 8px; }
   border-radius: 4px;
   font: inherit;
 }
+
+/* -- precisions screen (arrondissements) ------------------------------------- */
+
+#precisions-button[aria-pressed="true"] { background: var(--selected); border-color: var(--accent); }
+#precisions-button.alert { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.precisions .filters { position: static; border: 0; padding: 0 0 12px; background: transparent; }
+.precision-candidates { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.state.precision-conflict, .state.precision-ambiguous { color: var(--bad); }
+.state.precision-uncertain { color: var(--warn); }
+.state.precision-applied { color: var(--ok); }

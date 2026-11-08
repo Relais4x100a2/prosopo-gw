@@ -15,6 +15,8 @@
   <button type="button" id="undo-button" title="Annuler la dernière action (Ctrl+Z)">↶ Annuler</button>
   <a id="export-link" class="button" href="/api/export" download
      title="Archive zip : tables CSV, JSON et SQLite, dictionnaire, lieux et écritures">Exporter les données</a>
+  <button type="button" id="precisions-button" aria-pressed="false"
+          title="Arrondissements : trancher les précisions en conflit, incertaines ou ambiguës">Précisions</button>
   <button type="button" id="registry-button" aria-pressed="false"
           title="Exporter, importer et comparer vos décisions ; journal des actions">Référentiel</button>
 </header>
@@ -41,6 +43,8 @@
 </main>
 
 <section id="registry" class="registry" aria-label="Référentiel personnel" hidden></section>
+
+<section id="precisions" class="registry precisions" aria-label="Précisions d'arrondissement" hidden></section>
 
 <script src="/static/app.js"></script>
 </body>
