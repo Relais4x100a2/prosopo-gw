@@ -2,6 +2,10 @@
 
 Statut : **conception validée par l'auteur**, 7 novembre 2026. Nom provisoire « Prosopo-gw-Atelier ». Le nom
 définitif sera choisi plus tard.
+Évolution : depuis le 8 novembre 2026, un lieu est une chaîne de niveaux (communes historiques
+comprises) ; le modèle est décrit dans
+`docs/superpowers/specs/2026-11-08-atelier-lieux-niveaux-design.md`. Ce document reste la
+référence pour le reste ; ses passages sur les champs fixes (`ancien_nom`, `lieux`) sont remplacés.
 Origine : `docs/reflexions/2026-11-06-atelier-nettoyage.md`, § 9, où sont consignées les décisions
 de l'auteur. Ce document en tire une conception que l'on peut planifier. Les choix marqués
 **(choix de conception)** sont des propositions de l'assistant, pas des décisions de l'auteur.
@@ -142,7 +146,7 @@ le pont vers la fonction organisations de `core`.
 | `departement` | nom, numéro, `(59)` |
 | `region` | régions actuelles **et anciennes** (une ancienne région reste une région) |
 | `pays` | liste de pays |
-| `ancien_nom` | ancienne dénomination ou commune fusionnée, quand elle est reconnue |
+| `commune_historique` | ancienne commune (fusion, association, délégation) reconnue par le COG ; un simple changement de nom reste un ancien nom de la commune |
 
 Les séparateurs (virgule, parenthèses, tiret entre commune et code), la casse et l'ordre varient :
 la décomposition ne suppose aucun ordre fixe. Un nombre à 5 chiffres peut être un code postal ou un
@@ -154,7 +158,7 @@ ligne, avec la base des codes postaux ci-dessous. Il sert à :
 - vérifier qu'un code à 5 caractères est un code INSEE existant, et lever ainsi une partie de
   l'ambiguïté code postal / code INSEE ;
 - reconnaître une commune et son département, y compris sous un ancien nom ou une commune
-  fusionnée (alimente `ancien_nom`) ;
+  fusionnée (alimente `commune_historique`) ;
 - donner au regroupement une clé forte (le code INSEE) même quand l'écriture n'en contient pas.
 
 Le COG ne contient pas les **codes postaux**. **Base officielle des codes postaux embarquée
@@ -246,7 +250,7 @@ Disposition **liste + détail**, retenue par l'auteur après un prototype cliqua
 
 **Cluster ouvert (à droite)**
 - **La forme retenue, décomposée**, en champs modifiables : commune, code INSEE, département,
-  région, pays, ancien nom.
+  région, pays, ancienne commune ; la chaîne des niveaux est modifiable.
 - **Les compléments**, affichés à part : ils ne sont pas des variantes de la commune.
 - **Les écritures d'origine** : une case à cocher, le nombre d'occurrences et l'indice de
   rattachement pour chacune.
@@ -304,8 +308,10 @@ Décision de l'auteur : un **schéma simple et unique**, adapté ensuite à chaq
   colonnes et les mêmes conventions (`exports_design.md` § 4).
 - **Ajouts** **(choix de conception)** :
   - une table `lieux` : `lieu_id`, `commune`, `code_insee`, `code_postal`, `departement`,
-    `region`, `pays`, `ancien_nom`, et, après les enrichissements, les identifiants externes et
-    les coordonnées. Pour chaque élément, une colonne `<élément>_origine` ;
+    `region`, `pays`, `commune_historique`, `code_insee_historique`, `libelle` (noms des niveaux),
+    `latitude`, `longitude`. Pour chaque élément, une colonne `<élément>_origine` ;
+  - une table `niveaux_lieux` : une ligne par niveau validé (`lieu_id`, `rang`, `nom`, `nom_ecrit`,
+    `type`, `nature`, `identifiant`, `source`, `debut`, `fin`, coordonnées, `origine`) ;
   - une table `ecritures_lieux` : `ecriture` (partie lieu, sans complément), `lieu_id`,
     `statut` ;
   - à côté de chaque colonne de lieu des tables de `core`, une colonne `…_lieu_id`

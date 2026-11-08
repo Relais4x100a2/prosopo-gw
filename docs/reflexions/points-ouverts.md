@@ -83,9 +83,16 @@ sources, événements « Autre », organisations) reste dans :
   modifie le référentiel en même temps) ; à transformer en 409 en français.
 - Scinder des écritures déjà validées hors de leur lieu donne un groupe qui pointe encore vers ce
   lieu.
-- Données de référence : colonne `MOD` exigée sans être utilisée ; codes INSEE et postaux non
+- Données de référence : codes INSEE et postaux non
   complétés par des zéros ; détection du séparateur fragile sur des en-têtes entre guillemets ;
   environ 90 codes postaux des collectivités d'outre-mer écartés.
+- Une nouvelle écriture rattachée à un lieu existant ne propose pas ses niveaux écrits manquants.
+- L'ancrage par nom peut réunir des lieux étrangers que la partition par codes avait séparés.
+- Modifier les coordonnées, les dates ou la nature d'un niveau INSEE garde l'origine « insee » :
+  l'origine est retrouvée par nom, type et identifiant.
+- Accepter ou refuser une proposition sur un lieu du référentiel recharge la fiche : les
+  modifications non enregistrées sont perdues.
+- Registre v1 migré : une copie de sauvegarde est écrite à chaque tentative, même échouée.
 - Région écrite non comparée à la commune ; confiance plafonnée à « moyenne » après fusion par
   similarité ; horodatages non exportés ; suppression concurrente qui lève une `IntegrityError`.
 - Publication : le job de test ne tourne que sous Python 3.12 ; l'ordre des étiquettes
