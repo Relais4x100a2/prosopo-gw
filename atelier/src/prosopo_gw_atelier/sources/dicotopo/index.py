@@ -100,6 +100,21 @@ def form_keys(text: str) -> set[str]:
     return {k for k in keys if k}
 
 
+def fronted(text: str) -> str:
+    """Headword or form without markup, with a trailing article put back in front.
+
+    ``Quesnoy-Fictif (Le),`` gives ``Le Quesnoy-Fictif``.
+    """
+    cleaned = _TRAILING.sub("", _ITALIC_MARKUP.sub("", text).strip())
+    match = _INVERTED.match(cleaned)
+    if not match or not match.group(1):
+        return cleaned
+    article = match.group(2)
+    article = article[0].upper() + article[1:]
+    sep = "" if article.endswith(("'", "\u2019")) else " "
+    return f"{article}{sep}{match.group(1)}"
+
+
 def _text(element: ET.Element) -> str:
     return " ".join("".join(element.itertext()).split())
 
