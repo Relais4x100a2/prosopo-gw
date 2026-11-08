@@ -775,6 +775,31 @@ def test_historical_writings_flag_merged_place(
     assert view.historical_writings == {"Lomme": "Lomme"}
 
 
+def test_historical_writings_follow_the_place_s_own_former_commune(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    pid = project.project_id
+    lille = project.cluster("insee:59350").cluster.levels
+    lomme = Level(
+        0, "Lomme", type="commune_historique", identifier="59355", status="proposed"
+    )
+    # As the migration leaves a v1 place: Lomme proposed above Lille.
+    place = validate(registry, ["Lille", "Lomme"], renumber([lomme, *lille]), pid)
+    view = project.cluster(f"place:{place}")
+    assert view.historical_writings == {"Lomme": "Lomme"}
+    # Once Lomme is the place, the Lille writing is the odd one out.
+    registry.accept_proposal(place, 0, pid)
+    view = project.cluster(f"place:{place}")
+    assert view.cluster.levels[0].status == "validated"
+    assert view.historical_writings == {"Lille": "Lille"}
+    # Not only ``place:`` clusters: a split of the place is that place too.
+    split = project.split(f"place:{place}", ["Lille"])
+    assert split.place_id == place
+    assert split.historical_writings == {"Lille": "Lille"}
+    assert project.cluster(f"place:{place}").historical_writings == {}
+
+
 def test_validating_onto_an_anchored_place_keeps_its_manual_level(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:
@@ -809,7 +834,17 @@ def test_cluster_of_unknown_codes_is_entered_by_hand(
     assert view.from_registry is False
     others = [v for v in project.clusters() if v.cluster.id != "name:99999"]
     assert not any(v.needs_manual_levels for v in others)
-    # A chain entered by hand makes it a place like any other.
-    place = validate(registry, ["99999"], commune("Inconnu"), project.project_id)
-    assert view_of(project, "99999").needs_manual_levels is False
+    pid = project.project_id
+    # Proposed levels only: nothing validated to accept yet.
+    proposed = (Level(0, "Inconnu", origin="manual", status="proposed"),)
+    place = validate(registry, ["99999"], proposed, pid)
     assert view_of(project, "99999").place_id == place
+    assert view_of(project, "99999").needs_manual_levels is True
+    # A chain entered by hand makes it a place like any other.
+    validate(registry, ["99999"], commune("Inconnu"), pid, place)
+    assert view_of(project, "99999").needs_manual_levels is False
+    # A rejected cluster carries no levels, on purpose.
+    registry.reject(["99999"], pid)
+    rejected = view_of(project, "99999")
+    assert rejected.cluster.levels == ()
+    assert rejected.needs_manual_levels is False

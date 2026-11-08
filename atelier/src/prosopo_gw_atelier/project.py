@@ -56,19 +56,27 @@ Place of a cluster
     without a place keeps the chain ``build_clusters`` computed from the
     rules (``from_registry=False``).
 
-    ``historical_writings`` (places only) maps each writing of the cluster
-    whose decomposition names a former commune (``Decomposition.historical``)
-    other than the place's first validated ``commune_historique`` (same code
-    and name key) to the name of that former commune. It flags a place that
-    mixes a commune and one of its former communes (a version 1 place holding
-    ``Lille`` and ``Lomme``: the migration never moves writings).
+    ``historical_writings`` (places only) flags a place that mixes a commune
+    and one of its former communes (a version 1 place holding ``Lille`` and
+    ``Lomme``: the migration never moves writings). The place's own former
+    commune is its first validated level when that level is a
+    ``commune_historique`` (as for its anchor, ``known_places``). The map
+    gives, for each writing of the cluster:
+
+    - whose decomposition names a former commune
+      (``Decomposition.historical``) other than the place's own (same code
+      and name key), the name of that former commune;
+    - when the place has its own former commune, whose decomposition names
+      none but resolves to a current commune, the name of that commune (the
+      ``Lille`` writing of a place that is now ``Lomme``).
 
 Levels to enter by hand
-    A cluster whose writings yield no level at all (e.g. a ``name:`` cluster
-    made only of unknown codes such as ``99999``) has ``cluster.levels ==
-    ()``: there is no chain to accept, the user has to enter one.
-    ``ClusterView.needs_manual_levels`` is ``True`` exactly then (so also for
-    a ``rejected:`` cluster, which carries no levels).
+    ``ClusterView.needs_manual_levels`` is ``True`` when the cluster is not
+    rejected and its chain has no validated level: there is no chain to
+    accept, the user has to enter one (or accept a proposed level). Typically
+    a ``name:`` cluster made only of unknown codes such as ``99999``
+    (``cluster.levels == ()``), or a place whose levels are all proposed. A
+    rejected cluster never needs it: it carries no levels on purpose.
 
 State of a cluster
     ``todo`` while one of its writings is undecided (so a new writing that
@@ -206,13 +214,15 @@ class ClusterView:
     place's as the registry has it (proposed levels included), ``False`` when
     they come from the rules."""
     historical_writings: dict[str, str] = field(default_factory=dict)
-    """Writing -> former commune it names, other than the place's validated
-    ``commune_historique`` (see the module docstring)."""
+    """Writing -> the other commune (former or current) it names, when the
+    place mixes communes (see the module docstring)."""
 
     @property
     def needs_manual_levels(self) -> bool:
-        """No level to accept: the chain has to be entered by hand."""
-        return not self.cluster.levels
+        """Not rejected and no validated level: the chain is to enter by hand."""
+        if self.state == "rejected":
+            return False
+        return not any(level.status == "validated" for level in self.cluster.levels)
 
 
 @dataclass(frozen=True)
@@ -413,6 +423,7 @@ class Project:
     def _views(self) -> list[ClusterView]:
         decisions = self._registry.decisions(self._decompositions)
         built = self._built(decisions)
+        places = {place.place_id: place for place in self._registry.places()}
         views = []
         for item in built:
             cluster = item.cluster
@@ -423,7 +434,7 @@ class Project:
                 place_id = cluster.anchor_place_id
             historical: dict[str, str] = {}
             if place_id is not None:
-                place = self._registry.place(place_id)
+                place = places[place_id]
                 levels, postal_code = place.levels, place.postal_code
                 historical = self._historical_writings(cluster.writings, levels)
             state: ClusterState
@@ -459,20 +470,22 @@ class Project:
     def _historical_writings(
         self, writings: Sequence[str], levels: Sequence[Level]
     ) -> dict[str, str]:
-        """Writings naming a former commune other than the place's own."""
-        own = next(
-            (
-                f"{level.identifier}|{name_key(level.name)}"
-                for level in validated(levels)
-                if level.type == "commune_historique"
-            ),
-            None,
-        )
+        """Writings naming another commune than the place's (module docstring)."""
+        chain = validated(levels)
+        own: str | None = None
+        if chain and chain[0].type == "commune_historique":
+            own = f"{chain[0].identifier}|{name_key(chain[0].name)}"
         flagged: dict[str, str] = {}
         for writing in writings:
-            former = self._decompositions[writing].historical
-            if former is not None and f"{former.insee}|{name_key(former.name)}" != own:
-                flagged[writing] = former.name
+            decomposition = self._decompositions[writing]
+            former = decomposition.historical
+            if former is not None:
+                if f"{former.insee}|{name_key(former.name)}" != own:
+                    flagged[writing] = former.name
+            elif own is not None and decomposition.insee is not None:
+                commune = self._ref.commune_by_insee(decomposition.insee)
+                if commune is not None:
+                    flagged[writing] = commune.name
         return flagged
 
     def _built(self, decisions: dict[str, Decision]) -> list[_Built]:
