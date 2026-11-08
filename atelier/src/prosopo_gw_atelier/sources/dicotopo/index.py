@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
 import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
@@ -242,6 +243,7 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 """
 
+_BUSY_TIMEOUT = 30.0
 _COLUMNS = "id, department, headword, insee, commune_insee, kind, forms"
 
 
@@ -258,12 +260,27 @@ class DicoTopoIndex:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._memo_lock = threading.Lock()
+        self._generation = 0
+        self._departments: dict[str, str] | None = None
         path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
-            db.executescript(_SCHEMA)
+        db = self._connect()
+        try:
+            # WAL (persistent in the file): readers see the last committed state
+            # while a long indexing transaction is open, instead of waiting.
+            db.execute("PRAGMA journal_mode=WAL")
+            with db:
+                db.executescript(_SCHEMA)
+        finally:
+            db.close()
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._path)
+        return sqlite3.connect(self._path, timeout=_BUSY_TIMEOUT)
+
+    def _invalidate(self) -> None:
+        with self._memo_lock:
+            self._generation += 1
+            self._departments = None
 
     def add_department(
         self, department: str, xml: Path, downloaded_at: str
@@ -304,6 +321,7 @@ class DicoTopoIndex:
                 )
         finally:
             db.close()
+        self._invalidate()
         return indexed, counter[0]
 
     @staticmethod
@@ -324,9 +342,14 @@ class DicoTopoIndex:
                 self._delete(db, department)
         finally:
             db.close()
+        self._invalidate()
 
     def departments(self) -> dict[str, str]:
-        """Indexed departments with their download date."""
+        """Indexed departments with their download date (memoised)."""
+        with self._memo_lock:
+            if self._departments is not None:
+                return dict(self._departments)
+            generation = self._generation
         db = self._connect()
         try:
             rows = db.execute(
@@ -334,7 +357,11 @@ class DicoTopoIndex:
             ).fetchall()
         finally:
             db.close()
-        return {str(d): str(t) for d, t in rows}
+        found = {str(d): str(t) for d, t in rows}
+        with self._memo_lock:
+            if generation == self._generation:  # not changed while reading
+                self._departments = found
+        return dict(found)
 
     def details(self) -> list[tuple[str, str, int, int]]:
         """Indexed departments: ``(code, downloaded_at, articles, skipped)``."""

@@ -26,6 +26,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import sqlite3
 import urllib.parse
 from collections.abc import Sequence
 from dataclasses import replace
@@ -101,14 +102,22 @@ class DicoTopoSource:
 
     def covers(self, query: LevelQuery) -> bool:
         department = self._department(query)
-        return department is not None and department in self._index.departments()
+        return department is not None and self._indexed(department)
 
     def can_answer(self, query: LevelQuery) -> bool:
         """Department indexed, or the API allowed (and a department known)."""
         department = self._department(query)
         return department is not None and (
-            self._api_enabled or department in self._index.departments()
+            self._api_enabled or self._indexed(department)
         )
+
+    def _indexed(self, department: str) -> bool:
+        # A view must never fail because the index is busy or damaged.
+        try:
+            return department in self._index.departments()
+        except sqlite3.Error:
+            logger.warning("Index DicoTopo illisible", exc_info=True)
+            return False
 
     def search(self, query: LevelQuery) -> list[SourceCandidate]:
         department = self._department(query)

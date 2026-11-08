@@ -128,3 +128,58 @@ def test_stored_department_is_the_argument(tmp_path: Path) -> None:
     article = index.get("P90000002")
     assert article is not None
     assert article.department == "99"
+
+
+def test_readers_are_not_blocked_while_a_writer_holds_a_transaction(
+    tmp_path: Path,
+) -> None:
+    import sqlite3
+    import threading
+    import time
+
+    index = DicoTopoIndex(tmp_path / "i.sqlite")
+    index.add_department("62", DT62, "2026-01-01T00:00:00+00:00")
+    assert index._connect().execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    locked = threading.Event()
+    release = threading.Event()
+
+    def writer() -> None:
+        db = sqlite3.connect(tmp_path / "i.sqlite")
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM articles")
+        locked.set()
+        release.wait(10)
+        db.rollback()
+        db.close()
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    try:
+        assert locked.wait(5)
+        started = time.monotonic()
+        assert index.departments() == {"62": "2026-01-01T00:00:00+00:00"}
+        assert index.lookup(form_key("Hesdin-la-Forêt"), "62")
+        assert time.monotonic() - started < 1.0
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_can_answer_survives_an_index_error(tmp_path: Path) -> None:
+    import sqlite3
+
+    from prosopo_gw_atelier.sources.base import LevelQuery
+    from prosopo_gw_atelier.sources.dicotopo.source import DicoTopoSource
+
+    class Broken(DicoTopoIndex):
+        def departments(self) -> dict[str, str]:
+            raise sqlite3.OperationalError("database is locked")
+
+    source = DicoTopoSource(
+        Broken(tmp_path / "i.sqlite"),
+        None,
+        api_enabled=False,  # type: ignore[arg-type]
+    )
+    query = LevelQuery(name="X", department="62")
+    assert source.can_answer(query) is False
+    assert source.covers(query) is False
