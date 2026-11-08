@@ -176,3 +176,63 @@ def test_worker_start_stop_smoke(queue: SourceQueue) -> None:
     worker = Worker(queue, {})
     worker.start()
     worker.stop()
+
+
+def test_concurrent_enqueue_creates_one_job(queue: SourceQueue) -> None:
+    import threading
+
+    threads = [
+        threading.Thread(target=queue.enqueue, args=("s", "match", "k", {}, 1))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert queue.counts()["s"]["pending"] == 1
+
+
+def test_concurrent_next_job_claims_each_once(queue: SourceQueue) -> None:
+    import threading
+
+    for i in range(10):
+        queue.enqueue("s", "match", f"k{i}", {}, 1)
+    claimed: list[int] = []
+    lock = threading.Lock()
+
+    def claim() -> None:
+        while (job := queue.next_job()) is not None:
+            with lock:
+                claimed.append(job.id)
+
+    threads = [threading.Thread(target=claim) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(claimed) == 10 and len(set(claimed)) == 10
+
+
+def test_worker_loop_survives_exceptions(queue: SourceQueue) -> None:
+    import time
+
+    seen: list[Job] = []
+    queue.enqueue("s", "match", "a", {}, 1)
+    real = queue.next_job
+    calls = [0]
+
+    def flaky() -> Job | None:
+        calls[0] += 1
+        if calls[0] == 1:
+            raise RuntimeError("boom")
+        return real()
+
+    queue.next_job = flaky  # type: ignore[method-assign]
+    worker = Worker(queue, {("s", "match"): seen.append})
+    worker.idle_interval = 0.01
+    worker.start()
+    deadline = time.time() + 5
+    while not seen and time.time() < deadline:
+        time.sleep(0.01)
+    worker.stop()
+    assert len(seen) == 1

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -19,6 +20,8 @@ from typing import Literal, cast
 
 from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.sources.base import SourceCandidate, SourceError
+
+logger = logging.getLogger(__name__)
 
 JobKind = Literal["download", "index", "match"]
 JobState = Literal["pending", "running", "done", "failed"]
@@ -90,16 +93,27 @@ class SourceQueue:
     def __init__(self, path: Path, clock: Callable[[], float] = time.time) -> None:
         self._path = path
         self._clock = clock
-        with self._db() as db:
+        db = sqlite3.connect(self._path, timeout=5)
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
             db.executescript(_SCHEMA)
+        finally:
+            db.close()
 
     @contextlib.contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self._path, timeout=30)
+        """One connection per call; the whole block is one IMMEDIATE transaction."""
+        db = sqlite3.connect(self._path, timeout=5, isolation_level=None)
         db.row_factory = sqlite3.Row
         try:
-            with db:
+            db.execute("PRAGMA synchronous=NORMAL")
+            db.execute("BEGIN IMMEDIATE")
+            try:
                 yield db
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+            db.execute("COMMIT")
         finally:
             db.close()
 
@@ -273,6 +287,7 @@ class Worker:
     ) -> None:
         self._queue = queue
         self._handlers = handlers
+        self.idle_interval = 1.0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -295,8 +310,13 @@ class Worker:
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            if not self.run_once():
-                self._stop.wait(1.0)
+            try:
+                busy = self.run_once()
+            except Exception:
+                logger.exception("Worker iteration failed")
+                busy = False
+            if not busy:
+                self._stop.wait(self.idle_interval)
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -309,4 +329,5 @@ class Worker:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
-            self._thread = None
+            if not self._thread.is_alive():
+                self._thread = None
