@@ -352,3 +352,8 @@ def test_accept_requires_a_source_level(
         ).status_code
         == 400
     )
+
+
+def test_attribution_names_the_upstream_licence(client: TestClient) -> None:
+    attributions = client.get("/api/sources").json()["attributions"]
+    assert any("CC BY-NC-ND 3.0 FR" in line for line in attributions)

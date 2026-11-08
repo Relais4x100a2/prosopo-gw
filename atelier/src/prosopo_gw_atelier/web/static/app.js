@@ -1791,7 +1791,10 @@
     if (!state.busy) {
       try {
         if (state.view === "sources") {
-          await loadSources();
+          // Not loadSources: a failed tick must keep the last status, or
+          // pollWanted() turns false and polling stops for good.
+          state.sources = await api("GET", "/api/sources");
+          state.sourcesError = null;
           if (state.view === "sources") renderSources();
         } else if (state.view === "places") {
           await pollDetail();

@@ -116,7 +116,7 @@ _FIXED_KINDS = {
 ATTRIBUTIONS = [
     "DicoTopo : dictionnaire topographique de la France, École nationale des "
     "chartes et Comité des travaux historiques et scientifiques (CTHS), "
-    "licence CC BY-NC-ND 4.0 (usage non commercial, sans modification).",
+    "licence CC BY-NC-ND 3.0 FR (usage non commercial, sans modification).",
     "Source et conditions : https://github.com/chartes/dico-topo",
 ]
 """Credits shown on the Sources screen."""
