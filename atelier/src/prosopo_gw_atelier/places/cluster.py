@@ -337,6 +337,15 @@ def _partitions(group: _Group, chains: Mapping[str, tuple[Level, ...]]) -> list[
     return parts
 
 
+def similar(a: str, b: str) -> bool:
+    """Whether two normalized names are close enough to merge: same first
+    character and a ``SequenceMatcher`` ratio of at least
+    ``SIMILARITY_THRESHOLD`` (the test the similarity blocks apply)."""
+    if not a or a[:1] != b[:1]:
+        return False
+    return SequenceMatcher(None, a, b, autojunk=False).ratio() >= SIMILARITY_THRESHOLD
+
+
 def _length_range(size: int) -> range:
     """Lengths ``n`` such that ``2 * min(size, n) / (size + n)`` reaches the threshold.
 

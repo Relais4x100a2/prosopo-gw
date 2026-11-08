@@ -14,6 +14,7 @@ from prosopo_gw_atelier.places.cluster import (
     KnownPlace,
     _length_range,
     build_clusters,
+    similar,
 )
 from prosopo_gw_atelier.places.collect import collect_writings
 from prosopo_gw_atelier.places.decompose import decompose
@@ -220,6 +221,13 @@ def test_threshold_separates_typo_from_other_name() -> None:
 
     assert SequenceMatcher(None, "lile", "lille").ratio() >= SIMILARITY_THRESHOLD
     assert SequenceMatcher(None, "lille", "lillers").ratio() < SIMILARITY_THRESHOLD
+
+
+def test_similar_uses_the_threshold_and_the_first_letter() -> None:
+    assert similar("lile", "lille") and similar("winipeg", "winnipeg")
+    assert not similar("lille", "lillers")
+    assert not similar("ille", "lille")  # another first letter: another block
+    assert not similar("", "")
 
 
 @pytest.mark.parametrize("size", [17, 23, 34, 46, 68])

@@ -124,6 +124,52 @@ def test_level_written_before_the_commune_is_proposed_before_it(
     assert entry.payload["proposals"] == 3
 
 
+def test_absorbed_variant_spellings_are_not_proposed(
+    tmp_path: Path, ref: RefData
+) -> None:
+    _v1_registry(
+        tmp_path / "r.sqlite",
+        "INSERT INTO writings VALUES "
+        f"('Lile', 'p-lille', 'validated', 'p1', {AT}),"
+        f"('Lile, Nord', 'p-lille', 'validated', 'p1', {AT}),"
+        f"('Fives, Lille', 'p-lille', 'validated', 'p1', {AT}),"
+        f"('Winipeg, Canada', 'p-winnipeg', 'validated', 'p1', {AT});",
+    )
+    with PlaceRegistry(tmp_path / "r.sqlite", ref) as registry:
+        lille = registry.place("p-lille")
+        winnipeg = registry.place("p-winnipeg")
+    assert [lv.name for lv in lille.levels if lv.status == "proposed"] == [
+        "Fives",
+        "Lomme",
+    ]
+    assert [(lv.name, lv.status) for lv in winnipeg.levels] == [
+        ("Winnipeg", "validated"),
+        ("Manitoba", "proposed"),
+        ("Canada", "validated"),
+    ]
+
+
+def test_variant_of_a_manual_commune_is_not_proposed(
+    tmp_path: Path, ref: RefData
+) -> None:
+    _v1_registry(
+        tmp_path / "r.sqlite",
+        f"INSERT INTO places VALUES ('p-w2', {AT});"
+        "INSERT INTO place_fields VALUES ('p-w2','commune','Bourgvale','manual'),"
+        " ('p-w2','country','France','rule');"
+        "INSERT INTO writings VALUES "
+        f"('Bourgvalle', 'p-w2', 'validated', 'p1', {AT}),"
+        f"('Montrevel', 'p-w2', 'validated', 'p1', {AT});",
+    )
+    with PlaceRegistry(tmp_path / "r.sqlite", ref) as registry:
+        place = registry.place("p-w2")
+    assert [(lv.name, lv.status) for lv in place.levels] == [
+        ("Bourgvale", "validated"),
+        ("France", "validated"),
+        ("Montrevel", "proposed"),
+    ]
+
+
 def test_backup_written_before_migration(tmp_path: Path, ref: RefData) -> None:
     _v1_registry(tmp_path / "r.sqlite")
     PlaceRegistry(tmp_path / "r.sqlite", ref).close()

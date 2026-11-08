@@ -33,7 +33,9 @@ Conversion of a place (``levels_from_v1``)
 Proposals from the writings (migration only)
     For every writing validated to the place, ``rule_levels(decompose(…))``
     is read: each ``written`` level whose normalized name the chain lacks is
-    inserted as a proposed level, once per name, after the nearest level
+    inserted as a proposed level, once per name, unless it is a variant
+    spelling (``cluster.similar``) of a validated level's name or written
+    form (``Lile`` on Lille: v1 merged it by similarity); after the nearest level
     written before it that the chain has (before the nearest one written
     after it otherwise, and before the ``commune_historique`` levels of a
     commune, choice 8 of the plan).
@@ -56,6 +58,7 @@ from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 
+from ..places.cluster import similar
 from ..places.decompose import decompose
 from ..places.levels import Level, LevelOrigin, check_chain, renumber, rule_levels
 from ..refdata import RefData, normalize
@@ -255,6 +258,17 @@ def _position(levels: Sequence[Level], keys: Sequence[str], index: int) -> int:
     return len(levels)
 
 
+def _absorbed(levels: Sequence[Level], key: str) -> bool:
+    """Whether ``key`` is a variant spelling of a validated level's name or
+    written form (v1 merged such writings by similarity)."""
+    return any(
+        similar(key, normalize(form))
+        for level in levels
+        if level.status == "validated"
+        for form in (level.name, level.written or "")
+    )
+
+
 def _writing_proposals(
     chain: Sequence[Level], writings: Sequence[str], ref: RefData
 ) -> tuple[Level, ...]:
@@ -267,6 +281,8 @@ def _writing_proposals(
             if level.origin != "written" or not keys[index]:
                 continue
             if _find(levels, keys[index]) is not None:
+                continue
+            if _absorbed(levels, keys[index]):
                 continue
             position = _position(levels, keys, index)
             levels.insert(position, replace(level, status="proposed"))
