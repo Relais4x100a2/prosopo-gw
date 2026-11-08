@@ -11,10 +11,13 @@ délégation), ``commune``, ``departement``, ``ancienne_region`` si elle est éc
 ``region`` et ``pays`` « France », d'origine ``insee`` (``pays`` d'origine ``written``
 s'il est écrit). Un segment écrit qui ne remplit aucun de ces niveaux (non reconnu, ou
 en désaccord avec la commune) devient un niveau sans type, d'origine ``written`` :
-avant la commune s'il est écrit avant tout niveau reconnu, sinon juste après le niveau
-reconnu qui le précède. Commune non résolue : un niveau par segment, dans l'ordre
-écrit ; pays, département et région reconnus prennent leur type et leur nom normalisé
-(origine ``rule`` si ce nom diffère de l'écrit, gardé dans ``written``). Les codes
+avant la commune s'il est écrit avant le nom de la commune, sinon juste après le niveau
+reconnu qui le précède (commune lue sur son seul code : avant la commune s'il est écrit
+avant tout niveau reconnu). Une région d'avant 2016 écrite devient ``ancienne_region``
+sans contrôle avec la commune : le référentiel ne relie pas ces régions aux communes.
+Commune non résolue : un niveau par segment, dans l'ordre écrit ; pays, département et
+région reconnus prennent leur type et leur nom normalisé (origine ``rule`` si ce nom
+diffère de l'écrit, gardé dans ``written``). Les codes
 INSEE et postaux ne sont jamais des niveaux ; ``written_postal_code`` rend le code
 postal écrit.
 """
@@ -86,7 +89,7 @@ TYPE_LABELS: dict[str, str] = {
     "canton": "Canton",
     "district": "District",
 }
-TYPE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,39}")
+TYPE_PATTERN = re.compile(r"\A[a-z][a-z0-9_]{0,39}\Z")
 FRANCE = "France"
 
 
@@ -246,6 +249,11 @@ def _resolved_levels(
     country_text: str | None = None
     old_region: Level | None = None
     last: str | None = None
+    named = any(
+        segment.element is not None
+        and segment.element.kind in ("commune", "former_name")
+        for segment in decomposition.segments
+    )
     for segment in decomposition.segments:
         element = segment.element
         if is_code(segment.text):
@@ -275,7 +283,12 @@ def _resolved_levels(
                 country_text, slot = segment.text, "pays"
         if slot is None or slot in used:
             level = Level(0, segment.text, origin="written")
-            (before if last is None else after[last]).append(level)
+            # Written before the commune name (or before any recognised level
+            # when the commune comes from its code only): before the commune.
+            if last is None or (named and "commune" not in used):
+                before.append(level)
+            else:
+                after[last].append(level)
             continue
         used.add(slot)
         last = slot

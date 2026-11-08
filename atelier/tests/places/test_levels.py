@@ -126,7 +126,7 @@ def test_check_chain_accepts_valid_chain() -> None:
 
 def test_every_listed_type_has_a_label() -> None:
     assert set(TYPE_LABELS) == set(FRENCH_TYPES) | set(FOREIGN_TYPES)
-    assert all(TYPE_PATTERN.match(t) for t in TYPE_LABELS)
+    assert all(TYPE_PATTERN.fullmatch(t) for t in TYPE_LABELS)
 
 
 def test_french_view_falls_back_to_old_region() -> None:
@@ -216,6 +216,31 @@ def test_rename_kept_as_written_name(ref: RefData) -> None:
 def test_unrecognised_segment_before_commune(ref: RefData) -> None:
     chain = rule_levels(decompose("La Motte, Roubaix, Nord", ref), ref)
     assert _names(chain)[:2] == [("La Motte", None), ("Roubaix", "commune")]
+
+
+def test_unrecognised_segment_written_before_commune_after_department(
+    ref: RefData,
+) -> None:
+    chain = rule_levels(decompose("Nord, La Motte, Roubaix", ref), ref)
+    assert _names(chain) == [
+        ("La Motte", None),
+        ("Roubaix", "commune"),
+        ("Nord", "departement"),
+        ("Hauts-de-France", "region"),
+        ("France", "pays"),
+    ]
+
+
+def test_commune_read_from_its_code_only(ref: RefData) -> None:
+    chain = rule_levels(decompose("La Motte, Nord, Flandre, 59512", ref), ref)
+    assert _names(chain) == [
+        ("La Motte", None),
+        ("Roubaix", "commune"),
+        ("Nord", "departement"),
+        ("Flandre", None),
+        ("Hauts-de-France", "region"),
+        ("France", "pays"),
+    ]
 
 
 def test_unrecognised_segment_after_its_recognised_level(ref: RefData) -> None:
