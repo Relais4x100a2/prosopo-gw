@@ -1030,6 +1030,24 @@ def test_precision_groups_gather_same_value(
     assert project.precision_groups(set()) == []
 
 
+def test_undecided_precision_group_ignores_stored_decisions(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    key = ("75007 Paris", "rue de Vaugirard", "paris-1860")
+    before = project.undecided_precision_group(*key)
+    assert before is not None
+    assert before.status == "conflict"
+    registry.decide_precision(*key, "75115", None, project.project_id)
+    after = project.undecided_precision_group(*key)
+    assert after == before
+    assert project.undecided_precision_group("Nulle part", "", "paris-1860") is None
+
+
 def test_paris_place_flags_arrondissement_writings(
     tmp_path: Path,
     registry: PlaceRegistry,

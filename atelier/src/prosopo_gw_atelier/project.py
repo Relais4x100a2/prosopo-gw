@@ -311,6 +311,28 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _gather(items: Sequence[OccurrencePrecision]) -> list[PrecisionGroup]:
+    """Precisions gathered by ``(writing, complement, period)``, in order."""
+    gathered: dict[tuple[str, str, str], list[OccurrencePrecision]] = {}
+    for item in items:
+        key = (item.writing, item.occurrence.complement or "", item.precision.period)
+        gathered.setdefault(key, []).append(item)
+    groups = []
+    for (writing, complement, period), members in gathered.items():
+        status = min(
+            (m.precision.status for m in members), key=_STATUS_RANK.__getitem__
+        )
+        candidates = tuple(
+            dict.fromkeys(c for m in members for c in m.precision.candidates)
+        )
+        groups.append(
+            PrecisionGroup(
+                writing, complement, period, status, candidates, len(members)
+            )
+        )
+    return groups
+
+
 class Project:
     """One ``.gw`` file and the state of its processing.
 
@@ -341,6 +363,7 @@ class Project:
         self._cache: tuple[object, list[_Built]] | None = None
         self._paris_table = paris_table
         self._precisions: tuple[object, list[OccurrencePrecision]] | None = None
+        self._raw_precisions: tuple[object, list[PrecisionGroup]] | None = None
         self.gw_changed = False
         self.tables = []
         self.writings = {}
@@ -387,6 +410,7 @@ class Project:
                 self._splits = self._read_splits(conn)
             self._cache = None
             self._precisions = None
+            self._raw_precisions = None
 
     # -- queries --------------------------------------------------------------
 
@@ -462,6 +486,7 @@ class Project:
             self._splits.append(split)
             self._cache = None
             self._precisions = None
+            self._raw_precisions = None
             return self.cluster(split.split_id)
 
     def unsplit(self, split_id: str) -> None:
@@ -480,6 +505,7 @@ class Project:
             self._splits = [s for s in self._splits if s.split_id != split_id]
             self._cache = None
             self._precisions = None
+            self._raw_precisions = None
 
     @property
     def paris_table(self) -> ParisTable:
@@ -504,30 +530,34 @@ class Project:
         """
         with self._lock:
             items = self._precision_state()
-        gathered: dict[tuple[str, str, str], list[OccurrencePrecision]] = {}
-        for item in items:
-            key = (
-                item.writing,
-                item.occurrence.complement or "",
-                item.precision.period,
-            )
-            gathered.setdefault(key, []).append(item)
-        groups = []
-        for (writing, complement, period), members in gathered.items():
-            status = min(
-                (m.precision.status for m in members), key=_STATUS_RANK.__getitem__
-            )
-            if status not in statuses:
-                continue
-            candidates = tuple(
-                dict.fromkeys(c for m in members for c in m.precision.candidates)
-            )
-            groups.append(
-                PrecisionGroup(
-                    writing, complement, period, status, candidates, len(members)
-                )
-            )
-        return groups
+        return [g for g in _gather(items) if g.status in statuses]
+
+    def undecided_precision_group(
+        self, writing: str, complement: str, period: str
+    ) -> PrecisionGroup | None:
+        """The group as computed WITHOUT any stored decision, or ``None``.
+
+        What the user may choose among, whether or not a decision is already
+        stored for the key (a stored one shows only its manual candidate).
+        Cached like the clusters; ``None`` if no occurrence has this key.
+        """
+        with self._lock:
+            decisions = self._registry.decisions(self._decompositions)
+            self._built(decisions)
+            chains = [(p.place_id, p.levels) for p in self._registry.places()]
+            assert self._cache is not None
+            key = (self._cache[0], chains)
+            if self._raw_precisions is None or self._raw_precisions[0] != key:
+                self._raw_precisions = (key, _gather(self._compute_precisions({})))
+            groups = self._raw_precisions[1]
+        for group in groups:
+            if (group.writing, group.complement, group.period) == (
+                writing,
+                complement,
+                period,
+            ):
+                return group
+        return None
 
     def decomposition(self, writing: str) -> Decomposition:
         """Decomposition of ``writing``; ``KeyError`` if it is not in the ``.gw``."""

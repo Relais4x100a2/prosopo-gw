@@ -20,6 +20,7 @@ from prosopo_gw_atelier.places.levels import (
 )
 from prosopo_gw_atelier.project import Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
+from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
 from prosopo_gw_atelier.store.exchange import export_registry
 from prosopo_gw_atelier.store.registry import PlaceRegistry
 from prosopo_gw_atelier.web import app as web_app
@@ -1295,3 +1296,146 @@ def test_journal_shows_import_and_resolve(
     assert resolve["action"] == "resolve"
     assert resolve["writings"] == ["En mer"]
     assert resolve["place_label"] == "Mer"
+
+
+# --- Step 2: arrondissement precisions ----------------------------------------
+
+THREE = "status=conflict&status=uncertain&status=ambiguous"
+VAUGIRARD = {
+    "writing": "75007 Paris",
+    "complement": "rue de Vaugirard",
+    "period": "paris-1860",
+}
+
+
+@pytest.fixture(scope="module")
+def paris_table() -> ParisTable:
+    return load_paris_table(FIXTURES / "paris_mini")
+
+
+@pytest.fixture
+def paris_client(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData, paris_table: ParisTable
+) -> TestClient:
+    gw = tmp_path / "bases" / "paris_precisions.gw"
+    gw.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / "paris_precisions.gw", gw)
+    project = Project.open(
+        gw, registry, ref, tmp_path / "data" / "projets", paris_table=paris_table
+    )
+    return TestClient(create_app(project, registry, ref), base_url="http://127.0.0.1")
+
+
+def precision_groups(client: TestClient, query: str = THREE) -> list[dict[str, Any]]:
+    response = client.get(f"/api/precisions?{query}")
+    assert response.status_code == 200, response.text
+    groups: list[dict[str, Any]] = response.json()["groups"]
+    return groups
+
+
+def test_list_precision_groups(paris_client: TestClient) -> None:
+    groups = precision_groups(paris_client)
+    assert [(g["writing"], g["complement"], g["period"]) for g in groups] == [
+        ("75007 Paris", "rue de Vaugirard", "paris-1860"),
+        ("Paris", "12 rue Saint-Honoré", "paris-1795"),
+    ]
+    conflict, ambiguous = groups
+    assert conflict["status"] == "conflict"
+    assert conflict["period_label"] == "depuis 1860"
+    assert conflict["occurrences"] == 1
+    assert {c["arrondissement_id"] for c in conflict["candidates"]} == {
+        "75107",
+        "75106",
+        "75115",
+    }
+    seventh = next(
+        c for c in conflict["candidates"] if c["arrondissement_id"] == "75107"
+    )
+    assert seventh["arrondissement"] == "7e arrondissement"
+    assert seventh["clue"] == "code"
+    assert ambiguous["period_label"] == "avant 1860"
+    # No status filter: every group, applied ones included.
+    everything = precision_groups(paris_client, "")
+    assert {g["status"] for g in everything} == {"applied", "conflict", "ambiguous"}
+    labels = {g["period"]: g["period_label"] for g in everything}
+    assert labels["paris-1860"] == "depuis 1860"
+    assert labels[""] == "sans date"
+    assert paris_client.get("/api/precisions?status=bogus").status_code == 422
+
+
+def test_decide_precision_then_undo(paris_client: TestClient) -> None:
+    response = paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75115", "quartier_id": None},
+    )
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json()["entry_id"], int)
+    assert [g["writing"] for g in precision_groups(paris_client)] == ["Paris"]
+    applied = [
+        g
+        for g in precision_groups(paris_client, "status=applied")
+        if g["writing"] == "75007 Paris"
+    ]
+    (decided,) = applied
+    assert [(c["arrondissement_id"], c["clue"]) for c in decided["candidates"]] == [
+        ("75115", "manual")
+    ]
+    # The user may change their mind: another candidate of the undecided group.
+    again = paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75106", "quartier_id": None},
+    )
+    assert again.status_code == 200
+    # Same decision again: nothing changes.
+    same = paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75106", "quartier_id": None},
+    )
+    assert same.json() == {"entry_id": None}
+    assert paris_client.post("/api/undo").json() == {"action": "correct"}
+    assert paris_client.post("/api/undo").json() == {"action": "correct"}
+    back = precision_groups(paris_client)
+    assert back[0]["status"] == "conflict"
+
+
+def test_decide_no_arrondissement(paris_client: TestClient) -> None:
+    for empty in ("", None):
+        response = paris_client.post(
+            "/api/precisions/decide",
+            json={**VAUGIRARD, "arrondissement_id": empty, "quartier_id": None},
+        )
+        assert response.status_code == 200, response.text
+    (decided,) = [
+        g
+        for g in precision_groups(paris_client, "status=applied")
+        if g["writing"] == "75007 Paris"
+    ]
+    (candidate,) = decided["candidates"]
+    assert candidate["arrondissement_id"] == ""
+    assert candidate["arrondissement"] is None
+
+
+def test_decide_rejects_unknown_candidate(paris_client: TestClient) -> None:
+    unknown = paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75101", "quartier_id": None},
+    )
+    assert unknown.status_code == 400
+    assert "arrondissement" in unknown.json()["detail"]
+    no_group = paris_client.post(
+        "/api/precisions/decide",
+        json={
+            "writing": "Nulle part",
+            "complement": "",
+            "period": "paris-1860",
+            "arrondissement_id": "75107",
+            "quartier_id": None,
+        },
+    )
+    assert no_group.status_code == 400
+    bad_quartier = paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75115", "quartier_id": "paris-q-x"},
+    )
+    assert bad_quartier.status_code == 400
+    assert paris_client.post("/api/undo").status_code == 409

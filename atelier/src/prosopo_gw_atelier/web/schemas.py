@@ -23,6 +23,7 @@ from ..places.levels import (
     ViewField,
 )
 from ..places.model import ElementKind
+from ..places.precision import PrecisionStatus
 from ..project import ClusterState
 from ..store.registry import Status
 
@@ -226,3 +227,48 @@ class JournalEntryOut(BaseModel):
 
 class JournalOut(BaseModel):
     entries: list[JournalEntryOut]
+
+
+class CandidateOut(BaseModel):
+    """An arrondissement proposed for a precision group.
+
+    ``arrondissement`` is its French name (``None`` for "no arrondissement",
+    i.e. an empty ``arrondissement_id``); ``clue`` is ``code``, ``number``,
+    ``street`` or ``manual``.
+    """
+
+    arrondissement_id: str
+    arrondissement: str | None
+    quartier_id: str | None
+    quartier: str | None
+    clue: str
+
+
+class PrecisionGroupOut(BaseModel):
+    """Occurrences sharing a decision key; ``period_label`` is in French."""
+
+    writing: str
+    complement: str
+    period: str
+    period_label: str
+    status: PrecisionStatus
+    candidates: list[CandidateOut]
+    occurrences: int
+
+
+class PrecisionsOut(BaseModel):
+    groups: list[PrecisionGroupOut]
+
+
+class PrecisionDecideIn(BaseModel):
+    """The user's choice; an empty or null ``arrondissement_id`` = none applies."""
+
+    writing: str
+    complement: str
+    period: str
+    arrondissement_id: str | None
+    quartier_id: str | None
+
+
+class PrecisionDecideOut(BaseModel):
+    entry_id: int | None
