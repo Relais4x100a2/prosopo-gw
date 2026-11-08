@@ -247,6 +247,11 @@ def _arrondissements(value: Any) -> list[str]:
     return ids
 
 
+def _quartier_names(value: Any) -> list[str]:
+    """Quartier names of a record, without the "Hors Paris" placeholder."""
+    return [q for q in _as_list(value) if normalize(q) != "hors paris"]
+
+
 def _quartier_id(name: str) -> str:
     return "paris-q-" + normalize(name).replace(" ", "-")
 
@@ -258,7 +263,7 @@ def _open_data(sources: Path, table: ParisTable) -> None:
             (
                 record["typo_min"],
                 _arrondissements(record.get("arrdt")),
-                _as_list(record.get("quartier")),
+                _quartier_names(record.get("quartier")),
             )
         )
     for record in _read_json(sources / "voies_caduques.json"):
@@ -269,7 +274,7 @@ def _open_data(sources: Path, table: ParisTable) -> None:
             (
                 record["typo_min"],
                 _arrondissements(record.get("arrdt")),
-                _as_list(record.get("quartier")),
+                _quartier_names(record.get("quartier")),
             )
         )
     # Quartier -> arrondissements, from records that name a single arrondissement.

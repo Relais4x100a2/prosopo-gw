@@ -57,3 +57,38 @@ def test_shipped_table_loads() -> None:
     assert table.quartier_count("paris-1795") >= 40
     assert table.streets("rue saint honore", "paris-1860")
     assert "ODbL" in (table.directory / "LICENCE.txt").read_text(encoding="utf-8")
+
+
+def test_empty_quartier_is_none() -> None:
+    table = load_paris_table(MINI)
+    assert table.streets("boulevard peripherique", "paris-1860") == (
+        StreetHit("75112", None, None),
+    )
+
+
+def test_shipped_table_has_no_hors_paris_quartier() -> None:
+    table = load_paris_table()
+    hits = [
+        h
+        for key in ("rue saint honore", "rue vaugirard", "rue lecourbe")
+        for h in table.streets(key, "paris-1860")
+    ]
+    assert hits
+    import csv
+    import gzip
+
+    path = table.directory / "quartiers.csv.gz"
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter=";"))
+    assert not any(
+        "hors" in r["id"].lower() or "hors" in r["nom"].lower() for r in rows
+    )
+    ids = [r["id"] for r in rows if r["periode"] == "paris-1860"]
+    assert len(set(ids)) == 80
+    with gzip.open(
+        table.directory / "rues.csv.gz", "rt", encoding="utf-8", newline=""
+    ) as handle:
+        assert not any(
+            "hors" in r["quartier_id"] or "Hors" in r["quartier"]
+            for r in csv.DictReader(handle, delimiter=";")
+        )

@@ -174,3 +174,17 @@ def test_defunct_street_with_several_quartiers_in_one_text(table: Path) -> None:
         ("paris-q-villette", "Villette"),
         ("paris-q-amerique", "Amérique"),
     }
+
+
+def test_hors_paris_is_not_a_quartier(table: Path) -> None:
+    rows = read_gz_csv(table / "rues.csv.gz")
+    assert {
+        "cle": "boulevard peripherique",
+        "periode": "paris-1860",
+        "arrondissement_id": "75112",
+        "quartier_id": "",
+        "quartier": "",
+    } in rows
+    assert not any("hors" in r["quartier_id"] for r in rows)
+    quartiers = read_gz_csv(table / "quartiers.csv.gz")
+    assert not any("hors" in q["id"] or "Hors" in q["nom"] for q in quartiers)
