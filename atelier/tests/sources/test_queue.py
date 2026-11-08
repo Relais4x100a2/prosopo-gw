@@ -236,3 +236,29 @@ def test_worker_loop_survives_exceptions(queue: SourceQueue) -> None:
         time.sleep(0.01)
     worker.stop()
     assert len(seen) == 1
+
+
+def test_permanent_failure_goes_straight_to_failed(
+    queue: SourceQueue, clock: Clock
+) -> None:
+    from prosopo_gw_atelier.sources.base import PermanentSourceError
+
+    def gone(job: Job) -> None:
+        raise PermanentSourceError("département absent")
+
+    queue.enqueue("s", "download", "a", {}, 1)
+    assert Worker(queue, {("s", "download"): gone}).run_once()
+    assert queue.counts()["s"]["failed"] == 1
+    assert queue.errors()[0].error == "département absent"
+    clock.now += 10_000
+    assert queue.next_job() is None
+
+
+def test_transient_failure_still_backs_off(queue: SourceQueue, clock: Clock) -> None:
+    def flaky(job: Job) -> None:
+        raise SourceError("réseau")
+
+    queue.enqueue("s", "download", "a", {}, 1)
+    assert Worker(queue, {("s", "download"): flaky}).run_once()
+    assert queue.counts()["s"]["failed"] == 0
+    assert queue.counts()["s"]["pending"] == 1

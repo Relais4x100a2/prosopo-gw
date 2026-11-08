@@ -21,6 +21,7 @@ from typing import Literal, cast
 from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.sources.base import (
     LevelQuery,
+    PermanentSourceError,
     Source,
     SourceCandidate,
     SourceError,
@@ -182,8 +183,10 @@ class SourceQueue:
                 (job_id,),
             )
 
-    def fail(self, job_id: int, message: str) -> None:
-        """Back off 30 s, 300 s, 3600 s after failures 1 to 3, then ``failed``."""
+    def fail(self, job_id: int, message: str, *, permanent: bool = False) -> None:
+        """Back off 30 s, 300 s, 3600 s after failures 1 to 3, then ``failed``.
+
+        A ``permanent`` failure goes straight to ``failed``."""
         with self._db() as db:
             row = db.execute(
                 "SELECT attempts FROM jobs WHERE id=?", (job_id,)
@@ -191,7 +194,7 @@ class SourceQueue:
             if row is None:
                 return
             attempts = int(row["attempts"]) + 1
-            if attempts <= len(BACKOFF_SECONDS):
+            if not permanent and attempts <= len(BACKOFF_SECONDS):
                 wait = BACKOFF_SECONDS[attempts - 1]
                 db.execute(
                     "UPDATE jobs SET state='pending', attempts=?, error=?,"
@@ -390,6 +393,8 @@ class Worker:
             if handler is None:
                 raise SourceError(f"Aucun traitement pour {job.source}/{job.kind}.")
             handler(job)
+        except PermanentSourceError as exc:
+            self._queue.fail(job.id, str(exc), permanent=True)
         except SourceError as exc:
             self._queue.fail(job.id, str(exc))
         except Exception as exc:

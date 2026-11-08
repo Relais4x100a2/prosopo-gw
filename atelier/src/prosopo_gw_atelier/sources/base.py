@@ -57,6 +57,10 @@ class SourceError(Exception):
     """Failure of a source; the message is French and can be shown as is."""
 
 
+class PermanentSourceError(SourceError):
+    """A failure that retrying cannot fix (e.g. HTTP 404): the job fails at once."""
+
+
 class Source(Protocol):
     name: str
 

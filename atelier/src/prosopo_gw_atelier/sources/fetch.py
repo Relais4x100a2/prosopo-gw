@@ -13,7 +13,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import IO, BinaryIO
 
-from prosopo_gw_atelier.sources.base import SourceError
+from prosopo_gw_atelier.sources.base import PermanentSourceError, SourceError
 
 Opener = Callable[[urllib.request.Request, float], BinaryIO]
 
@@ -80,6 +80,15 @@ def _describe(exc: BaseException) -> str:
     return "erreur inattendue"
 
 
+def _is_permanent(exc: BaseException) -> bool:
+    """HTTP 4xx other than 408 and 429: asking again will not help."""
+    return (
+        isinstance(exc, urllib.error.HTTPError)
+        and 400 <= exc.code < 500
+        and exc.code not in (408, 429)
+    )
+
+
 def _check_scheme(url: str, prefix: str) -> None:
     if urllib.parse.urlparse(url).scheme.lower() not in ("http", "https"):
         raise SourceError(
@@ -133,10 +142,12 @@ def download(
         return total
     except Exception as exc:
         part.unlink(missing_ok=True)
+        permanent = isinstance(exc, PermanentSourceError) or _is_permanent(exc)
         if isinstance(exc, urllib.error.HTTPError):
             exc.close()
         message = str(exc) if isinstance(exc, SourceError) else _describe(exc)
-        raise SourceError(f"Téléchargement impossible : {message}") from exc
+        error = PermanentSourceError if permanent else SourceError
+        raise error(f"Téléchargement impossible : {message}") from exc
 
 
 def get_json(

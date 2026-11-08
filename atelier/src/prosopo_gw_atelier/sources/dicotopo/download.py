@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from prosopo_gw_atelier.sources.base import SourceError
+from prosopo_gw_atelier.sources.base import PermanentSourceError, SourceError
 from prosopo_gw_atelier.sources.dicotopo.index import DicoTopoIndex
 from prosopo_gw_atelier.sources.fetch import Opener, default_opener, download, get_json
 from prosopo_gw_atelier.sources.queue import Job, SourceQueue
@@ -147,7 +147,7 @@ def _wrap(opener: Opener | None) -> Opener:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 exc.close()
-                raise SourceError("département absent de DicoTopo") from exc
+                raise PermanentSourceError("département absent de DicoTopo") from exc
             raise
 
     return opened

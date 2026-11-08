@@ -196,3 +196,28 @@ def test_index_clears_only_that_department_results(
     dl.handle_index(job, cache=cache, index=index, queue=queue)
     assert queue.result(dl.DICOTOPO, mine) is None
     assert queue.result(dl.DICOTOPO, other) == found
+
+
+@pytest.mark.parametrize(
+    ("code", "permanent"),
+    [(404, True), (403, True), (410, True), (408, False), (429, False), (503, False)],
+)
+def test_http_status_decides_between_retry_and_failed(
+    tmp_path: Path, queue: SourceQueue, code: int, permanent: bool
+) -> None:
+    def refuse(request: urllib.request.Request, timeout: float) -> BinaryIO:
+        raise urllib.error.HTTPError(request.full_url, code, "x", None, None)  # type: ignore[arg-type]
+
+    queue.enqueue(dl.DICOTOPO, "download", "DT62", {}, 0)
+    worker = Worker(
+        queue,
+        {
+            (dl.DICOTOPO, "download"): lambda job: dl.handle_download(
+                job, cache=tmp_path, queue=queue, opener=refuse
+            )
+        },
+    )
+    assert worker.run_once()
+    counts = queue.counts()[dl.DICOTOPO]
+    assert counts["failed"] == (1 if permanent else 0)
+    assert counts["pending"] == (0 if permanent else 1)
