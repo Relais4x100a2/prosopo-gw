@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from prosopo_gw_atelier.refdata import Commune, NameMatch, RefData, load_refdata
+from prosopo_gw_atelier.refdata import Commune, Former, RefData, load_refdata
 
 MINI = Path(__file__).resolve().parents[1] / "fixtures" / "refdata_mini"
 
@@ -79,9 +79,33 @@ def test_abbreviated_saint(ref: RefData) -> None:
 def test_merged_commune(ref: RefData) -> None:
     matches = ref.communes_by_name("Lomme")
     assert len(matches) == 1
-    lille = ref.commune_by_insee("59350")
-    assert lille is not None
-    assert matches[0] == NameMatch(commune=lille, former_name="Lomme")
+    assert matches[0].former == Former(
+        "Lomme", "59355", "59350", "associee", "2000-02-27"
+    )
+    assert matches[0].former_name == "Lomme"
+
+
+def test_delegated_commune_sharing_the_new_code(ref: RefData) -> None:
+    [match] = ref.communes_by_name("Hesdin")
+    assert match.commune.insee == "62447"
+    assert match.former == Former("Hesdin", "62447", "62447", "deleguee", "2025-01-01")
+
+
+def test_current_name_and_former_name_elsewhere(ref: RefData) -> None:
+    matches = ref.communes_by_name("Sainte-Austreberthe")
+    readings = sorted((m.commune.insee, m.former is not None) for m in matches)
+    assert readings == [("62447", True), ("76566", False)]
+
+
+def test_rename(ref: RefData) -> None:
+    [match] = ref.communes_by_name("Saint-Omer-en-Artois")
+    assert match.former is not None and match.former.nature == "renommage"
+
+
+def test_former_communes(ref: RefData) -> None:
+    names = [f.name for f in ref.former_communes("62447")]
+    assert names == ["Hesdin", "Marconne", "Sainte-Austreberthe"]
+    assert ref.former_communes("59512") == []
 
 
 def test_unknown_name(ref: RefData) -> None:

@@ -5,8 +5,10 @@ table, plus a ``VERSION`` file. It is produced by ``atelier/tools/build_refdata.
 
 - ``communes.csv.gz``: ``insee;nom;departement;region`` (department and region
   codes) for current communes only.
-- ``historique.csv.gz``: ``ancien_nom;insee_actuel;date_effet``: former names and
-  merged communes, with the current commune they now belong to.
+- ``historique.csv.gz``: ``ancien_nom;ancien_insee;insee_actuel;nature;date_effet``:
+  former names and merged communes, with their former INSEE code, the current
+  commune they now belong to, the nature of the change (``fusion``, ``associee``,
+  ``deleguee`` or ``renommage``) and its effective date (empty if unknown).
 - ``departements.csv.gz``: ``code;nom;region``.
 - ``regions.csv.gz``: ``code;nom;avant_2016`` (``1`` for a pre-2016 region).
 - ``pays.csv.gz``: ``nom;nom_officiel``.
@@ -25,6 +27,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, cast
 
 from .normalize import normalize
 
@@ -53,16 +56,31 @@ class Commune:
     region: str
 
 
+FormerNature = Literal["fusion", "associee", "deleguee", "renommage"]
+
+
+@dataclass(frozen=True)
+class Former:
+    """A former commune (or former name) of a current commune."""
+
+    name: str  # former name, as in the COG
+    insee: str  # former INSEE code
+    current: str  # INSEE code of the current commune
+    nature: FormerNature
+    date: str  # ISO effective date, "" if unknown
+
+
 @dataclass(frozen=True)
 class NameMatch:
     """A commune found by name.
 
     ``former_name`` is set when the name is a former name of the commune or the
-    name of a commune merged into it.
+    name of a commune merged into it; ``former`` then holds the full record.
     """
 
     commune: Commune
     former_name: str | None
+    former: Former | None = None
 
 
 class RefData:
@@ -74,7 +92,7 @@ class RefData:
         cog_vintage: str,
         postal_vintage: str,
         communes: list[Commune],
-        former_names: list[tuple[str, str]],
+        former: list[Former],
         departments: list[tuple[str, str]],
         regions: list[tuple[str, bool]],
         countries: list[tuple[str, str]],
@@ -88,11 +106,16 @@ class RefData:
         self._by_name: dict[str, list[Commune]] = defaultdict(list)
         for commune in communes:
             self._by_name[normalize(commune.name)].append(commune)
-        self._former: dict[str, list[tuple[Commune, str]]] = defaultdict(list)
-        for former_name, insee in former_names:
-            current = self._by_insee.get(insee)
+        self._former: dict[str, list[tuple[Commune, Former]]] = defaultdict(list)
+        self._former_of: dict[str, list[Former]] = defaultdict(list)
+        for entry in former:
+            current = self._by_insee.get(entry.current)
             if current is not None:
-                self._former[normalize(former_name)].append((current, former_name))
+                self._former[normalize(entry.name)].append((current, entry))
+                if entry.nature != "renommage":
+                    self._former_of[entry.current].append(entry)
+        for entries in self._former_of.values():
+            entries.sort(key=lambda f: (f.name, f.insee))
 
         self._postal: dict[str, list[Commune]] = defaultdict(list)
         for postal_code, insee in postal_codes:
@@ -142,11 +165,18 @@ class RefData:
         matches = [NameMatch(commune, None) for commune in current]
         seen = set(current)
         former = sorted(self._former.get(key, []), key=lambda f: f[0].insee)
-        for commune, former_name in former:
+        for commune, entry in former:
             if commune not in seen:
                 seen.add(commune)
-                matches.append(NameMatch(commune, former_name))
+                matches.append(NameMatch(commune, entry.name, entry))
         return matches
+
+    def former_communes(self, insee: str) -> list[Former]:
+        """Return the former communes attached to a current commune, by name.
+
+        A simple renaming is not a former commune and is left out.
+        """
+        return list(self._former_of.get(insee.strip().upper(), []))
 
     def communes_by_postal(self, code: str) -> list[Commune]:
         """Return the communes served by a postal code, sorted by INSEE code."""
@@ -218,8 +248,14 @@ def _load_cached(directory: Path) -> RefData:
         cog_vintage=version.get("cog", ""),
         postal_vintage=version.get("postal", ""),
         communes=communes,
-        former_names=[
-            (row["ancien_nom"], row["insee_actuel"])
+        former=[
+            Former(
+                row["ancien_nom"],
+                row["ancien_insee"],
+                row["insee_actuel"],
+                cast(FormerNature, row["nature"]),
+                row["date_effet"],
+            )
             for row in _read_table(directory, "historique.csv.gz")
         ],
         departments=[
