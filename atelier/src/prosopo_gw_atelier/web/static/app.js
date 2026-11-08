@@ -1174,6 +1174,15 @@
       choices.length ? el("ul", { class: "precision-candidates" }, choices) : null,
       decided
         ? el(
+          "ul",
+          { class: "precision-candidates" },
+          group.candidates
+            .filter((c) => c.arrondissement_id !== "")
+            .map((c) => el("li", null, "Retenu : ", el("strong", { text: candidateLabel(c) }))),
+        )
+        : null,
+      decided
+        ? el(
           "div",
           { class: "actions" },
           el("button", {
