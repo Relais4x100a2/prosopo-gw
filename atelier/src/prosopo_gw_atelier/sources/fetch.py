@@ -32,7 +32,7 @@ def _version() -> str:
 USER_AGENT = f"prosopo-gw-atelier/{_version()} (+{REPOSITORY_URL})"
 
 
-def _default_opener(request: urllib.request.Request, timeout: float) -> BinaryIO:
+def default_opener(request: urllib.request.Request, timeout: float) -> BinaryIO:
     # Looked up at call time so tests can patch urllib.request.urlopen.
     return urllib.request.urlopen(request, timeout=timeout)  # type: ignore[no-any-return]  # noqa: S310
 
@@ -85,7 +85,7 @@ def download(
 ) -> int:
     """Stream ``url`` to ``target`` through a ``.part`` file; return the size."""
     _check_scheme(url, "Téléchargement impossible")
-    open_url = opener or _default_opener
+    open_url = opener or default_opener
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_suffix(target.suffix + ".part")
     try:
@@ -117,7 +117,7 @@ def get_json(
 ) -> object:
     """Fetch ``url`` and decode it as JSON."""
     _check_scheme(url, "Requête impossible")
-    open_url = opener or _default_opener
+    open_url = opener or default_opener
     try:
         with open_url(_request(url), timeout) as response:
             data = response.read(JSON_MAX_BYTES + 1)

@@ -140,3 +140,37 @@ def test_remove_department(tmp_path: Path, queue: SourceQueue) -> None:
     dl.remove_department(cache, index, "62")
     assert index.departments() == {}
     assert not (cache / "dicotopo" / "DT62.xml").exists()
+
+
+def test_remove_department_validates_code(tmp_path: Path) -> None:
+    index = DicoTopoIndex(tmp_path / "dt.sqlite")
+    victim = tmp_path / "y.xml"
+    victim.write_text("x")
+    for bad in ("../x", "62/../../y", "20"):
+        with pytest.raises(SourceError):
+            dl.remove_department(tmp_path / "cache", index, bad)
+    assert victim.exists()
+
+
+def test_remove_department_cancels_pending_jobs(
+    tmp_path: Path, queue: SourceQueue
+) -> None:
+    index = DicoTopoIndex(tmp_path / "dt.sqlite")
+    dl.request_download(queue, ["62", "59"])
+    dl.remove_department(tmp_path / "cache", index, "62", queue=queue)
+    job = queue.next_job()
+    assert job is not None and job.key == "DT59"
+    assert queue.next_job() is None
+
+
+def test_empty_cached_coverage_is_refreshed(tmp_path: Path) -> None:
+    (tmp_path / "dicotopo").mkdir()
+    (tmp_path / "dicotopo" / "coverage.json").write_text("[]")
+    assert dl.coverage(tmp_path, opener=FakeServer()) == ["59", "62"]
+
+
+def test_raw_template_without_placeholder_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(dl.RAW_ENV, "http://127.0.0.1:8000/all.xml")
+    assert dl._raw_url("62") == dl.RAW_URL.replace("{dept}", "62")

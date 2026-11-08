@@ -9,9 +9,11 @@ point the download at another server, for instance a local one.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
+import urllib.request
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +21,7 @@ from typing import BinaryIO
 
 from prosopo_gw_atelier.sources.base import SourceError
 from prosopo_gw_atelier.sources.dicotopo.index import DicoTopoIndex
-from prosopo_gw_atelier.sources.fetch import Opener, _default_opener, download, get_json
+from prosopo_gw_atelier.sources.fetch import Opener, default_opener, download, get_json
 from prosopo_gw_atelier.sources.queue import Job, SourceQueue
 
 DICOTOPO = "dicotopo"
@@ -28,6 +30,7 @@ CONTENTS_URL = "https://api.github.com/repos/chartes/dico-topo/contents/data"
 RAW_ENV = "PROSOPO_GW_ATELIER_DICOTOPO_RAW"
 MAX_DEPARTMENT_BYTES = 200 * 1024 * 1024
 _COVERAGE_FILE = "coverage.json"
+logger = logging.getLogger(__name__)
 
 # Used only when the coverage list is unknown (no network, nothing cached): well-formed
 # French department codes, 01-95 except 20, Corsica (2A/2B) and overseas (971-976).
@@ -40,6 +43,9 @@ def _directory(cache: Path) -> Path:
 
 def _raw_url(department: str) -> str:
     template = os.environ.get(RAW_ENV) or RAW_URL
+    if "{dept}" not in template:
+        logger.warning("%s ignorée : le motif doit contenir {dept}", RAW_ENV)
+        template = RAW_URL
     return template.replace("{dept}", department)
 
 
@@ -50,7 +56,7 @@ def _normalise(department: str) -> str:
 def _check_department(department: str, covered: Sequence[str] | None = None) -> str:
     code = _normalise(department)
     known = covered if covered else None
-    ok = code in known if known is not None else bool(_FALLBACK_CODE.match(code))
+    ok = bool(_FALLBACK_CODE.match(code)) and (known is None or code in known)
     if not ok:
         raise SourceError(f"Département inconnu de DicoTopo : {department!r}.")
     return code
@@ -72,7 +78,7 @@ def coverage(
             cached = [str(d) for d in data]
     except (OSError, ValueError):
         cached = None
-    if cached is not None and not refresh:
+    if cached and not refresh:
         return cached
     try:
         entries = get_json(CONTENTS_URL, opener=opener)
@@ -84,13 +90,18 @@ def coverage(
             if not isinstance(entry, dict):
                 continue
             name = str(entry.get("name", ""))
-            if entry.get("type") == "dir" and re.fullmatch(r"DT\w+", name):
+            if entry.get("type") == "dir" and re.fullmatch(r"DT[0-9A-Z]{2,3}", name):
                 found.append(name[2:].upper())
     found.sort()
     if not found:
         return cached or []
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(found), encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(found), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        logger.warning("Couverture DicoTopo non mise en cache", exc_info=True)
     return found
 
 
@@ -117,11 +128,11 @@ def _department_of(job: Job) -> str:
 
 
 def _wrap(opener: Opener | None) -> Opener:
-    inner = opener or _default_opener
+    inner = opener or default_opener
 
-    def opened(request: object, timeout: float) -> BinaryIO:
+    def opened(request: urllib.request.Request, timeout: float) -> BinaryIO:
         try:
-            return inner(request, timeout)  # type: ignore[arg-type]
+            return inner(request, timeout)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 exc.close()
@@ -166,9 +177,22 @@ def handle_index(job: Job, *, cache: Path, index: DicoTopoIndex) -> None:
     index.add_department(department, xml, downloaded_at)
 
 
-def remove_department(cache: Path, index: DicoTopoIndex, department: str) -> None:
-    """Drop a department from the index and delete its cached file."""
-    code = _normalise(department)
+def remove_department(
+    cache: Path,
+    index: DicoTopoIndex,
+    department: str,
+    *,
+    queue: SourceQueue | None = None,
+) -> None:
+    """Drop a department from the index and delete its cached file.
+
+    The code is validated first (``SourceError``). With ``queue``, pending and failed
+    jobs for the department are cancelled; a job already running may still finish and
+    re-index it.
+    """
+    code = _check_department(department)
+    if queue is not None:
+        queue.cancel(DICOTOPO, f"DT{code}")
     index.remove(code)
     xml = _directory(cache) / f"DT{code}.xml"
     xml.unlink(missing_ok=True)

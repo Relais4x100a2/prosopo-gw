@@ -201,6 +201,16 @@ class SourceQueue:
                     (attempts, message, job_id),
                 )
 
+    def cancel(self, source: str, key: str) -> int:
+        """Delete the pending and failed jobs of ``key``; running ones are left."""
+        with self._db() as db:
+            cur = db.execute(
+                "DELETE FROM jobs WHERE source=? AND key=?"
+                " AND state IN ('pending','failed')",
+                (source, key),
+            )
+            return cur.rowcount
+
     def retry_failed(self, source: str | None = None) -> None:
         sql = "UPDATE jobs SET state='pending', attempts=0, not_before=NULL"
         sql += " WHERE state='failed'"
