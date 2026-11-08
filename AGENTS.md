@@ -32,6 +32,7 @@ Ce dépôt est **PUBLIC** (code, historique et documentation lisibles par tous) 
   Les seules exceptions du `.gitignore` racine sont ces fixtures.
 - Avant tout commit : chemins explicites avec `git add` (jamais `-A` / `.`), puis `git diff --cached --name-only`.
 - **Aucun `git push` ni `--force` sans accord explicite de l'utilisateur.**
+- **Aucune étiquette `core-v*` / `atelier-v*` ni publication PyPI sans accord explicite** : une version publiée est définitive.
 - Donnée réelle découverte dans un fichier suivi ou dans l'historique : s'arrêter, le signaler, ne pas la propager.
 
 ## 3. Python : workspace `uv` exclusivement
@@ -68,6 +69,11 @@ tests `core` sur Python 3.11 / 3.12 / 3.13 avec couverture ≥ 80 %. Même chaî
 pytest, sans seuil de couverture pour l'instant).
 Les anciens workflows de `geneweb-py` sont archivés, inactifs, dans `.github/legacy-workflows/`.
 Le lint local équivalent : `uv run --package geneweb-py ruff check core/src core/tests --ignore E501`.
+
+Publication (`.github/workflows/release.yml`) : l'étiquette `core-vX.Y.Z` publie `geneweb-py`,
+`atelier-vX.Y.Z` publie `prosopo-gw-atelier` (trusted publishing, environnement GitHub `pypi`
+avec approbation manuelle). La version de l'étiquette doit égaler celle du `pyproject.toml`
+(vérifié par le workflow) ; publier `core` avant un `atelier` qui en exige une nouvelle version.
 
 ## 6. Conventions
 
