@@ -111,6 +111,31 @@ Le fichier `historique.csv.gz` a pour colonnes `ancien_nom;ancien_insee;insee_ac
 La nature vaut `fusion`, `associee`, `deleguee` ou `renommage`. Seules les trois premières créent
 une commune historique ; un renommage ajoute un ancien nom à la commune actuelle.
 
+## Sources externes (DicoTopo)
+
+L'atelier peut proposer des noms anciens, des lieux-dits, des hameaux et des écarts à partir de
+[DicoTopo](https://dicotopo.cths.fr/) (CTHS, École nationale des chartes). Rien n'est actif au départ et
+rien n'est envoyé sans votre action.
+
+- **Activation** : ouvrez l'onglet « Sources ». Téléchargez les départements dont vous avez besoin, un par un
+  (environ 52 départements sont couverts ; l'écran indique lesquels). La case « API » autorise en dernier
+  recours l'interrogation de l'API DicoTopo pour un article ou un département non téléchargé ; elle est
+  décochée par défaut.
+- **Cache** : les fichiers `DTxx.xml`, l'index local et la file de recherche vivent dans
+  `<dossier de données>/cache/` (`cache/dicotopo/` pour DicoTopo), sous le dossier de `--data-dir`. Le choix
+  de la case API est écrit dans `config.json`, au même endroit. Supprimer un département dans l'onglet
+  « Sources » retire ses fichiers et son index.
+- **Propositions** : une proposition reste un niveau « proposé » tant que vous ne l'avez pas validé ; seuls
+  les niveaux validés sont exportés.
+- **Licence** : DicoTopo est publié sous licence CC BY-NC-ND 3.0 FR (attribution, pas d'utilisation
+  commerciale, pas de modification). Rien de DicoTopo n'est dans ce dépôt, dans les données de test ou dans le
+  paquet : les tests utilisent un extrait synthétique. À l'export, un niveau d'origine `dicotopo` porte
+  l'identifiant de l'article (`P…`) et, dans `source`, le lien vers sa page publique ; le `LISEZMOI.txt` de
+  l'archive cite DicoTopo, la licence et les départements téléchargés avec leur date. Les formes anciennes et les
+  commentaires de DicoTopo ne sont jamais exportés.
+- **Test ou miroir** : la variable d'environnement `PROSOPO_GW_ATELIER_DICOTOPO_RAW` remplace l'adresse de
+  téléchargement des fichiers (avec le marqueur `{dept}`). Elle sert aux tests et à un miroir local.
+
 ## Export
 
 L'export pivot contient les tables de `geneweb-py`, puis `lieux`, `niveaux_lieux` et `ecritures_lieux`.

@@ -117,6 +117,16 @@ sources, événements « Autre », organisations) reste dans :
 - Rue disparue listée dans un « 5e ancien » : rattachée au 5e arrondissement actuel (période après
   1860) ; à vérifier sur des données réelles.
 
+### DicoTopo (étape 3)
+
+- L'API DicoTopo n'a pas été vérifiée en conditions réelles (réponses, limites de débit).
+- Couverture : environ 52 départements ; les autres n'ont pas de propositions DicoTopo.
+- Le type « commune » des articles n'est pas vérifié sur des données réelles.
+- Un téléchargement en cours peut réindexer un département qui vient d'être retiré.
+- La colonne Département est vide pour les départements non téléchargés.
+- L'acceptation fait confiance au niveau envoyé par le client : seuls l'origine et l'identifiant sont
+  vérifiés.
+
 ## 6. Moteur `core`
 
 - Le parser retire les guillemets d'un lieu `#bp` mais pas d'un lieu `#mp` ni `#p` (audit de
