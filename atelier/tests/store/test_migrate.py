@@ -480,3 +480,31 @@ def test_levels_from_v1_without_refdata_names_by_code_and_proposes_former_name()
         (3, "France", "pays", None, None, "validated", "rule"),
     ]
     assert (postal, origin) == ("59000", "rule")
+
+
+@pytest.mark.parametrize("with_ref", [True, False])
+def test_levels_from_v1_foreign_locality_is_untyped(
+    ref: RefData, with_ref: bool
+) -> None:
+    levels, _, _ = levels_from_v1(
+        {"commune": "Winnipeg", "country": "Canada"},
+        {"commune": "rule", "country": "rule"},
+        ref if with_ref else None,
+    )
+    assert [(lv.name, lv.type) for lv in levels] == [
+        ("Winnipeg", None),
+        ("Canada", "pays"),
+    ]
+
+
+def test_levels_from_v1_french_commune_without_code_stays_a_commune(
+    ref: RefData,
+) -> None:
+    for fields in (
+        {"commune": "Bourgvale"},
+        {"commune": "Bourgvale", "country": "France"},
+    ):
+        levels, _, _ = levels_from_v1(
+            fields, {"commune": "manual", "country": "rule"}, ref
+        )
+        assert levels[0].type == "commune"

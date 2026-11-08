@@ -21,7 +21,9 @@ One transaction
 
 Conversion of a place (``levels_from_v1``)
     ``commune`` (``insee_code`` as identifier; the COG name when only the code
-    is set), ``department`` (a code or a name; its COG name, code as
+    is set; untyped, like a newly clustered foreign locality, when it has no
+    INSEE code and ``country`` names another country than France),
+    ``department`` (a code or a name; its COG name, code as
     identifier), ``region`` (``ancienne_region`` for a pre-2016 region) and
     ``country`` become validated levels, in this order, with their v1 origin
     translated (``reference`` becomes ``insee``). ``postal_code`` is the place
@@ -60,7 +62,14 @@ from pathlib import Path
 
 from ..places.cluster import similar
 from ..places.decompose import decompose
-from ..places.levels import Level, LevelOrigin, check_chain, renumber, rule_levels
+from ..places.levels import (
+    FRANCE,
+    Level,
+    LevelOrigin,
+    check_chain,
+    renumber,
+    rule_levels,
+)
 from ..refdata import RefData, normalize
 
 _ORIGINS: dict[str, LevelOrigin] = {
@@ -109,6 +118,14 @@ def _origin(
     return table[value]
 
 
+def _foreign(country: str | None, ref: RefData | None) -> bool:
+    """Whether the v1 ``country`` field names a country other than France."""
+    if not country:
+        return False
+    name = (ref.country(country) if ref is not None else None) or country
+    return normalize(name) != normalize(FRANCE)
+
+
 def levels_from_v1(
     fields: Mapping[str, str], origins: Mapping[str, str], ref: RefData | None
 ) -> tuple[tuple[Level, ...], str | None, LevelOrigin | None]:
@@ -140,7 +157,9 @@ def levels_from_v1(
         commune = Level(
             0,
             name or "",
-            type="commune",
+            type=None
+            if not insee and _foreign(fields.get("country"), ref)
+            else "commune",
             identifier=insee,
             source=source if origin == "insee" else None,
             origin=origin,
