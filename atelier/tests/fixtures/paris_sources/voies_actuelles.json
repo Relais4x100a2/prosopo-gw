@@ -1,0 +1,58 @@
+[
+ {
+  "typo_min": "rue Saint-Honoré",
+  "arrdt": [
+   "1er"
+  ],
+  "quartier": [
+   "Saint-Germain-l'Auxerrois"
+  ]
+ },
+ {
+  "typo_min": "rue de Vaugirard",
+  "arrdt": [
+   "6e",
+   "15e"
+  ],
+  "quartier": [
+   "Odéon",
+   "Necker"
+  ]
+ },
+ {
+  "typo_min": "rue du Faubourg Saint-Antoine",
+  "arrdt": [
+   "12e"
+  ],
+  "quartier": [
+   "Quinze-Vingts"
+  ]
+ },
+ {
+  "typo_min": "villa Marcès",
+  "arrdt": [
+   "11e"
+  ],
+  "quartier": [
+   "Roquette"
+  ]
+ },
+ {
+  "typo_min": "rue de Tournon",
+  "arrdt": [
+   "6e"
+  ],
+  "quartier": [
+   "Odéon"
+  ]
+ },
+ {
+  "typo_min": "rue Lecourbe",
+  "arrdt": [
+   "15e"
+  ],
+  "quartier": [
+   "Necker"
+  ]
+ }
+]
