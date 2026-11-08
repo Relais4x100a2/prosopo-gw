@@ -144,3 +144,17 @@ def test_script_edits_level_chains(client: TestClient) -> None:
         assert needle in script
     for gone in ("former_name", "Ancien nom", "detail.proposal", "detail.origins"):
         assert gone not in script
+
+
+def test_precisions_tab_present(client: TestClient) -> None:
+    page = client.get("/").text
+    script = client.get("/static/app.js").text
+    assert 'id="precisions-button"' in page
+    assert "Précisions" in page + script
+    assert "Aucun arrondissement" in script
+    assert "numéro écrit" in script
+    assert "/api/precisions/decide" in script
+    assert "aucun (n'existait pas à cette date)" in script
+    assert "/api/precisions/clear" in script
+    assert "Revenir au calcul" in script
+    assert "aucun arrondissement (choix manuel)" in script

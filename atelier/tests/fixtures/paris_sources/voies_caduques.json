@@ -1,0 +1,32 @@
+[
+ {
+  "typo_min": "rue Antoine Reynier",
+  "arrdt": "19e",
+  "quartier": "Villette",
+  "date_arret": null
+ },
+ {
+  "typo_min": "rue Bella",
+  "arrdt": "15e",
+  "quartier": "Necker",
+  "date_arret": "1868-08-10"
+ },
+ {
+  "typo_min": "rue Biron",
+  "arrdt": "14e",
+  "quartier": "Montparnasse",
+  "date_arret": "1734-01-01"
+ },
+ {
+  "typo_min": "rue Beccaria",
+  "arrdt": null,
+  "quartier": null,
+  "date_arret": "1900-01-01"
+ },
+ {
+  "typo_min": "rue Duvergier",
+  "arrdt": "19e",
+  "quartier": "Villette, Amérique",
+  "date_arret": "1899-08-02"
+ }
+]

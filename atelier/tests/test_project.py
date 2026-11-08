@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from prosopo_gw_atelier.places import precision as precision_module
 from prosopo_gw_atelier.places.levels import Level, LevelOrigin, renumber
 from prosopo_gw_atelier.project import ClusterView, Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
+from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
 from prosopo_gw_atelier.store.registry import PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -863,3 +865,273 @@ def test_cluster_of_unknown_codes_is_entered_by_hand(
     rejected = view_of(project, "99999")
     assert rejected.cluster.levels == ()
     assert rejected.needs_manual_levels is False
+
+
+# --- Step 2: arrondissement precisions -------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def paris_table() -> ParisTable:
+    return load_paris_table(FIXTURES / "paris_mini")
+
+
+def paris_project(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> Project:
+    gw = copy_fixture(tmp_path, "paris_precisions.gw")
+    return Project.open(gw, registry, ref, projects_dir, paris_table=paris_table)
+
+
+def summary(project: Project) -> list[tuple[str, str | None, str, str, str]]:
+    return [
+        (
+            p.writing,
+            p.occurrence.complement,
+            p.precision.period,
+            p.precision.status,
+            ",".join(c.arrondissement_id for c in p.precision.candidates),
+        )
+        for p in project.precisions()
+    ]
+
+
+def test_precisions_of_fixture(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    assert summary(project) == [
+        (
+            "75007 Paris",
+            "rue de Vaugirard",
+            "paris-1860",
+            "conflict",
+            "75107,75106,75115",
+        ),
+        (
+            "Paris",
+            "12 rue Saint-Honoré",
+            "paris-1795",
+            "ambiguous",
+            "paris-1795-02,paris-1795-04",
+        ),
+        ("Paris", "rue Tournon", "paris-1860", "applied", "75106"),
+        ("Paris 7e", None, "", "applied", "paris-07"),
+        ("Paris 7e", None, "paris-1795", "applied", "paris-1795-07"),
+        ("Paris 7e", None, "paris-1860", "applied", "75107"),
+    ]
+    first = project.precisions()[0]
+    assert first.place_id is None
+    assert first.occurrence.table == "personnes"
+
+
+def test_stored_decision_wins(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    pid = project.project_id
+    registry.decide_precision(
+        "75007 Paris", "rue de Vaugirard", "paris-1860", "75115", "paris-q-necker", pid
+    )
+    (decided,) = [p for p in project.precisions() if p.writing == "75007 Paris"]
+    assert decided.precision.status == "applied"
+    (candidate,) = decided.precision.candidates
+    assert (candidate.arrondissement_id, candidate.quartier_id, candidate.clue) == (
+        "75115",
+        "paris-q-necker",
+        "manual",
+    )
+    # Cleared: the computed conflict is back.
+    registry.clear_precision("75007 Paris", "rue de Vaugirard", "paris-1860", pid)
+    (back,) = [p for p in project.precisions() if p.writing == "75007 Paris"]
+    assert back.precision.status == "conflict"
+
+
+def test_stored_decision_keeps_the_quartier_name(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    named = [
+        (c.arrondissement_id, c.quartier_id, c.quartier)
+        for p in project.precisions()
+        for c in p.precision.candidates
+        if c.quartier_id and c.quartier
+    ]
+    assert named, "the fixture should offer a named quartier"
+    arrondissement_id, quartier_id, name = named[0]
+    group = next(
+        p
+        for p in project.precisions()
+        if any(c.quartier_id == quartier_id for c in p.precision.candidates)
+    )
+    registry.decide_precision(
+        group.writing,
+        group.occurrence.complement,
+        group.precision.period,
+        arrondissement_id,
+        quartier_id,
+        project.project_id,
+    )
+    (candidate,) = next(
+        p
+        for p in project.precisions()
+        if (p.writing, p.occurrence.complement, p.precision.period)
+        == (group.writing, group.occurrence.complement, group.precision.period)
+    ).precision.candidates
+    assert (candidate.clue, candidate.quartier) == ("manual", name)
+
+
+def test_stored_decision_without_arrondissement(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    registry.decide_precision(
+        "75007 Paris", "rue de Vaugirard", "paris-1860", None, None, project.project_id
+    )
+    (decided,) = [p for p in project.precisions() if p.writing == "75007 Paris"]
+    assert decided.precision.status == "applied"
+    (candidate,) = decided.precision.candidates
+    assert (candidate.arrondissement_id, candidate.quartier_id) == ("", None)
+    assert candidate.clue == "manual"
+
+
+def test_undo_of_a_precision_decision_refreshes(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    entry = registry.decide_precision(
+        "75007 Paris",
+        "rue de Vaugirard",
+        "paris-1860",
+        "75115",
+        None,
+        project.project_id,
+    )
+    assert entry is not None
+    assert "applied" in {p.precision.status for p in project.precisions()}
+    registry.undo(entry)
+    assert [p.precision.status for p in project.precisions()].count("conflict") == 1
+
+
+def test_precision_groups_gather_same_value(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    gw = copy_fixture(tmp_path, "paris_precisions.gw")
+    append(
+        gw,
+        "\npevt DUPONT Marie\n#birt 1851 #p Paris_7e\nend pevt\n"
+        "pevt DUPONT Lucie\n#birt 1900 #p [rue_de_Vaugirard]_-_75007_Paris\nend pevt\n",
+    )
+    project = Project.open(gw, registry, ref, projects_dir, paris_table=paris_table)
+    groups = project.precision_groups({"conflict", "ambiguous"})
+    assert [
+        (g.writing, g.complement, g.period, g.status, g.occurrences) for g in groups
+    ] == [
+        ("75007 Paris", "rue de Vaugirard", "paris-1860", "conflict", 2),
+        ("Paris", "12 rue Saint-Honoré", "paris-1795", "ambiguous", 1),
+    ]
+    assert {c.clue for c in groups[0].candidates} == {"code", "street"}
+    everything = project.precision_groups(
+        {"applied", "conflict", "ambiguous", "uncertain"}
+    )
+    paris7_old = [
+        g for g in everything if g.writing == "Paris 7e" and g.period == "paris-1795"
+    ]
+    assert [g.occurrences for g in paris7_old] == [2]
+    assert project.precision_groups(set()) == []
+
+
+def test_undecided_precision_group_ignores_stored_decisions(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    key = ("75007 Paris", "rue de Vaugirard", "paris-1860")
+    before = project.undecided_precision_group(*key)
+    assert before is not None
+    assert before.status == "conflict"
+    registry.decide_precision(*key, "75115", None, project.project_id)
+    after = project.undecided_precision_group(*key)
+    assert after == before
+    assert project.undecided_precision_group("Nulle part", "", "paris-1860") is None
+
+
+def test_paris_place_flags_arrondissement_writings(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    place_id = validate(
+        registry, ["Paris", "Paris 7e"], commune("Paris", "75056"), project.project_id
+    )
+    view = project.cluster(f"place:{place_id}")
+    assert view.historical_writings == {"Paris 7e": "7e arrondissement"}
+    # With an arrondissement level the place is not flagged.
+    levels = chain(
+        ("7e arrondissement", "arrondissement", "paris-07"),
+        ("Paris", "commune", "75056"),
+    )
+    registry.set_levels(place_id, levels, None, None, project.project_id)
+    assert project.cluster(f"place:{place_id}").historical_writings == {}
+
+
+def test_precisions_are_cached_until_reload(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    paris_table: ParisTable,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = paris_project(tmp_path, registry, ref, projects_dir, paris_table)
+    calls = 0
+    real = precision_module.precise
+
+    def counting(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("prosopo_gw_atelier.project.precise", counting)
+    first = project.precisions()
+    assert calls > 0
+    done = calls
+    assert project.precisions() == first
+    project.precision_groups({"conflict"})
+    assert calls == done
+    project.reload()
+    project.precisions()
+    assert calls > done

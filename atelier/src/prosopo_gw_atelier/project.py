@@ -68,7 +68,25 @@ Place of a cluster
       and name key), the name of that former commune;
     - when the place has its own former commune, whose decomposition names
       none but resolves to a current commune, the name of that commune (the
-      ``Lille`` writing of a place that is now ``Lomme``).
+      ``Lille`` writing of a place that is now ``Lomme``);
+    - whose decomposition names an arrondissement (of Paris, Lyon or
+      Marseille) while the place has no ``arrondissement`` level: the name of
+      that level (``7e arrondissement``); the user splits and validates it
+      apart, nothing changes in silence. A flag above wins.
+
+Precisions
+    ``precisions()`` gives, for every occurrence that has an arrondissement
+    precision (``places.precision.precise``, on the chain of the occurrence's
+    cluster; the Paris street table is the ``paris_table`` argument, loaded on
+    first use by default), an ``OccurrencePrecision``, sorted by writing,
+    complement, period, table and row. A stored decision of the registry
+    (key writing, complement, period) wins: the precision becomes ``applied``
+    with one ``manual`` candidate. A decision with no arrondissement (both ids
+    ``None``) gives that candidate an empty ``arrondissement_id``: like a
+    candidate for a number that did not exist at the date, it is never turned
+    into a level. ``precision_groups(statuses)`` gathers them by key. Cached
+    until a reload, a split, or a change of the cluster inputs, of the stored
+    precision decisions (so decide, clear and undo refresh) or of a place chain.
 
 Levels to enter by hand
     ``ClusterView.needs_manual_levels`` is ``True`` when the cluster is not
@@ -119,7 +137,7 @@ import sqlite3
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -139,9 +157,17 @@ from .places.cluster import (
 from .places.collect import collect_writings
 from .places.decompose import decompose
 from .places.levels import Level, validated
-from .places.model import Decomposition, Writing
+from .places.model import Decomposition, Occurrence, Writing
+from .places.precision import Candidate, Precision, PrecisionStatus, precise
 from .refdata import RefData
-from .store.registry import Decision, PlaceRegistry, SchemaVersionError
+from .refdata.arrondissements import level_name
+from .refdata.paris_table import ParisTable, load_paris_table
+from .store.registry import (
+    Decision,
+    PlaceRegistry,
+    PrecisionDecision,
+    SchemaVersionError,
+)
 
 ClusterState = Literal["todo", "validated", "rejected", "already_decided"]
 
@@ -226,6 +252,41 @@ class ClusterView:
 
 
 @dataclass(frozen=True)
+class OccurrencePrecision:
+    """The arrondissement precision of one occurrence (module docstring)."""
+
+    occurrence: Occurrence
+    writing: str
+    place_id: str | None
+    precision: Precision
+
+
+@dataclass(frozen=True)
+class PrecisionGroup:
+    """Occurrences sharing a decision key ``(writing, complement, period)``.
+
+    ``complement`` is ``""`` without complement. ``status`` is the most
+    pressing of the occurrences' (conflict, ambiguous, uncertain, applied);
+    ``candidates`` are theirs, without repeats, in order of appearance.
+    """
+
+    writing: str
+    complement: str
+    period: str
+    status: PrecisionStatus
+    candidates: tuple[Candidate, ...]
+    occurrences: int
+
+
+_STATUS_RANK: dict[PrecisionStatus, int] = {
+    "conflict": 0,
+    "ambiguous": 1,
+    "uncertain": 2,
+    "applied": 3,
+}
+
+
+@dataclass(frozen=True)
 class _Split:
     split_id: str
     parent_id: str
@@ -250,6 +311,28 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _gather(items: Sequence[OccurrencePrecision]) -> list[PrecisionGroup]:
+    """Precisions gathered by ``(writing, complement, period)``, in order."""
+    gathered: dict[tuple[str, str, str], list[OccurrencePrecision]] = {}
+    for item in items:
+        key = (item.writing, item.occurrence.complement or "", item.precision.period)
+        gathered.setdefault(key, []).append(item)
+    groups = []
+    for (writing, complement, period), members in gathered.items():
+        status = min(
+            (m.precision.status for m in members), key=_STATUS_RANK.__getitem__
+        )
+        candidates = tuple(
+            dict.fromkeys(c for m in members for c in m.precision.candidates)
+        )
+        groups.append(
+            PrecisionGroup(
+                writing, complement, period, status, candidates, len(members)
+            )
+        )
+    return groups
+
+
 class Project:
     """One ``.gw`` file and the state of its processing.
 
@@ -267,6 +350,7 @@ class Project:
         registry: PlaceRegistry,
         ref: RefData,
         projects_dir: Path,
+        paris_table: ParisTable | None = None,
     ) -> None:
         self.gw_path = gw_path.resolve()
         self.project_id = project_id_of(self.gw_path)
@@ -277,6 +361,9 @@ class Project:
         self._decompositions: dict[str, Decomposition] = {}
         self._splits: list[_Split] = []
         self._cache: tuple[object, list[_Built]] | None = None
+        self._paris_table = paris_table
+        self._precisions: tuple[object, list[OccurrencePrecision]] | None = None
+        self._raw_precisions: tuple[object, list[PrecisionGroup]] | None = None
         self.gw_changed = False
         self.tables = []
         self.writings = {}
@@ -290,9 +377,10 @@ class Project:
         registry: PlaceRegistry,
         ref: RefData,
         projects_dir: Path,
+        paris_table: ParisTable | None = None,
     ) -> Project:
         """Open (or create) the project of ``gw_path`` and load the file."""
-        project = cls(gw_path, registry, ref, projects_dir)
+        project = cls(gw_path, registry, ref, projects_dir, paris_table)
         project.reload()
         return project
 
@@ -321,6 +409,8 @@ class Project:
                 )
                 self._splits = self._read_splits(conn)
             self._cache = None
+            self._precisions = None
+            self._raw_precisions = None
 
     # -- queries --------------------------------------------------------------
 
@@ -395,6 +485,8 @@ class Project:
                 )
             self._splits.append(split)
             self._cache = None
+            self._precisions = None
+            self._raw_precisions = None
             return self.cluster(split.split_id)
 
     def unsplit(self, split_id: str) -> None:
@@ -412,6 +504,60 @@ class Project:
                     conn.execute(f"DELETE FROM {table} WHERE split_id = ?", (split_id,))
             self._splits = [s for s in self._splits if s.split_id != split_id]
             self._cache = None
+            self._precisions = None
+            self._raw_precisions = None
+
+    @property
+    def paris_table(self) -> ParisTable:
+        """The Paris street table (loaded on first use unless injected)."""
+        with self._lock:
+            if self._paris_table is None:
+                self._paris_table = load_paris_table()
+            return self._paris_table
+
+    def precisions(self) -> list[OccurrencePrecision]:
+        """The precision of every occurrence that has one (module docstring)."""
+        with self._lock:
+            return list(self._precision_state())
+
+    def precision_groups(
+        self, statuses: Collection[PrecisionStatus]
+    ) -> list[PrecisionGroup]:
+        """Precisions gathered by ``(writing, complement, period)``.
+
+        Only the groups whose status is in ``statuses``; ordered by writing,
+        complement, period.
+        """
+        with self._lock:
+            items = self._precision_state()
+        return [g for g in _gather(items) if g.status in statuses]
+
+    def undecided_precision_group(
+        self, writing: str, complement: str, period: str
+    ) -> PrecisionGroup | None:
+        """The group as computed WITHOUT any stored decision, or ``None``.
+
+        What the user may choose among, whether or not a decision is already
+        stored for the key (a stored one shows only its manual candidate).
+        Cached like the clusters; ``None`` if no occurrence has this key.
+        """
+        with self._lock:
+            decisions = self._registry.decisions(self._decompositions)
+            self._built(decisions)
+            chains = [(p.place_id, p.levels) for p in self._registry.places()]
+            assert self._cache is not None
+            key = (self._cache[0], chains)
+            if self._raw_precisions is None or self._raw_precisions[0] != key:
+                self._raw_precisions = (key, _gather(self._compute_precisions({})))
+            groups = self._raw_precisions[1]
+        for group in groups:
+            if (group.writing, group.complement, group.period) == (
+                writing,
+                complement,
+                period,
+            ):
+                return group
+        return None
 
     def decomposition(self, writing: str) -> Decomposition:
         """Decomposition of ``writing``; ``KeyError`` if it is not in the ``.gw``."""
@@ -419,6 +565,77 @@ class Project:
             return self._decompositions[writing]
 
     # -- internals ------------------------------------------------------------
+
+    def _precision_state(self) -> list[OccurrencePrecision]:
+        """Computed precisions, cached with the clusters (module docstring).
+
+        The key adds the stored precision decisions and the place chains to the
+        clusters' own, so a decision, its undo or a chain change refreshes.
+        """
+        decisions = self._registry.decisions(self._decompositions)
+        self._built(decisions)
+        stored = self._registry.precision_decisions()
+        chains = [(p.place_id, p.levels) for p in self._registry.places()]
+        assert self._cache is not None
+        key = (self._cache[0], tuple(stored.items()), chains)
+        if self._precisions is not None and self._precisions[0] == key:
+            return self._precisions[1]
+        computed = self._compute_precisions(stored)
+        self._precisions = (key, computed)
+        return computed
+
+    def _compute_precisions(
+        self, stored: dict[tuple[str, str, str], PrecisionDecision]
+    ) -> list[OccurrencePrecision]:
+        table = self.paris_table
+        found: list[OccurrencePrecision] = []
+        for view in self._views():
+            for writing in view.cluster.writings:
+                arrondissement = self._decompositions[writing].arrondissement
+                for occurrence in self.writings[writing].occurrences:
+                    result = precise(
+                        view.cluster.levels, arrondissement, occurrence, table
+                    )
+                    if result is None:
+                        continue
+                    decision = stored.get(
+                        (writing, occurrence.complement or "", result.period)
+                    )
+                    if decision is not None:
+                        quartier = next(
+                            (
+                                c.quartier
+                                for c in result.candidates
+                                if (c.arrondissement_id, c.quartier_id)
+                                == (decision.arrondissement_id, decision.quartier_id)
+                            ),
+                            None,
+                        )
+                        result = Precision(
+                            result.period,
+                            "applied",
+                            (
+                                Candidate(
+                                    decision.arrondissement_id or "",
+                                    decision.quartier_id,
+                                    quartier,
+                                    "manual",
+                                ),
+                            ),
+                        )
+                    found.append(
+                        OccurrencePrecision(occurrence, writing, view.place_id, result)
+                    )
+        found.sort(
+            key=lambda p: (
+                p.writing,
+                p.occurrence.complement or "",
+                p.precision.period,
+                p.occurrence.table,
+                p.occurrence.row_id,
+            )
+        )
+        return found
 
     def _views(self) -> list[ClusterView]:
         decisions = self._registry.decisions(self._decompositions)
@@ -476,6 +693,7 @@ class Project:
         if chain and chain[0].type == "commune_historique":
             own = f"{chain[0].identifier}|{name_key(chain[0].name)}"
         flagged: dict[str, str] = {}
+        has_arrondissement = any(level.type == "arrondissement" for level in levels)
         for writing in writings:
             decomposition = self._decompositions[writing]
             former = decomposition.historical
@@ -486,6 +704,9 @@ class Project:
                 commune = self._ref.commune_by_insee(decomposition.insee)
                 if commune is not None:
                     flagged[writing] = commune.name
+            written = decomposition.arrondissement
+            if written is not None and not has_arrondissement:
+                flagged.setdefault(writing, level_name(written.number))
         return flagged
 
     def _built(self, decisions: dict[str, Decision]) -> list[_Built]:

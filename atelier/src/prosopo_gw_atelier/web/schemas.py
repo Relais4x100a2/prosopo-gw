@@ -23,6 +23,7 @@ from ..places.levels import (
     ViewField,
 )
 from ..places.model import ElementKind
+from ..places.precision import PrecisionStatus
 from ..project import ClusterState
 from ..store.registry import Status
 
@@ -168,7 +169,9 @@ class OccurrenceOut(BaseModel):
     complement: str | None
 
 
-UndoKind = Literal["validate", "split", "reject", "correct", "import", "resolve"]
+UndoKind = Literal[
+    "validate", "split", "reject", "correct", "import", "resolve", "precision"
+]
 
 
 class UndoOut(BaseModel):
@@ -207,7 +210,9 @@ class JournalEntryOut(BaseModel):
 
     ``action`` is the registry's code (``validate``, ``reject``, ``correct``,
     ``detach``, ``import``, ``undo``), except that an import entry settling
-    a conflict is reported as ``resolve``. ``writings`` holds at most
+    a conflict is reported as ``resolve`` and a precision decision (a
+    ``correct`` entry whose details have kind ``precision``) as ``precision``.
+    ``writings`` holds at most
     ``JOURNAL_WRITINGS`` of the writings touched (sorted); ``writing_count``
     counts them all. ``place_id`` is the one place the entry is about, if
     any; ``place_label`` its current commune or former name.
@@ -226,3 +231,56 @@ class JournalEntryOut(BaseModel):
 
 class JournalOut(BaseModel):
     entries: list[JournalEntryOut]
+
+
+class CandidateOut(BaseModel):
+    """An arrondissement proposed for a precision group.
+
+    ``arrondissement`` is its French name (``None`` for "no arrondissement",
+    i.e. an empty ``arrondissement_id``); ``clue`` is ``code``, ``number``,
+    ``street`` or ``manual``.
+    """
+
+    arrondissement_id: str
+    arrondissement: str | None
+    quartier_id: str | None
+    quartier: str | None
+    clue: str
+
+
+class PrecisionGroupOut(BaseModel):
+    """Occurrences sharing a decision key; ``period_label`` is in French."""
+
+    writing: str
+    complement: str
+    period: str
+    period_label: str
+    status: PrecisionStatus
+    candidates: list[CandidateOut]
+    occurrences: int
+
+
+class PrecisionsOut(BaseModel):
+    groups: list[PrecisionGroupOut]
+
+
+class PrecisionDecideIn(BaseModel):
+    """The user's choice; an empty or null ``arrondissement_id`` = none applies."""
+
+    writing: str
+    complement: str
+    period: str
+    arrondissement_id: str | None
+    quartier_id: str | None
+
+
+class PrecisionClearIn(BaseModel):
+    """Identifies the group whose decision goes back to the computed status."""
+
+    writing: str
+    complement: str
+    period: str
+
+
+class PrecisionDecideOut(BaseModel):
+    entry_id: int | None

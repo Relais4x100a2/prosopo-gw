@@ -1,5 +1,6 @@
--- Personal place registry (design § 6.3), schema version 2.
--- Applied by PlaceRegistry on a database whose user_version is 0.
+-- Personal place registry (design § 6.3), schema version 3.
+-- Applied by PlaceRegistry on a database whose user_version is 0, and replayed
+-- on a database of an older version 2 or more (only CREATE ... IF NOT EXISTS).
 
 CREATE TABLE IF NOT EXISTS places (
     place_id   TEXT PRIMARY KEY,          -- UUID4, stable
@@ -47,6 +48,20 @@ CREATE TABLE IF NOT EXISTS writings (
 );
 CREATE INDEX IF NOT EXISTS writings_place ON writings (place_id);
 
+-- Arrondissement precision decisions of the user, per occurrence key: the writing
+-- (complement removed), the complement ('' when none) and the period of the date
+-- ('' when undated). Both ids NULL = the user decided no arrondissement applies.
+CREATE TABLE IF NOT EXISTS precisions (
+    writing           TEXT NOT NULL,
+    complement        TEXT NOT NULL,
+    period            TEXT NOT NULL,
+    arrondissement_id TEXT,
+    quartier_id       TEXT,
+    project           TEXT,
+    decided_at        TEXT NOT NULL,
+    PRIMARY KEY (writing, complement, period)
+);
+
 -- Append-only: rows are never deleted, only flagged undone.
 CREATE TABLE IF NOT EXISTS journal (
     entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,4 +73,4 @@ CREATE TABLE IF NOT EXISTS journal (
     undone   INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1))
 );
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

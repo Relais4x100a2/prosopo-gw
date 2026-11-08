@@ -317,3 +317,38 @@ def test_empty_and_degenerate_writings(ref: RefData, writing: str) -> None:
     chain = rule_levels(decompose(writing, ref), ref)
     assert all(lv.name.strip() for lv in chain)
     assert [lv.rank for lv in chain] == list(range(len(chain)))
+
+
+def test_paris_arrondissement_level(ref: RefData) -> None:
+    chain = rule_levels(decompose("Paris 7e", ref), ref)
+    assert [(lv.type, lv.name, lv.identifier, lv.origin) for lv in chain] == [
+        ("arrondissement", "7e arrondissement", "paris-07", "rule"),
+        ("commune", "Paris", "75056", "insee"),
+        ("departement", "Paris", "75", "insee"),
+        ("region", "Île-de-France", None, "insee"),
+        ("pays", "France", None, "insee"),
+    ]
+    assert [lv.rank for lv in chain] == [0, 1, 2, 3, 4]
+    assert chain[0].written == "7e"
+
+
+def test_lyon_and_marseille_arrondissement_levels_come_from_the_cog(
+    ref: RefData,
+) -> None:
+    lyon = rule_levels(decompose("Lyon 3e", ref), ref)[0]
+    assert (lyon.type, lyon.name, lyon.identifier) == (
+        "arrondissement",
+        "3e arrondissement",
+        "69383",
+    )
+    assert (lyon.origin, lyon.source) == ("insee", "COG 2026")
+    marseille = rule_levels(decompose("13008 Marseille", ref), ref)[0]
+    assert marseille.identifier == "13208"
+    assert marseille.written is None
+    assert marseille.origin == "insee"
+
+
+def test_out_of_range_number_is_read_as_in_step_one(ref: RefData) -> None:
+    d = decompose("Paris 25e", ref)
+    assert d.arrondissement is None
+    assert all(lv.type != "arrondissement" for lv in rule_levels(d, ref))

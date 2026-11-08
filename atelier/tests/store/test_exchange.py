@@ -887,3 +887,228 @@ def test_level_errors_name_the_place(
         import_registry(target, data)
     assert "lieu" in str(caught.value)
     assert _counts(target) == (0, 0, 0, 0, 0)
+
+
+# --- arrondissement precisions --------------------------------------------------
+
+
+def _decide(reg: PlaceRegistry) -> None:
+    reg.decide_precision(
+        "Paris 7e", "rue de Grenelle", "paris-1860", "75107", None, "p"
+    )
+    reg.decide_precision("Paris", None, "", None, None, "p")
+    reg.decide_precision(
+        "Paris", "rue de Rivoli", "paris-1795", "paris-1795-04", "q1", "p"
+    )
+
+
+def test_export_precisions(source: PlaceRegistry) -> None:
+    _decide(source)
+    data = export_registry(source)
+    assert data["version"] == 2
+    assert data["precisions"] == [
+        {
+            "ecriture": "Paris",
+            "complement": "",
+            "periode": "",
+            "arrondissement_id": None,
+            "quartier_id": None,
+        },
+        {
+            "ecriture": "Paris",
+            "complement": "rue de Rivoli",
+            "periode": "paris-1795",
+            "arrondissement_id": "paris-1795-04",
+            "quartier_id": "q1",
+        },
+        {
+            "ecriture": "Paris 7e",
+            "complement": "rue de Grenelle",
+            "periode": "paris-1860",
+            "arrondissement_id": "75107",
+            "quartier_id": None,
+        },
+    ]
+
+
+def test_export_import_precisions(source: PlaceRegistry, target: PlaceRegistry) -> None:
+    _fill(source)
+    _decide(source)
+    data = json.loads(json.dumps(export_registry(source)))
+    assert import_registry(target, data).conflicts == []
+    ids = {
+        key: (d.arrondissement_id, d.quartier_id)
+        for key, d in target.precision_decisions().items()
+    }
+    assert ids == {
+        key: (d.arrondissement_id, d.quartier_id)
+        for key, d in source.precision_decisions().items()
+    }
+    assert len(ids) == 3
+    entries = target.journal()
+    assert [e.action for e in entries] == ["import"]
+    # one undoable entry
+    target.undo(entries[0].entry_id)
+    assert target.precision_decisions() == {}
+    # reimport of the same document writes nothing
+    import_registry(target, data)
+    n = len(target.journal())
+    assert import_registry(target, data).entry_id is None
+    assert len(target.journal()) == n
+
+
+def test_import_keeps_local_precision(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    source.decide_precision("Paris", None, "paris-1860", "75107", None, "p")
+    target.decide_precision("Paris", None, "paris-1860", "75108", None, "p")
+    source.decide_precision("Paris", None, "", "paris-07", None, "p")
+    target.decide_precision("Paris", None, "", "paris-07", None, "p")
+    source.decide_precision("Lyon", None, "", "69381", None, "p")
+    result = import_registry(target, export_registry(source))
+    assert (
+        target.precision_decisions()[("Paris", "", "paris-1860")].arrondissement_id
+        == "75108"
+    )
+    assert result.precisions_kept_local == (("Paris", "", "paris-1860"),)
+    entry = next(e for e in target.journal() if e.action == "import")
+    assert entry.payload["details"]["precisions_kept_local"] == [
+        ["Paris", "", "paris-1860"]
+    ]
+    assert ("Lyon", "", "") in target.precision_decisions()
+
+
+def test_import_many_precisions_with_a_race(
+    source: PlaceRegistry,
+    target: PlaceRegistry,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for n in range(1, 21):
+        source.decide_precision(f"Paris {n}e", None, "", f"paris-{n:02d}", None, "p")
+    source.decide_precision("Lyon", None, "", "69381", None, "p")
+    target.decide_precision("Paris 3e", None, "", "paris-03", None, "p")
+    real_apply = target.apply_import
+    calls = 0
+
+    def other_process_decides_first(*args: Any, **kwargs: Any) -> int | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with PlaceRegistry(tmp_path / "target.sqlite") as other:
+                other.decide_precision("Lyon", None, "", "69382", None, "other")
+        return real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(target, "apply_import", other_process_decides_first)
+    result = import_registry(target, export_registry(source))
+    decisions = target.precision_decisions()
+    assert len(decisions) == 21
+    assert decisions[("Lyon", "", "")].arrondissement_id == "69382"
+    assert decisions[("Paris 7e", "", "")].arrondissement_id == "paris-07"
+    assert ("Lyon", "", "") in result.precisions_kept_local
+
+
+def test_import_without_precisions_key(
+    source: PlaceRegistry, target: PlaceRegistry
+) -> None:
+    _fill(source)
+    data = export_registry(source)
+    del data["precisions"]
+    assert import_registry(target, data).conflicts == []
+    assert target.precision_decisions() == {}
+
+
+def test_import_normalises_empty_arrondissement_id(target: PlaceRegistry) -> None:
+    data = {
+        "format": FORMAT,
+        "version": 2,
+        "exported_at": "x",
+        "places": [],
+        "writings": [],
+        "precisions": [
+            {
+                "ecriture": "Paris",
+                "complement": "",
+                "periode": "paris-1795",
+                "arrondissement_id": "",
+                "quartier_id": None,
+            }
+        ],
+    }
+    import_registry(target, data)
+    [d] = target.precision_decisions().values()
+    assert (d.arrondissement_id, d.quartier_id) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "x",
+        {
+            "complement": "",
+            "periode": "",
+            "arrondissement_id": None,
+            "quartier_id": None,
+        },
+        {
+            "ecriture": "",
+            "complement": "",
+            "periode": "",
+            "arrondissement_id": None,
+            "quartier_id": None,
+        },
+        {
+            "ecriture": "P",
+            "complement": 3,
+            "periode": "",
+            "arrondissement_id": None,
+            "quartier_id": None,
+        },
+        {
+            "ecriture": "P",
+            "complement": "",
+            "periode": None,
+            "arrondissement_id": None,
+            "quartier_id": None,
+        },
+        {
+            "ecriture": "P",
+            "complement": "",
+            "periode": "",
+            "arrondissement_id": 7,
+            "quartier_id": None,
+        },
+    ],
+)
+def test_invalid_precision_is_a_format_error(target: PlaceRegistry, bad: Any) -> None:
+    data = {
+        "format": FORMAT,
+        "version": 2,
+        "exported_at": "x",
+        "places": [],
+        "writings": [],
+        "precisions": [bad],
+    }
+    with pytest.raises(RegistryFormatError):
+        import_registry(target, data)
+    assert target.precision_decisions() == {}
+
+
+def test_duplicate_precision_is_a_format_error(target: PlaceRegistry) -> None:
+    row = {
+        "ecriture": "P",
+        "complement": "",
+        "periode": "",
+        "arrondissement_id": None,
+        "quartier_id": None,
+    }
+    data = {
+        "format": FORMAT,
+        "version": 2,
+        "exported_at": "x",
+        "places": [],
+        "writings": [],
+        "precisions": [row, dict(row)],
+    }
+    with pytest.raises(RegistryFormatError, match="duplicate"):
+        import_registry(target, data)

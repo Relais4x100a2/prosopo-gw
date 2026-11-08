@@ -15,6 +15,9 @@ from prosopo_gw_atelier.export.pivot import (
     build_pivot,
 )
 from prosopo_gw_atelier.places.levels import Level, LevelOrigin
+from prosopo_gw_atelier.places.model import Occurrence
+from prosopo_gw_atelier.places.precision import Candidate, Precision
+from prosopo_gw_atelier.project import OccurrencePrecision
 from prosopo_gw_atelier.store.registry import Decision, Place, PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -147,6 +150,7 @@ def test_tables_in_core_order_then_places(
     assert names == [t.spec.name for t in core_tables] + [
         "lieux",
         "niveaux_lieux",
+        "precisions_occurrences",
         "ecritures_lieux",
     ]
 
@@ -519,3 +523,144 @@ def test_unknown_stored_origin_raises(
     monkeypatch.setattr(registry, "places", places)
     with pytest.raises(ValueError, match="guess"):
         build_pivot(core_tables, registry)
+
+
+def _precision(
+    status: str,
+    candidates: tuple[Candidate, ...],
+    period: str = "paris-1860",
+    writing: str = "Paris",
+) -> OccurrencePrecision:
+    occurrence = Occurrence(
+        "personnes", "p1", "naissance_lieu", None, None, "1870", 1870
+    )
+    return OccurrencePrecision(
+        occurrence,
+        writing,
+        "lieu-1",
+        Precision(period, status, candidates),  # type: ignore[arg-type]
+    )
+
+
+def _precisions_rows(
+    core_tables: list[Table],
+    registry: PlaceRegistry,
+    precisions: list[OccurrencePrecision],
+) -> list[Row]:
+    pivot = by_name(build_pivot(core_tables, registry, precisions))
+    return pivot["precisions_occurrences"].rows
+
+
+def test_precisions_table_present(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    applied = _precision(
+        "applied", (Candidate("75107", "paris-q-27", "Invalides", "number"),)
+    )
+    add(registry, ["Paris"], commune("Paris"))
+    table = by_name(build_pivot(core_tables, registry, [applied]))[
+        "precisions_occurrences"
+    ]
+    assert table.spec.column_names == [
+        "table",
+        "ligne_id",
+        "colonne",
+        "lieu_id",
+        "periode",
+        "arrondissement",
+        "arrondissement_id",
+        "quartier",
+        "quartier_id",
+        "indice",
+        "statut",
+    ]
+    assert table.rows == [
+        {
+            "table": "personnes",
+            "ligne_id": "p1",
+            "colonne": "naissance_lieu",
+            "lieu_id": registry.decision("Paris").place_id,  # type: ignore[union-attr]
+            "periode": "paris-1860",
+            "arrondissement": "7e arrondissement",
+            "arrondissement_id": "75107",
+            "quartier": "Invalides",
+            "quartier_id": "paris-q-27",
+            "indice": "numero",
+            "statut": "applique",
+        }
+    ]
+    empty = by_name(build_pivot(core_tables, registry))["precisions_occurrences"]
+    assert empty.rows == []
+
+
+def test_conflict_gives_one_row_per_candidate(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    conflict = _precision(
+        "conflict",
+        (
+            Candidate("75107", None, None, "code"),
+            Candidate("75108", None, None, "street"),
+            Candidate("", None, None, "number"),
+        ),
+    )
+    rows = _precisions_rows(core_tables, registry, [conflict])
+    assert [(r["arrondissement_id"], r["indice"], r["statut"]) for r in rows] == [
+        ("75107", "code", "conflit"),
+        ("75108", "rue", "conflit"),
+        (None, "numero", "conflit"),
+    ]
+    assert rows[2]["arrondissement"] is None
+
+
+def test_stored_none_decision_and_undated_period(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    none = _precision("applied", (Candidate("", None, None, "manual"),), period="")
+    (row_,) = _precisions_rows(core_tables, registry, [none])
+    assert row_["periode"] is None
+    assert row_["arrondissement"] is None and row_["arrondissement_id"] is None
+    assert row_["quartier_id"] is None
+    assert (row_["indice"], row_["statut"]) == ("manuel", "applique")
+
+
+def test_uncertain_and_ambiguous_statuses(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    rows = _precisions_rows(
+        core_tables,
+        registry,
+        [
+            _precision(
+                "uncertain", (Candidate("paris-1795-07", None, None, "number"),)
+            ),
+            _precision(
+                "ambiguous",
+                (
+                    Candidate("75101", None, None, "street"),
+                    Candidate("75102", None, None, "street"),
+                ),
+            ),
+        ],
+    )
+    assert [(r["arrondissement"], r["statut"]) for r in rows] == [
+        ("7e arrondissement", "incertain"),
+        ("1er arrondissement", "ambigu"),
+        ("2e arrondissement", "ambigu"),
+    ]
+
+
+def test_precision_lieu_id_follows_the_validated_decision(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    paris = add(registry, ["Paris"], commune("Paris"))
+    candidates = (Candidate("75107", None, None, "number"),)
+    rows = _precisions_rows(
+        core_tables,
+        registry,
+        [
+            _precision("applied", candidates, writing="Paris"),
+            _precision("applied", candidates, writing="PARIS"),  # undecided
+        ],
+    )
+    assert [r["lieu_id"] for r in rows] == [paris, None]

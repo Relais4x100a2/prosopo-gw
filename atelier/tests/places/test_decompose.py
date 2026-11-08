@@ -2,8 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from prosopo_gw_atelier.places.decompose import decompose
-from prosopo_gw_atelier.places.model import Decomposition, Element
+from prosopo_gw_atelier.places.decompose import decompose, split_arrondissement
+from prosopo_gw_atelier.places.levels import rule_levels
+from prosopo_gw_atelier.places.model import (
+    Decomposition,
+    Element,
+    WrittenArrondissement,
+)
 from prosopo_gw_atelier.refdata import Former, RefData, load_refdata
 
 MINI = Path(__file__).resolve().parents[1] / "fixtures" / "refdata_mini"
@@ -194,3 +199,104 @@ def test_codes_are_segments_too(ref: RefData) -> None:
         ("Roubaix", "commune"),
         ("59100", "postal_code"),
     ]
+
+
+def test_paris_number_forms(ref):
+    for writing in (
+        "Paris 7e",
+        "Paris, 7ème arrondissement",
+        "Paris (VIIe arr.)",
+        "7e arrondissement de Paris",
+    ):
+        d = decompose(writing, ref)
+        assert d.insee == "75056", writing
+        assert d.arrondissement == WrittenArrondissement("paris", 7, "number"), writing
+
+
+def test_arrondissement_codes(ref):
+    assert decompose("75107", ref).arrondissement == WrittenArrondissement(
+        "paris", 7, "code"
+    )
+    assert decompose("75107", ref).ambiguous is False
+    assert decompose("75107", ref).insee == "75056"
+    assert decompose("75007 Paris", ref).arrondissement == WrittenArrondissement(
+        "paris", 7, "code"
+    )
+    assert decompose("13008 Marseille", ref).arrondissement == WrittenArrondissement(
+        "marseille", 8, "code"
+    )
+
+
+def test_out_of_range_numbers_are_not_arrondissements(ref):
+    for writing in ("Paris 25e", "Lyon 10e", "Marseille 17e", "Merville 3e"):
+        d = decompose(writing, ref)
+        assert d.arrondissement is None, writing
+
+
+def test_postal_code_of_municipal_arrondissement_maps_to_commune(ref):
+    d = decompose("69001 Lyon", ref)
+    assert d.insee == "69123"
+    assert d.arrondissement == WrittenArrondissement("lyon", 1, "code")
+    chain = rule_levels(d, ref)
+    assert [(lv.type, lv.name, lv.identifier) for lv in chain[:2]] == [
+        ("arrondissement", "1er arrondissement", "69381"),
+        ("commune", "Lyon", "69123"),
+    ]
+
+
+def test_code_and_number_agreeing_or_conflicting(ref):
+    agree = decompose("75007 Paris 7e", ref)
+    assert agree.arrondissement == WrittenArrondissement("paris", 7, "code")
+    conflict = decompose("75007 Paris 8e", ref)
+    assert conflict.arrondissement == WrittenArrondissement("paris", 7, "code")
+    chain = rule_levels(conflict, ref)
+    assert [(lv.type, lv.name) for lv in chain[:3]] == [
+        ("arrondissement", "7e arrondissement"),
+        ("commune", "Paris"),
+        (None, "8e"),
+    ]
+
+
+def test_split_arrondissement_forms():
+    for text, rest, number in (
+        ("7e", "", 7),
+        ("7è", "", 7),
+        ("7ème", "", 7),
+        ("7eme", "", 7),
+        ("1er", "", 1),
+        ("1re", "", 1),
+        ("1ère", "", 1),
+        ("VIIe", "", 7),
+        ("VII", "", 7),
+        ("7e arr.", "", 7),
+        ("7e arrondissement", "", 7),
+        ("arrondissement 7", "", 7),
+        ("Paris 7e", "Paris", 7),
+        ("Paris VIIe arr.", "Paris", 7),
+        ("7e arrondissement de Paris", "Paris", 7),
+        ("Marseille arrondissement 8", "Marseille", 8),
+    ):
+        assert split_arrondissement(text) == (rest, number), text
+    for text in ("Paris", "Lille 2025", "Mercy"):
+        assert split_arrondissement(text) is None, text
+
+
+def test_words_around_an_ordinal_are_not_an_arrondissement(ref):
+    for writing in (
+        "Saint-Ier",
+        "Mix",
+        "Ivry",
+        "Merville 1er",
+        "Henri IV, Paris",
+        "rue Henri IV, Paris",
+        "Louis XIV, Paris",
+        "Lyon, 3e section",
+        "Paris, 1er étage",
+        "Paris, 2e rang",
+    ):
+        assert decompose(writing, ref).arrondissement is None, writing
+    assert decompose("Lyon, 3e section", ref).insee == "69123"
+    assert decompose("rue Henri IV, Paris", ref).insee == "75056"
+    assert decompose("Paris VII", ref).arrondissement == WrittenArrondissement(
+        "paris", 7, "number"
+    )

@@ -1,0 +1,16 @@
+Table des rues de Paris : attribution des sources (licence ODbL 1.0, voir LICENCE.txt)
+
+- Ville de Paris : dénominations des voies actuelles et des voies caduques
+  (jeux de données « denominations-emprises-voies-actuelles » et
+  « denominations-des-voies-caduques », Open Data Paris, ODbL).
+  https://opendata.paris.fr
+- Consortium ALPAGE et ses auteurs : quartiers et rues de l'atlas Vasserot
+  (« VasserotQuartiers_1790to1860 » et « VasserotRoads_1810to1836 », ODbL).
+  https://alpage.huma-num.fr
+- GeoHistoricalData : atlas de Verniquet et de Jacoubet (CC0), seulement s'ils
+  sont utilisés ; cette version de la table ne les emploie pas.
+
+Table dérivée : les voies sont réduites à une clé normalisée et rattachées à un
+arrondissement et à un quartier (les segments des rues Vasserot au quartier qui
+contient leur milieu). Elle est reconstruite par atelier/tools/build_paris.py.
+La date d'extraction est dans le fichier VERSION.

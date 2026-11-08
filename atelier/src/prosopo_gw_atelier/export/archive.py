@@ -13,6 +13,7 @@ bytes.
 from __future__ import annotations
 
 import io
+import textwrap
 import zipfile
 from datetime import datetime
 from importlib.resources import files
@@ -27,13 +28,20 @@ from geneweb_py.formats.table_writers import (
 
 from ..project import Project
 from ..refdata import RefData
+from ..refdata.paris_table import ParisTable
 from ..store.registry import PlaceRegistry
 from .pivot import build_pivot
 
 _FILE_MODE = 0o644 << 16
 
 
-def readme(gw_name: str, base: str, ref: RefData, generated_at: datetime) -> str:
+def readme(
+    gw_name: str,
+    base: str,
+    ref: RefData,
+    generated_at: datetime,
+    paris: ParisTable,
+) -> str:
     """The ``LISEZMOI.txt`` of the archive."""
     template = files(__package__).joinpath("LISEZMOI.txt").read_text("utf-8")
     return template.format(
@@ -42,6 +50,8 @@ def readme(gw_name: str, base: str, ref: RefData, generated_at: datetime) -> str
         date=generated_at.date().isoformat(),
         cog=ref.cog_vintage,
         postal=ref.postal_vintage,
+        paris_extraction=paris.extraction,
+        paris_attribution=textwrap.indent(paris.attribution.strip(), "  "),
     )
 
 
@@ -52,12 +62,14 @@ def build_archive(
     generated_at: datetime,
 ) -> bytes:
     """Zip of the pivot of ``project``: README, dictionary, CSV, JSON, SQLite."""
-    tables = build_pivot(project.tables, registry)
+    tables = build_pivot(project.tables, registry, project.precisions())
     base = base_stem(project.gw_path.name)
     entries: list[tuple[str, bytes]] = [
         (
             "LISEZMOI.txt",
-            readme(project.gw_path.name, base, ref, generated_at).encode("utf-8"),
+            readme(
+                project.gw_path.name, base, ref, generated_at, project.paris_table
+            ).encode("utf-8"),
         ),
         (
             "dictionnaire.csv",

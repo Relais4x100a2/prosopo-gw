@@ -267,7 +267,7 @@ def test_migration_is_journaled_once_and_idempotent(
         assert entries[0].project is None
         assert entries[0].payload == {
             "from": 1,
-            "to": 2,
+            "to": 3,
             "backup": backup.name,
             "places": 2,
             "proposals": 2,
@@ -442,7 +442,7 @@ def test_migrated_file_is_left_alone_without_backup(
     try:
         migrate.migrate_v1(conn, path, ref)  # as a second opener would, too late
         assert not conn.in_transaction
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         actions = [r[0] for r in conn.execute("SELECT action FROM journal")]
     finally:
         conn.close()
@@ -508,3 +508,98 @@ def test_levels_from_v1_french_commune_without_code_stays_a_commune(
             fields, {"commune": "manual", "country": "rule"}, ref
         )
         assert levels[0].type == "commune"
+
+
+def test_v1_file_migrates_to_schema3(tmp_path: Path, ref: RefData) -> None:
+    path = tmp_path / "r.sqlite"
+    _v1_registry(path)
+    with PlaceRegistry(path, ref) as registry:
+        assert registry.precision_decisions() == {}
+        registry.decide_precision("Paris", None, "paris-1860", "75107", None, "p1")
+        assert len(registry.precision_decisions()) == 1
+    conn = sqlite3.connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    assert "precisions" in tables
+    conn.close()
+
+
+def _schema2_registry(path: Path, ref: RefData) -> None:
+    """A real schema-2 file: filled through the registry, then cut back to 2.
+
+    The step-1 schema is the current one minus the ``precisions`` table, which
+    is all the schema 3 adds; data goes in by the registry's own code path.
+    """
+    with PlaceRegistry(path, ref) as registry:
+        lille = registry.validate(
+            ["Lille", "Lomme"],
+            (
+                Level(0, "Lille", type="commune", identifier="59350", origin="insee"),
+                Level(1, "Nord", type="departement", identifier="59", origin="insee"),
+                Level(2, "Hauts-de-France", type="region", origin="insee"),
+                Level(
+                    3, "Stations", type="lieu_dit", origin="manual", status="proposed"
+                ),
+            ),
+            "59000",
+            "written",
+            "p1",
+        )
+        registry.reject(["en mer"], "p1")
+        registry.detach(["Lomme"], "p1")
+        assert lille.entry_id is not None
+    conn = sqlite3.connect(path)
+    conn.execute("DROP TABLE precisions")
+    conn.execute("PRAGMA user_version = 2")
+    conn.close()
+
+
+def _snapshot(path: Path) -> dict[str, list[tuple[object, ...]]]:
+    conn = sqlite3.connect(path)
+    tables = (
+        "places",
+        "place_levels",
+        "place_attributes",
+        "writings",
+        "journal",
+    )
+    try:
+        return {
+            t: conn.execute(f"SELECT * FROM {t} ORDER BY 1, 2").fetchall()
+            for t in tables
+        }
+    finally:
+        conn.close()
+
+
+def test_schema2_file_is_upgraded_in_place(tmp_path: Path, ref: RefData) -> None:
+    path = tmp_path / "r.sqlite"
+    _schema2_registry(path, ref)
+    before = _snapshot(path)
+    assert before["places"] and before["place_levels"] and before["journal"]
+
+    with PlaceRegistry(path, ref) as registry:
+        assert registry.precision_decisions() == {}
+        assert [p.levels[0].name for p in registry.places()] == ["Lille"]
+        assert registry.decision("Lille") is not None
+        assert registry.decision("en mer") is not None
+    conn = sqlite3.connect(path)
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert conn.execute("SELECT count(*) FROM precisions").fetchone()[0] == 0
+    conn.close()
+    assert _snapshot(path) == before  # nothing changed, no journal entry added
+    assert not list(tmp_path.glob("r.v*-*.sqlite"))  # no backup
+
+    # second opening does nothing
+    with PlaceRegistry(path, ref):
+        pass
+    assert _snapshot(path) == before
+
+
+def test_schema2_file_opens_without_reference_data(
+    tmp_path: Path, ref: RefData
+) -> None:
+    path = tmp_path / "r.sqlite"
+    _schema2_registry(path, ref)
+    with PlaceRegistry(path) as registry:
+        assert registry.precision_decisions() == {}

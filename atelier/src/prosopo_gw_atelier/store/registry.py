@@ -1,14 +1,19 @@
 """Personal place registry (design § 6.3): places, decisions and their journal.
 
 Storage
-    One SQLite file (``schema.sql``, ``PRAGMA user_version = 2``) holding
+    One SQLite file (``schema.sql``, ``PRAGMA user_version = 3``) holding
     ``places`` (stable UUID4 ids), ``place_levels`` (the level chain of each
     place, one row per rank, validated and proposed levels together),
     ``place_attributes`` (the postal code, with its origin), ``writings``
-    (writing → place, or ``rejected``) and ``journal`` (append-only).
+    (writing → place, or ``rejected``), ``precisions`` (the arrondissement
+    decisions, keyed by writing, complement and period) and ``journal``
+    (append-only).
     A version 1 file (fixed fields in ``place_fields``) is migrated on
     opening when reference data is given (``migrate.migrate_v1``: backup
     first, then one transaction); without it, ``SchemaVersionError``.
+    A file of version 2 up to the one before the current is upgraded in place on
+    opening: ``schema.sql`` (only ``CREATE … IF NOT EXISTS``) is replayed and
+    ``user_version`` written; no data changes, so no backup and no journal entry.
 
 Chains
     ``validate`` and ``set_levels`` replace the whole chain of a place (ranks
@@ -81,12 +86,10 @@ from ..places.levels import (
     validated,
 )
 from ..refdata import RefData
-from .migrate import migrate_v1
+from .migrate import SCHEMA_VERSION, migrate_v1
 
 Status = Literal["validated", "rejected"]
 PostalOrigin = Literal["written", "rule", "manual", "insee"]
-
-SCHEMA_VERSION = 2
 
 _LEVEL_COLUMNS = (
     "name",
@@ -109,6 +112,10 @@ _TABLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "place_levels": (("place_id", "rank"), _LEVEL_COLUMNS),
     "place_attributes": (("place_id", "name"), ("value", "origin")),
     "writings": (("writing",), ("place_id", "status", "project", "decided_at")),
+    "precisions": (
+        ("writing", "complement", "period"),
+        ("arrondissement_id", "quartier_id", "project", "decided_at"),
+    ),
 }
 _ORDER = list(_TABLES)
 _TABLE_LABELS = {
@@ -116,6 +123,7 @@ _TABLE_LABELS = {
     "place_levels": "un niveau du lieu",
     "place_attributes": "le code postal du lieu",
     "writings": "une écriture",
+    "precisions": "une précision d'arrondissement",
 }
 """What a journaled table holds, for the French undo conflict message."""
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
@@ -155,6 +163,24 @@ class Decision:
 
 
 @dataclass(frozen=True)
+class PrecisionDecision:
+    """The user's arrondissement decision for one occurrence key.
+
+    ``complement`` is ``""`` without complement and ``period`` ``""`` for an
+    undated occurrence. Both ids ``None``: the user decided that no
+    arrondissement applies.
+    """
+
+    writing: str
+    complement: str
+    period: str
+    arrondissement_id: str | None
+    quartier_id: str | None
+    project: str | None
+    decided_at: str
+
+
+@dataclass(frozen=True)
 class Validation:
     """Result of ``validate``: the place, and the journal entry written
     (``None`` if nothing changed)."""
@@ -180,8 +206,10 @@ class RowChange:
     ``table`` is ``places`` (state ``created_at``), ``place_levels`` (key
     ``place_id``, ``rank``; state the ``Level`` fields but ``rank``),
     ``place_attributes`` (key ``place_id``, ``name``; state ``value``,
-    ``origin``) or ``writings`` (key ``writing``; state ``place_id``,
-    ``status``, ``project``, ``decided_at``).
+    ``origin``), ``writings`` (key ``writing``; state ``place_id``,
+    ``status``, ``project``, ``decided_at``) or ``precisions`` (key ``writing``,
+    ``complement``, ``period``; state ``arrondissement_id``, ``quartier_id``,
+    ``project``, ``decided_at``).
     """
 
     table: str
@@ -295,7 +323,9 @@ class PlaceRegistry:
                         "référence"
                     )
                 migrate_v1(self._conn, path, ref)
-            if version == 0:
+            if version == 0 or 2 <= version < SCHEMA_VERSION:
+                # New file, or older schema: only CREATE ... IF NOT EXISTS, so
+                # replaying it is idempotent and adds the missing tables.
                 schema = files(__package__).joinpath("schema.sql").read_text("utf-8")
                 self._conn.executescript(f"BEGIN IMMEDIATE;\n{schema}\nCOMMIT;")
         except BaseException:
@@ -342,6 +372,18 @@ class PlaceRegistry:
                         writing, place_id, cast(Status, status), project
                     )
         return result
+
+    def precision_decisions(
+        self,
+    ) -> dict[tuple[str, str, str], PrecisionDecision]:
+        """Every precision decision, by ``(writing, complement, period)``."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT writing, complement, period, arrondissement_id, quartier_id, "
+                "project, decided_at FROM precisions "
+                "ORDER BY writing, complement, period"
+            ).fetchall()
+        return {(r[0], r[1], r[2]): PrecisionDecision(*r) for r in rows}
 
     def all_decisions(self) -> list[Decision]:
         """Every decision, sorted by writing (for the registry export)."""
@@ -482,6 +524,58 @@ class PlaceRegistry:
         ]
         with self._transaction():
             return self._record("reject", project, changes, {})
+
+    def decide_precision(
+        self,
+        writing: str,
+        complement: str | None,
+        period: str,
+        arrondissement_id: str | None,
+        quartier_id: str | None,
+        project: str,
+    ) -> int | None:
+        """Store the user's arrondissement decision for one occurrence key.
+
+        ``complement`` ``None`` is stored as ``""``; ``period`` ``""`` is the
+        undated key. An empty id is stored as ``None`` (a candidate with an empty
+        id means "that number did not exist at that date", never a decision id);
+        both ``None`` = the user decided no arrondissement applies. One
+        ``correct`` journal entry (details ``{"kind": "precision", …}``);
+        ``None`` if the stored decision is already this one.
+        """
+        state = {
+            "arrondissement_id": arrondissement_id or None,
+            "quartier_id": quartier_id or None,
+            "project": project,
+            "decided_at": _now(),
+        }
+        key = {"writing": writing, "complement": complement or "", "period": period}
+        with self._transaction():
+            before = self._read("precisions", key)
+            if before is not None and all(
+                before[c] == state[c]
+                for c in ("arrondissement_id", "quartier_id", "project")
+            ):
+                return None
+            return self._record(
+                "correct",
+                project,
+                [RowChange("precisions", key, state)],
+                {"kind": "precision", **key},
+            )
+
+    def clear_precision(
+        self, writing: str, complement: str | None, period: str, project: str
+    ) -> int | None:
+        """Forget the decision of one occurrence key (``None`` if there is none)."""
+        key = {"writing": writing, "complement": complement or "", "period": period}
+        with self._transaction():
+            return self._record(
+                "correct",
+                project,
+                [RowChange("precisions", key, None)],
+                {"kind": "precision", **key},
+            )
 
     def set_levels(
         self,

@@ -3,6 +3,8 @@
 Collected columns and the occurrence they produce:
 
 - ``personnes.naissance_lieu``: event type ``"naissance"``, date ``naissance_date``;
+  every occurrence also takes its ``year`` from the matching ``*_annee`` column
+  (``naissance_annee``, ``deces_annee``, ``mariage_annee``, ``annee``);
 - ``personnes.deces_lieu``: event type ``"deces"``, date ``deces_date``;
 - ``familles.mariage_lieu``: event type ``"mariage"``, date ``mariage_date``;
 - ``evenements.lieu``: the row's own ``type`` (GeneWeb code) and ``date``.
@@ -32,14 +34,14 @@ from geneweb_py.formats.tables import Row, Table, Value
 from .model import Occurrence, Writing
 
 # table -> (place column, fixed event type or None, column of the event type,
-# date column)
-_PLACE_COLUMNS: dict[str, tuple[tuple[str, str | None, str | None, str], ...]] = {
+# date column, year column)
+_PLACE_COLUMNS: dict[str, tuple[tuple[str, str | None, str | None, str, str], ...]] = {
     "personnes": (
-        ("naissance_lieu", "naissance", None, "naissance_date"),
-        ("deces_lieu", "deces", None, "deces_date"),
+        ("naissance_lieu", "naissance", None, "naissance_date", "naissance_annee"),
+        ("deces_lieu", "deces", None, "deces_date", "deces_annee"),
     ),
-    "familles": (("mariage_lieu", "mariage", None, "mariage_date"),),
-    "evenements": (("lieu", None, "type", "date"),),
+    "familles": (("mariage_lieu", "mariage", None, "mariage_date", "mariage_annee"),),
+    "evenements": (("lieu", None, "type", "date", "annee"),),
 }
 
 
@@ -62,6 +64,16 @@ def _text(row: Row, column: str | None) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _year(row: Row, column: str) -> int | None:
+    value = row.get(column)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def split_place(raw: Value) -> tuple[str, str | None] | None:
@@ -109,7 +121,7 @@ def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
         is_event = table.spec.name == "evenements"
         for row in table.rows:
             row_id = _text(row, key) or ""
-            for column, fixed_type, type_column, date_column in columns:
+            for column, fixed_type, type_column, date_column, year_column in columns:
                 split = split_place(row.get(column))
                 if split is None:
                     continue
@@ -121,6 +133,7 @@ def collect_writings(tables: Sequence[Table]) -> dict[str, Writing]:
                     complement=complement,
                     event_type=fixed_type or _text(row, type_column),
                     date=_text(row, date_column),
+                    year=_year(row, year_column),
                 )
                 if is_event:
                     repeated = _repeated_key(

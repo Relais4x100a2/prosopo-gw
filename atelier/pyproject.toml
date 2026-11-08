@@ -60,6 +60,7 @@ include = ["prosopo_gw_atelier*"]
 "prosopo_gw_atelier" = [
     "py.typed",
     "refdata/data/*",
+    "refdata/paris/*",
     "store/schema.sql",
     "export/LISEZMOI.txt",
     "web/static/*",

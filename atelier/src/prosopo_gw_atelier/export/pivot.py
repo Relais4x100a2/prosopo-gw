@@ -12,7 +12,7 @@ order) and its values. Right after each place column it inserts:
 The writing key and the complement come from ``places.collect.split_place``,
 so the lookup key is exactly the registry's decision key (§ 6.3).
 
-Three tables follow ``core``'s:
+Four tables follow ``core``'s:
 
 - ``lieux``: the places referenced by a validated writing of these tables,
   sorted by ``lieu_id``; the French view of the validated levels (``french_view``,
@@ -23,6 +23,11 @@ Three tables follow ``core``'s:
 - ``niveaux_lieux``: the validated levels of those places, ranks renumbered
   0..n-1 (``validated``), sorted by place then rank; proposed levels are never
   exported;
+- ``precisions_occurrences``: the arrondissement precision of each occurrence
+  (``build_pivot``'s ``precisions``), one row per candidate (a ``conflit`` or
+  ``ambigu`` gives several); an empty arrondissement id is "no arrondissement"
+  and exports empty ``arrondissement`` and ``arrondissement_id``; an undated
+  occurrence exports an empty ``periode``;
 - ``ecritures_lieux``: every writing of these tables that has a decision
   (validated or rejected), sorted by writing.
 
@@ -40,6 +45,8 @@ from geneweb_py.formats.tables import Column, Row, Table, TableSpec
 
 from ..places.collect import split_place
 from ..places.levels import ViewField, chain_label, french_view, validated, view_origins
+from ..project import OccurrencePrecision
+from ..refdata.arrondissements import name_of
 from ..store.registry import Decision, PlaceRegistry
 
 STATUS_VALUES: dict[str, str] = {"validated": "valide", "rejected": "rejete"}
@@ -155,6 +162,64 @@ NIVEAUX_LIEUX = TableSpec(
     ),
 )
 
+CLUE_VALUES = {
+    "code": "code",
+    "number": "numero",
+    "street": "rue",
+    "manual": "manuel",
+}
+PRECISION_STATUS_VALUES = {
+    "applied": "applique",
+    "conflict": "conflit",
+    "uncertain": "incertain",
+    "ambiguous": "ambigu",
+}
+
+PRECISIONS_OCCURRENCES = TableSpec(
+    "precisions_occurrences",
+    (
+        Column("table", "text", "Table de l'occurrence (personnes, familles…)."),
+        Column("ligne_id", "text", "Identifiant de la ligne dans cette table."),
+        Column("colonne", "text", "Colonne du lieu dans cette table."),
+        Column(
+            "lieu_id",
+            "text",
+            "Lieu validé de l'écriture (lieux.lieu_id), vide sinon.",
+        ),
+        Column(
+            "periode",
+            "text",
+            "Période de l'arrondissement : paris-1795 (avant 1860), paris-1860, "
+            "lyon, marseille ; vide si l'occurrence n'est pas datée.",
+        ),
+        Column(
+            "arrondissement",
+            "text",
+            "Nom de l'arrondissement ; vide si aucun arrondissement.",
+        ),
+        Column(
+            "arrondissement_id",
+            "text",
+            "Identifiant de l'arrondissement (75107, paris-1795-07, 69381…, "
+            "ou paris-07 et 751NN pour une occurrence sans date) ; "
+            "vide si aucun arrondissement.",
+        ),
+        Column("quartier", "text", "Quartier de Paris, si connu."),
+        Column("quartier_id", "text", "Identifiant du quartier, si connu."),
+        Column(
+            "indice",
+            "text",
+            "Indice qui désigne cet arrondissement : code, numero, rue ou manuel.",
+        ),
+        Column(
+            "statut",
+            "text",
+            "applique, conflit (une ligne par candidat), incertain ou ambigu "
+            "(une ligne par candidat).",
+        ),
+    ),
+)
+
 ECRITURES_LIEUX = TableSpec(
     "ecritures_lieux",
     (
@@ -258,10 +323,54 @@ def _row(
     return {name: values.get(name) for name in spec.column_names}
 
 
-def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]:
+def _precision_rows(
+    precisions: Sequence[OccurrencePrecision], decisions: dict[str, Decision]
+) -> list[Row]:
+    rows: list[Row] = []
+    for item in precisions:
+        precision = item.precision
+        status = _french(PRECISION_STATUS_VALUES, precision.status, "status")
+        # same rule as the core rows: only a validated writing has a place id
+        decision = decisions.get(item.writing)
+        place_id = (
+            decision.place_id
+            if decision is not None and decision.status == "validated"
+            else None
+        )
+        for candidate in precision.candidates:
+            # an empty arrondissement id means "no arrondissement": no name invented
+            known = candidate.arrondissement_id != ""
+            rows.append(
+                {
+                    "table": item.occurrence.table,
+                    "ligne_id": item.occurrence.row_id,
+                    "colonne": item.occurrence.column,
+                    "lieu_id": place_id,
+                    "periode": precision.period or None,
+                    "arrondissement": (
+                        name_of(candidate.arrondissement_id) if known else None
+                    ),
+                    "arrondissement_id": candidate.arrondissement_id if known else None,
+                    "quartier": candidate.quartier,
+                    "quartier_id": candidate.quartier_id,
+                    "indice": _french(CLUE_VALUES, candidate.clue, "clue"),
+                    "statut": status,
+                }
+            )
+    return rows
+
+
+def build_pivot(
+    tables: Sequence[Table],
+    registry: PlaceRegistry,
+    precisions: Sequence[OccurrencePrecision] = (),
+) -> list[Table]:
     """``core``'s tables with place ids and complements, then ``lieux``,
-    ``niveaux_lieux`` and ``ecritures_lieux``. The input tables are not modified."""
+    ``niveaux_lieux``, ``precisions_occurrences`` and ``ecritures_lieux``.
+    The input tables are not modified."""
     decisions = registry.decisions(_writings(tables))
+    precision_writings = {p.writing for p in precisions} - decisions.keys()
+    precision_decisions = {**decisions, **registry.decisions(precision_writings)}
     result: list[Table] = []
     for table in tables:
         places = _PLACE_COLUMNS.get(table.spec.name)
@@ -324,6 +433,9 @@ def build_pivot(tables: Sequence[Table], registry: PlaceRegistry) -> list[Table]
             )
     result.append(Table(LIEUX, place_rows))
     result.append(Table(NIVEAUX_LIEUX, level_rows))
+    result.append(
+        Table(PRECISIONS_OCCURRENCES, _precision_rows(precisions, precision_decisions))
+    )
     result.append(
         Table(
             ECRITURES_LIEUX,

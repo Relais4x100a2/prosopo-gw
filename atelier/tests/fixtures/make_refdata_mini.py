@@ -1,7 +1,8 @@
 """Write the ``refdata_mini`` fixture in the generated reference data format.
 
 Hand-picked extract of the INSEE COG 2026 and La Poste postal code base: Nord
-(59), Pas-de-Calais (62), Rhône (69), plus the homonym pair "Merville" (59400 in
+(59), Pas-de-Calais (62), Rhône (69), Paris (75056) and Marseille (13055) with
+their arrondissement postal codes, plus the homonym pair "Merville" (59400 in
 Nord, 31341 in Haute-Garonne). Lomme (59355) merged into Lille (59350) on
 2000-02-27 is the merged-commune case; Hesdin-la-Forêt (62447), created in 2025
 from Hesdin, Marconne and Sainte-Austreberthe, is the delegated-commune case
@@ -27,6 +28,7 @@ OUTPUT = Path(__file__).resolve().parent / "refdata_mini"
 TABLES: dict[str, list[list[str]]] = {
     "communes.csv.gz": [
         ["insee", "nom", "departement", "region"],
+        ["13055", "Marseille", "13", "93"],
         ["31341", "Merville", "31", "76"],
         ["59183", "Dunkerque", "59", "32"],
         ["59350", "Lille", "59", "32"],
@@ -37,6 +39,7 @@ TABLES: dict[str, list[list[str]]] = {
         ["62765", "Saint-Omer", "62", "32"],
         ["69123", "Lyon", "69", "84"],
         ["69266", "Villeurbanne", "69", "84"],
+        ["75056", "Paris", "75", "11"],
         ["76566", "Sainte-Austreberthe", "76", "28"],
     ],
     "historique.csv.gz": [
@@ -52,16 +55,20 @@ TABLES: dict[str, list[list[str]]] = {
     ],
     "departements.csv.gz": [
         ["code", "nom", "region"],
+        ["13", "Bouches-du-Rhône", "93"],
         ["31", "Haute-Garonne", "76"],
         ["59", "Nord", "32"],
         ["62", "Pas-de-Calais", "32"],
         ["69", "Rhône", "84"],
+        ["75", "Paris", "11"],
         ["76", "Seine-Maritime", "28"],
     ],
     "regions.csv.gz": [
         ["code", "nom", "avant_2016"],
+        ["11", "Île-de-France", "0"],
         ["32", "Hauts-de-France", "0"],
         ["76", "Occitanie", "0"],
+        ["93", "Provence-Alpes-Côte d'Azur", "0"],
         ["84", "Auvergne-Rhône-Alpes", "0"],
         ["28", "Normandie", "0"],
         ["22", "Picardie", "1"],
@@ -78,6 +85,7 @@ TABLES: dict[str, list[list[str]]] = {
     ],
     "codes_postaux.csv.gz": [
         ["code_postal", "insee"],
+        *[[f"130{i:02d}", "13055"] for i in range(1, 17)],
         ["31330", "31341"],
         ["59000", "59350"],
         ["59100", "59512"],
@@ -92,6 +100,8 @@ TABLES: dict[str, list[list[str]]] = {
         ["62500", "62765"],
         *[[f"6900{i}", "69123"] for i in range(1, 10)],
         ["69100", "69266"],
+        *[[f"750{i:02d}", "75056"] for i in range(1, 21)],
+        ["75116", "75056"],
     ],
 }
 

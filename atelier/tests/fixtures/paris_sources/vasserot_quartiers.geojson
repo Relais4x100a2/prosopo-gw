@@ -1,0 +1,175 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       0,
+       0
+      ],
+      [
+       10,
+       0
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       0,
+       10
+      ],
+      [
+       0,
+       0
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "ID_ALPAGE": "QU13",
+    "NOM": "Marchés",
+    "NUM_ARROND": 4,
+    "NUM_QUARTI": 13,
+    "DATE_COYEC": "1825"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       10,
+       0
+      ],
+      [
+       20,
+       0
+      ],
+      [
+       20,
+       10
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       10,
+       0
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "ID_ALPAGE": "QU05",
+    "NOM": "Palais-Royal",
+    "NUM_ARROND": 2,
+    "NUM_QUARTI": 5,
+    "DATE_COYEC": "1825"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       30,
+       0
+      ],
+      [
+       40,
+       0
+      ],
+      [
+       40,
+       10
+      ],
+      [
+       30,
+       10
+      ],
+      [
+       30,
+       0
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "ID_ALPAGE": "QU47",
+    "NOM": "Jardin du Roi",
+    "NUM_ARROND": 12,
+    "NUM_QUARTI": 47,
+    "DATE_COYEC": "1813-1816"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       0,
+       20
+      ],
+      [
+       10,
+       20
+      ],
+      [
+       10,
+       30
+      ],
+      [
+       0,
+       30
+      ],
+      [
+       0,
+       20
+      ]
+     ],
+     [
+      [
+       4,
+       24
+      ],
+      [
+       6,
+       24
+      ],
+      [
+       6,
+       26
+      ],
+      [
+       4,
+       26
+      ],
+      [
+       4,
+       24
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "ID_ALPAGE": "QU34",
+    "NOM": "Hotel de Ville",
+    "NUM_ARROND": 9,
+    "NUM_QUARTI": 34,
+    "DATE_COYEC": "1825"
+   }
+  }
+ ]
+}

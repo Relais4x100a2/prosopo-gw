@@ -12,7 +12,8 @@ One transaction
     Then, in the same transaction: ``place_levels`` and
     ``place_attributes`` are created, ``journal`` is rebuilt to admit the
     ``migrate`` action (entries and ids kept), every place is converted,
-    ``place_fields`` is dropped and ``user_version`` becomes 2. If a converted
+    ``place_fields`` is dropped and ``user_version`` becomes ``SCHEMA_VERSION``
+    (3: ``schema.sql`` also creates the empty ``precisions`` table). If a converted
     chain fails ``check_chain``, everything is rolled back (the backup stays)
     and a ``ValueError`` names the place. A place left without validated level
     is named after its first validated writing (sorted), one untyped validated
@@ -44,7 +45,7 @@ Proposals from the writings (migration only)
 
 Decisions and journal
     ``writings`` rows are kept line for line: no writing changes place. One
-    ``migrate`` journal entry (``project`` NULL) records ``{"from": 1, "to": 2,
+    ``migrate`` journal entry (``project`` NULL) records ``{"from": 1, "to": 3,
     "backup": <file name>, "places": n, "proposals": n, "empty": n}`` without
     rows: it cannot be undone, and neither can the version 1 entries before it.
 """
@@ -80,6 +81,9 @@ _ORIGINS: dict[str, LevelOrigin] = {
 }
 # place_attributes admits no ``llm`` origin: an LLM postal code becomes ``rule``.
 _POSTAL_ORIGINS: dict[str, LevelOrigin] = {**_ORIGINS, "llm": "rule"}
+SCHEMA_VERSION = 3
+"""Current schema version of the registry file (re-exported by ``registry``)."""
+
 _LEVEL_COLUMNS = (
     "name",
     "written",
@@ -383,10 +387,10 @@ def _convert(conn: sqlite3.Connection, ref: RefData, backup: str) -> None:
                 (place_id, postal, postal_origin),
             )
     conn.execute("DROP TABLE place_fields")
-    conn.execute("PRAGMA user_version = 2")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     payload = {
         "from": 1,
-        "to": 2,
+        "to": SCHEMA_VERSION,
         "backup": backup,
         "places": len(place_ids),
         "proposals": proposals,
@@ -403,7 +407,7 @@ def _convert(conn: sqlite3.Connection, ref: RefData, backup: str) -> None:
 
 
 def migrate_v1(conn: sqlite3.Connection, path: Path, ref: RefData) -> None:
-    """Back ``path`` up, then migrate it from version 1 to 2 (module docstring).
+    """Back ``path`` up, then migrate it from version 1 to the current one.
 
     ``conn`` is an open connection to ``path`` in autocommit mode
     (``isolation_level=None``). The write lock is taken first: the backup and

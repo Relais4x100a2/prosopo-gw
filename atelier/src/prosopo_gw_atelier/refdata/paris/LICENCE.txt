@@ -1,0 +1,16 @@
+Table des rues de Paris : licence ODbL 1.0
+
+Les fichiers de ce dossier (rues.csv.gz, quartiers.csv.gz, communes_annexees.csv.gz,
+VERSION) sont une base de données dérivée de sources publiques placées sous
+Open Database License (ODbL) 1.0 : dénominations des voies de la Ville de Paris
+(Open Data Paris) et couches Vasserot du consortium ALPAGE. Ils restent
+sous ODbL 1.0, et non sous la licence MIT du reste du paquet.
+
+Résumé (le texte seul de la licence fait foi) : vous pouvez copier, distribuer,
+utiliser et adapter cette base, à condition de :
+  - citer les auteurs (voir ATTRIBUTION.txt) ;
+  - indiquer toute modification apportée à la base ;
+  - redistribuer toute base dérivée de celle-ci sous la même licence ODbL 1.0.
+
+Texte officiel : https://opendatacommons.org/licenses/odbl/1-0/
+Version en français : https://opendatacommons.org/licenses/odbl/summary/

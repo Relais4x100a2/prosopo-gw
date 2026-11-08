@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from ..refdata import Former
+from ..refdata.arrondissements import City
 
 ElementKind = Literal[
     "commune",
@@ -15,6 +16,7 @@ ElementKind = Literal[
     "region",
     "country",
     "former_name",
+    "arrondissement",
 ]
 
 
@@ -33,7 +35,10 @@ class Element:
 
 @dataclass(frozen=True)
 class Occurrence:
-    """One non-empty place cell of a ``core`` table."""
+    """One non-empty place cell of a ``core`` table.
+
+    ``year`` is the sort year read from the ``*_annee`` column of ``core``.
+    """
 
     table: str
     row_id: str
@@ -41,6 +46,7 @@ class Occurrence:
     complement: str | None
     event_type: str | None
     date: str | None
+    year: int | None = None
 
 
 @dataclass
@@ -63,6 +69,19 @@ class Segment:
 
 
 @dataclass(frozen=True)
+class WrittenArrondissement:
+    """Arrondissement of Paris, Lyon or Marseille named by a writing.
+
+    ``clue`` tells what named it: ``"code"`` (an arrondissement INSEE code or a
+    postal code) or ``"number"`` (a written number such as ``7e``).
+    """
+
+    city: City
+    number: int
+    clue: Literal["code", "number"]
+
+
+@dataclass(frozen=True)
 class Decomposition:
     """Result of decomposing a writing.
 
@@ -74,6 +93,8 @@ class Decomposition:
     written order. ``historical`` is the former commune (fusion, association,
     delegation) the writing names; ``alternative`` is a former commune bearing
     the same name as the current commune read, kept as another possible reading.
+    ``arrondissement`` is the arrondissement of Paris, Lyon or Marseille the
+    writing names, when the resolved commune is that city.
     """
 
     writing: str
@@ -84,3 +105,4 @@ class Decomposition:
     segments: tuple[Segment, ...] = ()
     historical: Former | None = None
     alternative: Former | None = None
+    arrondissement: WrittenArrondissement | None = None

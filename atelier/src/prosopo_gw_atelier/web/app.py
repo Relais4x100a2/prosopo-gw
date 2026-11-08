@@ -44,7 +44,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -70,8 +70,10 @@ from ..places.levels import (
     view_origins,
 )
 from ..places.model import Occurrence
-from ..project import ClusterState, ClusterView, Project
+from ..places.precision import PrecisionStatus
+from ..project import ClusterState, ClusterView, PrecisionGroup, Project
 from ..refdata import RefData
+from ..refdata.arrondissements import name_of
 from ..store.exchange import (
     Conflict,
     RegistryFormatError,
@@ -140,6 +142,38 @@ class AppState:
     undo: list[_Action] = field(default_factory=list)
     conflicts: dict[str, Conflict] = field(default_factory=dict)
     labels: _Labels | None = None
+
+
+_PERIOD_LABELS = {
+    "paris-1795": "avant 1860",
+    "paris-1860": "depuis 1860",
+    "lyon": "Lyon",
+    "marseille": "Marseille",
+    "": "sans date",
+}
+
+
+def _precision_group(group: PrecisionGroup) -> schemas.PrecisionGroupOut:
+    return schemas.PrecisionGroupOut(
+        writing=group.writing,
+        complement=group.complement,
+        period=group.period,
+        period_label=_PERIOD_LABELS.get(group.period, group.period),
+        status=group.status,
+        candidates=[
+            schemas.CandidateOut(
+                arrondissement_id=c.arrondissement_id,
+                arrondissement=name_of(c.arrondissement_id)
+                if c.arrondissement_id
+                else None,
+                quartier_id=c.quartier_id,
+                quartier=c.quartier,
+                clue=c.clue,
+            )
+            for c in group.candidates
+        ],
+        occurrences=group.occurrences,
+    )
 
 
 # -- helpers -------------------------------------------------------------------
@@ -467,7 +501,7 @@ def _journal_place(rows: Sequence[Mapping[str, Any]], details: object) -> str | 
             row_state = row["after"] if row["after"] is not None else row["before"]
             if row_state and row_state.get("place_id"):
                 ids.add(row_state["place_id"])
-        else:
+        elif "place_id" in row["key"]:  # precision rows are keyed by writing
             ids.add(row["key"]["place_id"])
     return ids.pop() if len(ids) == 1 else None
 
@@ -488,6 +522,12 @@ def _journal_entry(
         and "resolved_conflict" in details
     ):
         action = "resolve"
+    if (
+        action == "correct"
+        and isinstance(details, Mapping)
+        and details.get("kind") == "precision"
+    ):
+        action = "precision"
     undone_entry = payload.get("undone_entry") if action == "undo" else None
     place_id = _journal_place(rows, details)
     return schemas.JournalEntryOut(
@@ -796,9 +836,9 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
         except KeyError:
             raise _error(404, "Ce lieu n'existe pas dans le référentiel.") from None
 
-    def _push_correct(entry: int | None) -> None:
+    def _push_correct(entry: int | None, kind: schemas.UndoKind = "correct") -> None:
         if entry is not None:
-            state.undo.append(_Action("correct", (_Ref("registry", entry),)))
+            state.undo.append(_Action(kind, (_Ref("registry", entry),)))
 
     @app.put("/api/places/{place_id}/levels")
     def set_place_levels(place_id: str, body: schemas.LevelsIn) -> schemas.PlaceOut:
@@ -873,6 +913,73 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
                 raise _error(404, "Cette écriture n'est pas dans la base.")
             labels = _labels(state)
             return [_occurrence(labels, o) for o in writing.occurrences]
+
+    # -- precisions ---------------------------------------------------------
+
+    @app.get("/api/precisions")
+    def list_precisions(
+        statuses: list[PrecisionStatus] | None = Query(None, alias="status"),
+    ) -> schemas.PrecisionsOut:
+        """Precision groups; every status when no ``status`` is given."""
+        wanted = set(statuses) if statuses else set(get_args(PrecisionStatus))
+        with state.lock:
+            groups = project.precision_groups(wanted)
+        return schemas.PrecisionsOut(groups=[_precision_group(g) for g in groups])
+
+    @app.post("/api/precisions/decide")
+    def decide_precision(body: schemas.PrecisionDecideIn) -> schemas.PrecisionDecideOut:
+        with state.lock:
+            group = project.undecided_precision_group(
+                body.writing, body.complement, body.period
+            )
+            if group is None:
+                raise _error(400, "Aucune occurrence ne correspond à cette précision.")
+            chosen = body.arrondissement_id or None
+            quartier = body.quartier_id or None
+            if chosen is None:
+                if quartier is not None:
+                    raise _error(
+                        400, "Un quartier suppose un arrondissement : choisissez-en un."
+                    )
+            else:
+                matching = [
+                    c for c in group.candidates if c.arrondissement_id == chosen
+                ]
+                if not matching:
+                    raise _error(
+                        400,
+                        "Cet arrondissement ne fait pas partie des propositions "
+                        "de cette précision.",
+                    )
+                if quartier is not None and all(
+                    c.quartier_id != quartier for c in matching
+                ):
+                    raise _error(
+                        400,
+                        "Ce quartier ne correspond pas à l'arrondissement choisi.",
+                    )
+            entry = registry.decide_precision(
+                body.writing,
+                body.complement,
+                body.period,
+                chosen,
+                quartier,
+                project.project_id,
+            )
+            _push_correct(entry, "precision")
+            return schemas.PrecisionDecideOut(entry_id=entry)
+
+    @app.post("/api/precisions/clear")
+    def clear_precision(body: schemas.PrecisionClearIn) -> schemas.PrecisionDecideOut:
+        """Forget a decision: the group goes back to its computed status."""
+        with state.lock:
+            entry = registry.clear_precision(
+                body.writing, body.complement, body.period, project.project_id
+            )
+            if entry is None:
+                raise _error(400, "Aucune décision à retirer pour cette précision.")
+            _push_correct(entry, "precision")
+            return schemas.PrecisionDecideOut(entry_id=entry)
 
     # -- undo ---------------------------------------------------------------
 

@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from ..refdata import Former, RefData
+from ..refdata.arrondissements import city_of, level_id, level_name
 from .decompose import HINT_OLD_REGION, is_code
 from .model import Decomposition
 
@@ -246,12 +247,17 @@ def _resolved_levels(
     if commune is None:
         return None
     source = f"COG {ref.cog_vintage}"
+    written_arr = decomposition.arrondissement
+    arrondissement = (
+        written_arr if written_arr and city_of(insee) == written_arr.city else None
+    )
     region_name = ref.region_name(commune.region)
     slots = ("commune", "departement", "ancienne_region", "region", "pays")
     used: set[str] = set()
     before: list[Level] = []
     after: dict[str, list[Level]] = {slot: [] for slot in slots}
     name_text: str | None = None
+    arrondissement_text: str | None = None
     country_text: str | None = None
     old_region: Level | None = None
     last: str | None = None
@@ -267,6 +273,13 @@ def _resolved_levels(
         slot: str | None = None
         if element is None:
             pass
+        elif (
+            element.kind == "arrondissement"
+            and arrondissement is not None
+            and arrondissement_text is None
+        ):
+            arrondissement_text = segment.text
+            continue
         elif element.kind in ("commune", "former_name"):
             if name_text is None:
                 name_text, slot = segment.text, "commune"
@@ -300,6 +313,21 @@ def _resolved_levels(
         last = slot
 
     commune_block: list[Level] = []
+    if arrondissement is not None:
+        number = arrondissement.number
+        name = level_name(number)
+        paris = arrondissement.city == "paris"
+        commune_block.append(
+            Level(
+                0,
+                name,
+                written=_written(arrondissement_text, name),
+                type="arrondissement",
+                identifier=level_id(arrondissement.city, number),
+                source=None if paris else source,
+                origin="rule" if paris else "insee",
+            )
+        )
     if historical is not None:
         commune_block.append(
             Level(
