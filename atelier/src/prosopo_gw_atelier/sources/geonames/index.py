@@ -132,9 +132,27 @@ def read_names(zip_path: Path, country: str) -> Iterator[tuple[int, str]]:
         if f[6] not in _KEPT_CLASSES or not f[0].isdigit():
             continue
         geonameid = int(f[0])
-        for alternate in f[3].split(","):
+        for alternate in (f[2], *f[3].split(",")):
             if useful_alternate(alternate):
                 yield geonameid, alternate.strip()
+
+
+def _keyed_names(zip_path: Path, country: str) -> Iterator[tuple[str, int]]:
+    """``(name_key, geonameid)`` of the name, asciiname and useful alternates.
+
+    Identical keys of one place are emitted once.
+    """
+    for f in _rows(zip_path, country):
+        if f[6] not in _KEPT_CLASSES or not f[0].isdigit() or not f[1].strip():
+            continue
+        geonameid = int(f[0])
+        keys = {name_key(f[1])}
+        for alternate in (f[2], *f[3].split(",")):
+            if useful_alternate(alternate):
+                keys.add(name_key(alternate))
+        keys.discard("")
+        for key in sorted(keys):
+            yield key, geonameid
 
 
 def read_admin_codes(path: Path) -> dict[str, tuple[str, int]]:
@@ -170,7 +188,6 @@ CREATE TABLE places (
     latitude REAL NOT NULL, longitude REAL NOT NULL
 );
 CREATE TABLE names (key TEXT NOT NULL, geonameid INTEGER NOT NULL);
-CREATE INDEX names_key ON names (key);
 CREATE TABLE admin (
     code TEXT PRIMARY KEY, name TEXT NOT NULL, geonameid INTEGER NOT NULL
 );
@@ -210,7 +227,14 @@ class GeoNamesIndex:
         return self._directory / f"{check_country(country)}.sqlite"
 
     def _connect(self, path: Path) -> sqlite3.Connection:
+        """Writer connection (creates the file: only used on ``.part`` files)."""
         return sqlite3.connect(path, timeout=_BUSY_TIMEOUT)
+
+    def _connect_ro(self, path: Path) -> sqlite3.Connection:
+        """Reader connection: never creates a file (fails if it is missing)."""
+        return sqlite3.connect(
+            f"{path.as_uri()}?mode=ro", uri=True, timeout=_BUSY_TIMEOUT
+        )
 
     def _invalidate(self) -> None:
         with self._lock:
@@ -256,23 +280,16 @@ class GeoNamesIndex:
                         db.executemany(
                             "INSERT INTO places VALUES (?,?,?,?,?,?,?,?,?,?)", batch
                         )
-                        db.executemany(
-                            "INSERT INTO names VALUES (?, ?)",
-                            [(name_key(str(b[1])), b[0]) for b in batch if b[1]],
-                        )
                         count += len(batch)
                     for batch in _chunks(
-                        (gid, name)
-                        for gid, name in read_names(zip_path, country)
+                        (key, gid)
+                        for key, gid in _keyed_names(zip_path, country)
                         if gid in seen
                     ):
-                        db.executemany(
-                            "INSERT INTO names VALUES (?, ?)",
-                            [(name_key(str(b[1])), b[0]) for b in batch],
-                        )
+                        db.executemany("INSERT INTO names VALUES (?, ?)", batch)
                     db.executemany("INSERT INTO admin VALUES (?, ?, ?)", admin_rows)
                     db.execute("INSERT INTO meta VALUES (?)", (extracted,))
-                    db.execute("DELETE FROM names WHERE key = ''")
+                    db.execute("CREATE INDEX names_key ON names (key)")
             finally:
                 db.close()
             part.replace(target)
@@ -294,7 +311,7 @@ class GeoNamesIndex:
             if not _COUNTRY.fullmatch(country):
                 continue
             try:
-                db = self._connect(path)
+                db = self._connect_ro(path)
                 try:
                     row = db.execute("SELECT extracted FROM meta").fetchone()
                 finally:
@@ -311,9 +328,10 @@ class GeoNamesIndex:
         self, country: str, sql: str, params: tuple[object, ...] = ()
     ) -> list[tuple[object, ...]]:
         path = self._file(country)
-        if not path.exists():
+        try:
+            db = self._connect_ro(path)
+        except sqlite3.Error:
             return []
-        db = self._connect(path)
         try:
             return db.execute(sql, params).fetchall()
         except sqlite3.Error:

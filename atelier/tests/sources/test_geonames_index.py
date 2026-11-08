@@ -57,7 +57,7 @@ def test_alternate_names_filtered() -> None:
     names = {n for gid, n in read_names(CA, "CA") if gid == 9000001}
     assert names == {"Ouinipègue", "Winnipeg", "Winipeg"}
     gb = {n for gid, n in read_names(GB, "GB") if gid == 9100001}
-    assert gb == {"Storrington and Sullington", "Storringtown", "ZZZ"}
+    assert gb == {"Storrington", "Storrington and Sullington", "Storringtown", "ZZZ"}
 
 
 def test_admin_codes() -> None:
@@ -126,10 +126,10 @@ def test_index_build_is_atomic(
     idx: GeoNamesIndex, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def boom(zip_path: Path, country: str) -> object:
-        yield 9000001, "Winnipeg"
+        yield "winnipeg", 9000001
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(gn, "read_names", boom)
+    monkeypatch.setattr(gn, "_keyed_names", boom)
     with pytest.raises(RuntimeError):
         idx.build("CA", CA, ADMIN1, ADMIN2, "2030-01-01")
     directory = next(iter(idx._directory.parent.glob("geonames")))
@@ -192,3 +192,28 @@ def test_large_file_streams(tmp_path: Path) -> None:
     ] == [1_000_123]
     with sqlite3.connect(tmp_path / "idx" / "CA.sqlite") as db:
         assert db.execute("SELECT COUNT(*) FROM places").fetchone() == (200_000,)
+
+
+def test_ascii_name_indexed_and_keys_deduplicated(tmp_path: Path) -> None:
+    zip_path = tmp_path / "CA.zip"
+    fields = [
+        "9500001", "Montréal", "Montreal", "Montréal,Montreal,Mont-Royal", "45.5",
+        "-73.5", "P", "PPLA2", "CA", "", "10", "", "", "", "1000", "", "1", "UTC", "d",
+    ]  # fmt: skip
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("CA.txt", "\t".join(fields) + "\n")
+    index = GeoNamesIndex(tmp_path / "idx")
+    index.build("CA", zip_path, ADMIN1, ADMIN2, "d")
+    assert [p.geonameid for p in index.lookup("CA", "montreal")] == [9500001]
+    with sqlite3.connect(tmp_path / "idx" / "CA.sqlite") as db:
+        rows = db.execute("SELECT key FROM names ORDER BY key").fetchall()
+    assert len(rows) == 2 == len(set(rows))
+
+
+def test_readers_never_create_files(idx: GeoNamesIndex) -> None:
+    idx.remove("CA")
+    assert idx.lookup("CA", "winnipeg") == []
+    assert idx.get("CA", 9000001) is None
+    assert idx.admin_name("CA", "03") is None
+    assert not (idx._directory / "CA.sqlite").exists()
+    assert sorted(p.name for p in idx._directory.iterdir()) == ["GB.sqlite"]
