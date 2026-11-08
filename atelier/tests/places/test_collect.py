@@ -37,6 +37,7 @@ def test_occurrence_of_an_event(writings: dict[str, Writing]) -> None:
         complement="Atelier Rose",
         event_type="occu",
         date="1872",
+        year=1872,
     )
 
 
@@ -47,7 +48,13 @@ def test_birth_in_personnes_and_in_evenements_counts_once(
     occurrences = writings["St-Omer (62)"].occurrences
     assert occurrences == [
         Occurrence(
-            "personnes", "DUPONT_Anne_0", "naissance_lieu", None, "naissance", "1878"
+            "personnes",
+            "DUPONT_Anne_0",
+            "naissance_lieu",
+            None,
+            "naissance",
+            "1878",
+            1878,
         ),
     ]
 
@@ -195,3 +202,27 @@ def test_blank_cells_are_skipped() -> None:
 
 def test_deterministic(tables: list[Table]) -> None:
     assert collect_writings(tables) == collect_writings(tables)
+
+
+def test_occurrence_year_from_core_year_columns() -> None:
+    writings = _collect(
+        [
+            _person(
+                "P1",
+                naissance_lieu="Arras",
+                naissance_annee="1850",
+                deces_lieu="Lille",
+                deces_annee="1910",
+            )
+        ],
+        [_family("F1", mariage_lieu="Lyon", mariage_annee="1875")],
+        [_event("E1", personne_id="P1", type="occu", lieu="Paris", annee="1860")],
+    )
+    assert [writings[k].occurrences[0].year for k in ("Arras", "Lille", "Lyon")] == [
+        1850,
+        1910,
+        1875,
+    ]
+    assert writings["Paris"].occurrences[0].year == 1860
+    undated = _collect([_person("P2", naissance_lieu="Arras")], [], [])
+    assert undated["Arras"].occurrences[0].year is None

@@ -35,7 +35,10 @@ class Element:
 
 @dataclass(frozen=True)
 class Occurrence:
-    """One non-empty place cell of a ``core`` table."""
+    """One non-empty place cell of a ``core`` table.
+
+    ``year`` is the sort year read from the ``*_annee`` column of ``core``.
+    """
 
     table: str
     row_id: str
@@ -43,6 +46,7 @@ class Occurrence:
     complement: str | None
     event_type: str | None
     date: str | None
+    year: int | None = None
 
 
 @dataclass
