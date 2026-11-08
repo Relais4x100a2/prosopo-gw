@@ -163,10 +163,10 @@ def test_invalid_chain_rolls_back_and_names_the_place(
     path = tmp_path / "r.sqlite"
     _v1_registry(
         path,
-        f"INSERT INTO places VALUES ('p-vide', {AT});"
-        "INSERT INTO place_fields VALUES ('p-vide','postal_code','59000','rule');",
+        f"INSERT INTO places VALUES ('p-blanc', {AT});"
+        "INSERT INTO place_fields VALUES ('p-blanc','commune','  ','manual');",
     )
-    with pytest.raises(ValueError, match="p-vide"):
+    with pytest.raises(ValueError, match="p-blanc"):
         PlaceRegistry(path, ref)
     assert len(list(tmp_path.glob("r.v1-*.sqlite"))) == 1
     conn = sqlite3.connect(path)
@@ -175,6 +175,38 @@ def test_invalid_chain_rolls_back_and_names_the_place(
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
     assert "place_levels" not in tables
     conn.close()
+
+
+def test_place_without_level_is_named_after_its_first_writing(
+    tmp_path: Path, ref: RefData
+) -> None:
+    _v1_registry(
+        tmp_path / "r.sqlite",
+        f"INSERT INTO places VALUES ('p-cp', {AT});"
+        "INSERT INTO place_fields VALUES ('p-cp','postal_code','59000','manual');"
+        f"INSERT INTO writings VALUES ('Quai Sud', 'p-cp', 'validated', 'p1', {AT}),"
+        f" ('Quai Nord', 'p-cp', 'validated', 'p1', {AT});",
+    )
+    with PlaceRegistry(tmp_path / "r.sqlite", ref) as registry:
+        place = registry.place("p-cp")
+        [entry] = [e for e in registry.journal() if e.action == "migrate"]
+    assert [(lv.name, lv.type, lv.origin, lv.status) for lv in place.levels] == [
+        ("Quai Nord", None, "written", "validated"),
+        ("Quai Sud", None, "written", "proposed"),
+    ]
+    assert (place.postal_code, place.postal_origin) == ("59000", "manual")
+    assert entry.payload["empty"] == 0
+
+
+def test_place_without_level_nor_writing_stays_empty(
+    tmp_path: Path, ref: RefData
+) -> None:
+    _v1_registry(tmp_path / "r.sqlite", f"INSERT INTO places VALUES ('p-nu', {AT});")
+    with PlaceRegistry(tmp_path / "r.sqlite", ref) as registry:
+        assert registry.place("p-nu").levels == ()
+        [entry] = [e for e in registry.journal() if e.action == "migrate"]
+        assert entry.payload["empty"] == 1 and entry.payload["places"] == 3
+        assert "p-nu" not in {k.place_id for k in registry.known_places()}
 
 
 def test_migration_is_journaled_once_and_idempotent(
@@ -193,6 +225,7 @@ def test_migration_is_journaled_once_and_idempotent(
             "backup": backup.name,
             "places": 2,
             "proposals": 2,
+            "empty": 0,
         }
         with pytest.raises(ValueError, match="sauvegarde"):
             registry.undo(entries[0].entry_id)
@@ -296,3 +329,17 @@ def test_levels_from_v1_commune_from_insee_code_only(ref: RefData) -> None:
     assert [(lv.name, lv.type, lv.identifier, lv.origin) for lv in levels] == [
         ("Lille", "commune", "59350", "insee")
     ]
+
+
+@pytest.mark.parametrize(
+    ("origins", "message"),
+    [
+        ({}, "manquante"),
+        ({"commune": "reference", "postal_code": "oracle"}, "inconnue"),
+    ],
+)
+def test_levels_from_v1_origin_errors_are_value_errors(
+    ref: RefData, origins: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        levels_from_v1({"commune": "Lille", "postal_code": "59000"}, origins, ref)

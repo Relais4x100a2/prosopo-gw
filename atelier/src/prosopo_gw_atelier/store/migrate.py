@@ -11,7 +11,10 @@ One transaction
     ``migrate`` action (entries and ids kept), every place is converted,
     ``place_fields`` is dropped and ``user_version`` becomes 2. If a converted
     chain fails ``check_chain``, everything is rolled back (the backup stays)
-    and a ``ValueError`` names the place. A file already migrated by another
+    and a ``ValueError`` names the place. A place left without validated level
+    is named after its first validated writing (sorted), one untyped validated
+    level of origin ``written``; a place with no level and no writing at all
+    keeps no level (counted as ``empty``). A file already migrated by another
     process meanwhile is left alone (the redundant backup is removed).
 
 Conversion of a place (``levels_from_v1``)
@@ -36,8 +39,8 @@ Proposals from the writings (migration only)
 Decisions and journal
     ``writings`` rows are kept line for line: no writing changes place. One
     ``migrate`` journal entry (``project`` NULL) records ``{"from": 1, "to": 2,
-    "backup": <file name>, "places": n, "proposals": n}`` without rows: it
-    cannot be undone, and neither can the version 1 entries before it.
+    "backup": <file name>, "places": n, "proposals": n, "empty": n}`` without
+    rows: it cannot be undone, and neither can the version 1 entries before it.
 """
 
 from __future__ import annotations
@@ -83,8 +86,18 @@ def backup_path(path: Path, at: datetime) -> Path:
     return path.with_name(f"{path.stem}.v1-{at:%Y%m%dT%H%M%S}.sqlite")
 
 
-def _origin(origins: Mapping[str, str], kind: str) -> LevelOrigin:
-    return _ORIGINS[origins[kind]]
+def _origin(
+    origins: Mapping[str, str],
+    kind: str,
+    table: Mapping[str, LevelOrigin] = _ORIGINS,
+) -> LevelOrigin:
+    """Translated origin of the v1 field ``kind`` (``ValueError`` in French)."""
+    value = origins.get(kind)
+    if value is None:
+        raise ValueError(f"Origine manquante pour le champ {kind}.")
+    if value not in table:
+        raise ValueError(f"Origine inconnue pour le champ {kind} : {value!r}.")
+    return table[value]
 
 
 def levels_from_v1(
@@ -94,7 +107,8 @@ def levels_from_v1(
 
     ``fields`` and ``origins`` are keyed by v1 kind (``commune``,
     ``insee_code``…), origins in v1 values (``reference``…). The chain may
-    hold a proposed level built from ``former_name``.
+    hold a proposed level built from ``former_name``. A missing or unknown
+    origin raises ``ValueError`` (French message).
     """
     source = f"COG {ref.cog_vintage}"
     levels: list[Level] = []
@@ -184,7 +198,7 @@ def levels_from_v1(
         *levels,
     ]
     postal = fields.get("postal_code") or None
-    postal_origin = _POSTAL_ORIGINS[origins["postal_code"]] if postal else None
+    postal_origin = _origin(origins, "postal_code", _POSTAL_ORIGINS) if postal else None
     return renumber(chain), postal, postal_origin
 
 
@@ -268,20 +282,28 @@ def _convert(conn: sqlite3.Connection, ref: RefData, backup: str) -> None:
     )
     conn.execute("DROP TABLE journal_v1")
 
-    proposals = 0
+    proposals = empty = 0
     columns = ", ".join(f'"{c}"' for c in ("place_id", "rank", *_LEVEL_COLUMNS))
     marks = ", ".join("?" * (2 + len(_LEVEL_COLUMNS)))
     for place_id in sorted(place_ids):
-        chain, postal, postal_origin = levels_from_v1(
-            fields.get(place_id, {}), origins.get(place_id, {}), ref
-        )
-        chain = _writing_proposals(chain, writings.get(place_id, []), ref)
+        attached = writings.get(place_id, [])
         try:
-            check_chain(chain)
+            chain, postal, postal_origin = levels_from_v1(
+                fields.get(place_id, {}), origins.get(place_id, {}), ref
+            )
+            if not any(level.status == "validated" for level in chain) and attached:
+                # No level to keep: the place is named after its first writing.
+                fallback = Level(len(chain), attached[0], origin="written")
+                chain = (*chain, fallback)
+            chain = _writing_proposals(chain, attached, ref)
+            if chain:
+                check_chain(chain)
+            else:
+                empty += 1  # no level and no writing: kept as an orphan
         except ValueError as exc:
             raise ValueError(
-                f"Migration du référentiel impossible : la chaîne du lieu "
-                f"{place_id} est invalide ({exc}). Le fichier n'a pas été modifié."
+                f"Migration du référentiel impossible pour le lieu {place_id} : "
+                f"{exc} Le fichier n'a pas été modifié."
             ) from exc
         proposals += sum(level.status == "proposed" for level in chain)
         for level in chain:
@@ -303,6 +325,7 @@ def _convert(conn: sqlite3.Connection, ref: RefData, backup: str) -> None:
         "backup": backup,
         "places": len(place_ids),
         "proposals": proposals,
+        "empty": empty,
     }
     conn.execute(
         "INSERT INTO journal (at, project, action, payload) "
