@@ -145,3 +145,9 @@ def test_region_name(ref: RefData) -> None:
     assert ref.region_name("31") == "Nord-Pas-de-Calais"
     assert ref.region_name(" 84 ") == "Auvergne-Rhône-Alpes"
     assert ref.region_name("99") is None
+
+
+def test_department_name(ref: RefData) -> None:
+    assert ref.department_name("62") == "Pas-de-Calais"
+    assert ref.department_name(" 59 ") == "Nord"
+    assert ref.department_name("99") is None

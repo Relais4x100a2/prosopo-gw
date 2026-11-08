@@ -127,6 +127,7 @@ class RefData:
 
         self._department_codes = {code.upper() for code, _ in departments}
         self._department_by_name = {normalize(name): code for code, name in departments}
+        self._department_name = {code.upper(): name for code, name in departments}
 
         self._region_by_name: dict[str, tuple[str, bool]] = {}
         # Current regions first: a name shared by both lists is a current region.
@@ -193,6 +194,10 @@ class RefData:
                 code = f"0{code}"
             return code if code in self._department_codes else None
         return self._department_by_name.get(normalize(text))
+
+    def department_name(self, code: str) -> str | None:
+        """Return the name of a department from its code."""
+        return self._department_name.get(code.strip().upper())
 
     def region(self, token: str) -> tuple[str, bool] | None:
         """Return ``(canonical name, True if pre-2016 region)`` for a region name."""

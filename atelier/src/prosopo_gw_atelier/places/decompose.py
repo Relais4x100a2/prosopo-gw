@@ -58,6 +58,11 @@ HINT_COUNTRY = "pays"
 HINT_FORMER_NAME = "ancien nom"
 
 
+def is_code(segment: str) -> bool:
+    """Tell whether a cleaned segment is a 5-character (INSEE or postal) code."""
+    return _CODE_ONLY.match(segment) is not None
+
+
 def segments(writing: str) -> list[str]:
     """Cut a writing into its non-empty, stripped segments, in order."""
     parts = _SPLIT.split(writing)
@@ -189,7 +194,7 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
     codes: list[tuple[int, str]] = []
     written = segments(writing)
     for index, segment in enumerate(written):
-        if _CODE_ONLY.match(segment):
+        if is_code(segment):
             codes.append((index, segment.upper()))
         else:
             _read_text(index, segment, ref, state)
