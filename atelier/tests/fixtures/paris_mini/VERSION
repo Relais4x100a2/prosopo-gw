@@ -1,0 +1,5 @@
+extraction=2026-11-08
+source=https://services.arcgis.com/ak2bo87wLfUpMrt1/ArcGIS/rest/services/VasserotQuartiers_1790to1860/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson
+source=https://services.arcgis.com/ak2bo87wLfUpMrt1/ArcGIS/rest/services/VasserotRoads_1810to1836/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson
+source=https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/denominations-emprises-voies-actuelles/exports/json
+source=https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/denominations-des-voies-caduques/exports/json
