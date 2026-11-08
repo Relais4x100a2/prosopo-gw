@@ -176,3 +176,29 @@ def test_incomplete_read_is_french(tmp_path: Path) -> None:
             tmp_path / "a",
             opener=_raising(http.client.IncompleteRead(b"")),
         )
+
+
+def test_default_opener_only_follows_http_redirects() -> None:
+    import http.client
+    import io
+    import urllib.error
+    import urllib.request
+
+    from prosopo_gw_atelier.sources import fetch
+
+    director = fetch._director()
+    handlers = [h for h in director.handlers if isinstance(h, fetch._HttpOnlyRedirect)]
+    assert handlers
+    handler = handlers[0]
+    request = urllib.request.Request("https://example.invalid/a")
+    headers = http.client.HTTPMessage()
+    for target in ("ftp://example.invalid/x", "file:///etc/passwd"):
+        with pytest.raises(urllib.error.HTTPError):
+            handler.redirect_request(
+                request, io.BytesIO(), 302, "Found", headers, target
+            )
+    followed = handler.redirect_request(
+        request, io.BytesIO(), 302, "Found", headers, "https://example.invalid/b"
+    )
+    assert followed is not None
+    assert followed.full_url == "https://example.invalid/b"

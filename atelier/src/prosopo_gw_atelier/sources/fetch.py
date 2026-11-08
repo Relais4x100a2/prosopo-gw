@@ -11,7 +11,7 @@ import urllib.request
 from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO, BinaryIO
 
 from prosopo_gw_atelier.sources.base import SourceError
 
@@ -32,9 +32,36 @@ def _version() -> str:
 USER_AGENT = f"prosopo-gw-atelier/{_version()} (+{REPOSITORY_URL})"
 
 
+class _HttpOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow redirects to http and https only (not ftp, file…)."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: http.client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if urllib.parse.urlparse(newurl).scheme.lower() not in ("http", "https"):
+            raise urllib.error.HTTPError(
+                req.full_url,
+                code,
+                "redirection vers un schéma non pris en charge",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _director() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_HttpOnlyRedirect)
+
+
 def default_opener(request: urllib.request.Request, timeout: float) -> BinaryIO:
-    # Looked up at call time so tests can patch urllib.request.urlopen.
-    return urllib.request.urlopen(request, timeout=timeout)  # type: ignore[no-any-return]  # noqa: S310
+    # Looked up at call time so tests can patch OpenerDirector.open.
+    return _director().open(request, timeout=timeout)  # type: ignore[no-any-return]
 
 
 def _describe(exc: BaseException) -> str:

@@ -18,6 +18,7 @@ def _refuse(*args: object, **kwargs: object) -> NoReturn:
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", _refuse)
 
 
 @pytest.fixture(autouse=True)
