@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Extrait synthétique pour les tests, aucune donnée DicoTopo -->
+<DICTIONNAIRE dep="59" departement="Nord">
+  <article id="P90000011" old-id="DT59-00001" pg="1">
+    <vedette><sm>Fictibois (Le),</sm></vedette>
+    <definition><typologie>lieu dit</typologie>, <localisation>commune de <commune insee="59355" precision="certain">Lomme</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Fictibosc,</i> <date>1250</date> <reference>(Cart. test)</reference>.</forme_ancienne>
+  </article>
+</DICTIONNAIRE>

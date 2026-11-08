@@ -114,6 +114,10 @@ class RefData:
                 self._former[normalize(entry.name)].append((current, entry))
                 if entry.nature != "renommage":
                     self._former_of[entry.current].append(entry)
+        self._former_by_code: dict[str, list[Former]] = defaultdict(list)
+        for entry in former:
+            if entry.nature != "renommage" and entry.current in self._by_insee:
+                self._former_by_code[entry.insee].append(entry)
         for entries in self._former_of.values():
             entries.sort(key=lambda f: (f.name, f.insee))
 
@@ -178,6 +182,33 @@ class RefData:
         A simple renaming is not a former commune and is left out.
         """
         return list(self._former_of.get(insee.strip().upper(), []))
+
+    def current_of(
+        self, insee: str, name: str | None = None
+    ) -> tuple[Commune, Former | None] | None:
+        """Return the current commune of an INSEE code, current or former.
+
+        A current code gives ``(commune, None)``; a former code (merged,
+        associated or delegated commune) gives ``(current commune, former)``.
+        When a code is both (``Hesdin`` and ``Hesdin-la-Forêt`` share 62447),
+        ``name`` picks the former commune; without it, or with the current name,
+        the current commune is returned. Unknown code: ``None``.
+        """
+        code = insee.strip().upper()
+        formers = self._former_by_code.get(code, [])
+        key = normalize(name) if name else ""
+        commune = self._by_insee.get(code)
+        if commune is not None:
+            if key and normalize(commune.name) != key:
+                for entry in formers:
+                    if normalize(entry.name) == key:
+                        return commune, entry
+            return commune, None
+        if not formers:
+            return None
+        chosen = next((f for f in formers if key and normalize(f.name) == key), None)
+        chosen = chosen or formers[0]
+        return self._by_insee[chosen.current], chosen
 
     def communes_by_postal(self, code: str) -> list[Commune]:
         """Return the communes served by a postal code, sorted by INSEE code."""

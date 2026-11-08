@@ -151,3 +151,36 @@ def test_department_name(ref: RefData) -> None:
     assert ref.department_name("62") == "Pas-de-Calais"
     assert ref.department_name(" 59 ") == "Nord"
     assert ref.department_name("99") is None
+
+
+def test_current_of_current_code(ref: RefData) -> None:
+    result = ref.current_of("59350")
+    assert result is not None
+    commune, former = result
+    assert commune.name == "Lille"
+    assert former is None
+
+
+def test_current_of_former_code_2011(ref: RefData) -> None:
+    result = ref.current_of("59355")
+    assert result is not None
+    commune, former = result
+    assert commune.insee == "59350"
+    assert former is not None
+    assert former.name == "Lomme"
+    assert ref.current_of("00000") is None
+
+
+def test_current_of_shared_code_uses_name(ref: RefData) -> None:
+    plain = ref.current_of("62447")
+    assert plain is not None
+    assert plain[0].name == "Hesdin-la-Forêt"
+    assert plain[1] is None
+    named = ref.current_of("62447", name="Hesdin")
+    assert named is not None
+    assert named[0].insee == "62447"
+    assert named[1] is not None
+    assert named[1].name == "Hesdin"
+    same = ref.current_of("62447", name="Hesdin-la-Forêt")
+    assert same is not None
+    assert same[1] is None

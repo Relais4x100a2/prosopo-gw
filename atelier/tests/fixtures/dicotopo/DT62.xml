@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Extrait synthétique pour les tests, aucune donnée DicoTopo -->
+<DICTIONNAIRE dep="62" departement="Pas-de-Calais">
+  <article id="P90000001" old-id="DT62-00001" pg="1" type="commune">
+    <vedette><sm>Hesdin-la-Forêt,</sm></vedette>
+    <definition><typologie>commune</typologie>, <localisation>canton de <commune insee="62765" precision="certain">Saint-Omer</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Hesdinum Fictivum,</i> <date>1200</date> <reference>(Cart. test)</reference>.</forme_ancienne>
+    <insee>62447</insee>
+  </article>
+  <article id="P90000002" old-id="DT62-00002" pg="1">
+    <vedette><sm>Fictimont,</sm></vedette>
+    <definition><typologie>Hameau</typologie>, <localisation>commune de <commune insee="62447" precision="certain">Hesdin-la-Forêt</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Fictimons,</i> <date>1300</date> <reference>(Cart. test)</reference>.</forme_ancienne>
+    <forme_ancienne>— <i>Fictimontem,</i> <date>1400</date> <reference>(Cart. test)</reference>.</forme_ancienne>
+  </article>
+  <article id="P90000003" old-id="DT62-00003" pg="2">
+    <vedette><sm>Quesnoy-Fictif (Le),</sm></vedette>
+    <definition><typologie>lieu dit</typologie>, <localisation>commune d'<commune insee="62041" precision="certain">Arras</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Le Quesnoy-Fictif,</i> <date>1500</date> <reference>(Arch. test)</reference>.</forme_ancienne>
+  </article>
+  <article id="P90000004" old-id="DT62-00004" pg="2">
+    <vedette><sm>Quesnoy-Fictif (Le),</sm></vedette>
+    <definition><typologie>château</typologie>, <localisation>commune de <commune insee="62765" precision="certain">Saint-Omer</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Le Quesnoy-Fictif,</i> <date>1600</date> <reference>(Arch. test)</reference>.</forme_ancienne>
+  </article>
+  <article id="P90000005" old-id="DT62-00005" pg="3">
+    <definition><typologie>ferme</typologie>, <localisation>commune de <commune insee="62041" precision="certain">Arras</commune></localisation>.</definition>
+    <forme_ancienne>— <i>Sans Vedette,</i> <date>1700</date> <reference>(Arch. test)</reference>.</forme_ancienne>
+  </article>
+  <article id="P90000006" old-id="DT62-00006" pg="3">
+    <vedette><sm>Sans-Code,</sm></vedette>
+    <definition><typologie>moulin</typologie>.</definition>
+  </article>
+</DICTIONNAIRE>
