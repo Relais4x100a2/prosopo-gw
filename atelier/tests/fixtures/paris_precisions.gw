@@ -1,0 +1,21 @@
+encoding: utf-8
+gwplus
+
+pevt DUPONT Jean
+#birt 1850 #p Paris_7e
+end pevt
+pevt DUPONT Anne
+#birt 1870 #p Paris_7e
+end pevt
+pevt MARTIN Paul
+#birt 1820 #p [12_rue_Saint-Honoré]_-_Paris
+end pevt
+pevt MARTIN Luc
+#birt 1900 #p [rue_de_Vaugirard]_-_75007_Paris
+end pevt
+pevt MARTIN Rose
+#birt #p Paris_7e
+end pevt
+pevt LEROY Marc
+#birt 1890 #p [rue_Tournon]_-_Paris
+end pevt
