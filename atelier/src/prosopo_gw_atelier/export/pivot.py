@@ -181,7 +181,11 @@ PRECISIONS_OCCURRENCES = TableSpec(
         Column("table", "text", "Table de l'occurrence (personnes, familles…)."),
         Column("ligne_id", "text", "Identifiant de la ligne dans cette table."),
         Column("colonne", "text", "Colonne du lieu dans cette table."),
-        Column("lieu_id", "text", "Lieu de la ville seule (lieux.lieu_id), si validé."),
+        Column(
+            "lieu_id",
+            "text",
+            "Lieu validé de l'écriture (lieux.lieu_id), vide sinon.",
+        ),
         Column(
             "periode",
             "text",
@@ -196,7 +200,8 @@ PRECISIONS_OCCURRENCES = TableSpec(
         Column(
             "arrondissement_id",
             "text",
-            "Identifiant de l'arrondissement (75107, paris-1795-07, 69381…) ; "
+            "Identifiant de l'arrondissement (75107, paris-1795-07, 69381…, "
+            "ou paris-07 et 751NN pour une occurrence sans date) ; "
             "vide si aucun arrondissement.",
         ),
         Column("quartier", "text", "Quartier de Paris, si connu."),
@@ -318,11 +323,20 @@ def _row(
     return {name: values.get(name) for name in spec.column_names}
 
 
-def _precision_rows(precisions: Sequence[OccurrencePrecision]) -> list[Row]:
+def _precision_rows(
+    precisions: Sequence[OccurrencePrecision], decisions: dict[str, Decision]
+) -> list[Row]:
     rows: list[Row] = []
     for item in precisions:
         precision = item.precision
         status = _french(PRECISION_STATUS_VALUES, precision.status, "status")
+        # same rule as the core rows: only a validated writing has a place id
+        decision = decisions.get(item.writing)
+        place_id = (
+            decision.place_id
+            if decision is not None and decision.status == "validated"
+            else None
+        )
         for candidate in precision.candidates:
             # an empty arrondissement id means "no arrondissement": no name invented
             known = candidate.arrondissement_id != ""
@@ -331,7 +345,7 @@ def _precision_rows(precisions: Sequence[OccurrencePrecision]) -> list[Row]:
                     "table": item.occurrence.table,
                     "ligne_id": item.occurrence.row_id,
                     "colonne": item.occurrence.column,
-                    "lieu_id": item.place_id,
+                    "lieu_id": place_id,
                     "periode": precision.period or None,
                     "arrondissement": (
                         name_of(candidate.arrondissement_id) if known else None
@@ -355,6 +369,8 @@ def build_pivot(
     ``niveaux_lieux``, ``precisions_occurrences`` and ``ecritures_lieux``.
     The input tables are not modified."""
     decisions = registry.decisions(_writings(tables))
+    precision_writings = {p.writing for p in precisions} - decisions.keys()
+    precision_decisions = {**decisions, **registry.decisions(precision_writings)}
     result: list[Table] = []
     for table in tables:
         places = _PLACE_COLUMNS.get(table.spec.name)
@@ -417,7 +433,9 @@ def build_pivot(
             )
     result.append(Table(LIEUX, place_rows))
     result.append(Table(NIVEAUX_LIEUX, level_rows))
-    result.append(Table(PRECISIONS_OCCURRENCES, _precision_rows(precisions)))
+    result.append(
+        Table(PRECISIONS_OCCURRENCES, _precision_rows(precisions, precision_decisions))
+    )
     result.append(
         Table(
             ECRITURES_LIEUX,

@@ -526,14 +526,17 @@ def test_unknown_stored_origin_raises(
 
 
 def _precision(
-    status: str, candidates: tuple[Candidate, ...], period: str = "paris-1860"
+    status: str,
+    candidates: tuple[Candidate, ...],
+    period: str = "paris-1860",
+    writing: str = "Paris",
 ) -> OccurrencePrecision:
     occurrence = Occurrence(
         "personnes", "p1", "naissance_lieu", None, None, "1870", 1870
     )
     return OccurrencePrecision(
         occurrence,
-        "Paris",
+        writing,
         "lieu-1",
         Precision(period, status, candidates),  # type: ignore[arg-type]
     )
@@ -554,6 +557,7 @@ def test_precisions_table_present(
     applied = _precision(
         "applied", (Candidate("75107", "paris-q-27", "Invalides", "number"),)
     )
+    add(registry, ["Paris"], commune("Paris"))
     table = by_name(build_pivot(core_tables, registry, [applied]))[
         "precisions_occurrences"
     ]
@@ -575,7 +579,7 @@ def test_precisions_table_present(
             "table": "personnes",
             "ligne_id": "p1",
             "colonne": "naissance_lieu",
-            "lieu_id": "lieu-1",
+            "lieu_id": registry.decision("Paris").place_id,  # type: ignore[union-attr]
             "periode": "paris-1860",
             "arrondissement": "7e arrondissement",
             "arrondissement_id": "75107",
@@ -644,3 +648,19 @@ def test_uncertain_and_ambiguous_statuses(
         ("1er arrondissement", "ambigu"),
         ("2e arrondissement", "ambigu"),
     ]
+
+
+def test_precision_lieu_id_follows_the_validated_decision(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    paris = add(registry, ["Paris"], commune("Paris"))
+    candidates = (Candidate("75107", None, None, "number"),)
+    rows = _precisions_rows(
+        core_tables,
+        registry,
+        [
+            _precision("applied", candidates, writing="Paris"),
+            _precision("applied", candidates, writing="PARIS"),  # undecided
+        ],
+    )
+    assert [r["lieu_id"] for r in rows] == [paris, None]
