@@ -6,15 +6,18 @@ Storage
     place, one row per rank, validated and proposed levels together),
     ``place_attributes`` (the postal code, with its origin), ``writings``
     (writing → place, or ``rejected``) and ``journal`` (append-only).
-    A version 1 file (fixed fields in ``place_fields``) is refused with
-    ``SchemaVersionError`` until its migration exists.
+    A version 1 file (fixed fields in ``place_fields``) is migrated on
+    opening when reference data is given (``migrate.migrate_v1``: backup
+    first, then one transaction); without it, ``SchemaVersionError``.
 
 Chains
     ``validate`` and ``set_levels`` replace the whole chain of a place (ranks
     beyond the new chain are deleted) and its postal code; both check it with
     ``check_chain``. ``accept_proposal`` turns a proposed level into a
     validated one; ``refuse_proposal`` deletes it and renumbers the levels
-    after it. ``known_places`` reads the validated levels only.
+    after it. ``known_places`` reads the validated levels only: the name key
+    of a place is its first validated ``commune`` level, else its first
+    validated level.
 
 Journal
     Every public mutation is one transaction that changes rows and appends one
@@ -32,7 +35,8 @@ Journal
 
     An ``undo`` entry carries ``{"undone_entry": <id>, "rows": [...]}`` with
     the inverse changes. Entries are never deleted; an undone entry is only
-    flagged ``undone``.
+    flagged ``undone``. A ``migrate`` entry (schema migration) has no rows:
+    it cannot be undone, nor can the version 1 entries before it.
 
 Undo
     ``undo(id)`` puts back the "before" state of every row the entry touched.
@@ -77,6 +81,7 @@ from ..places.levels import (
     validated,
 )
 from ..refdata import RefData
+from .migrate import migrate_v1
 
 # Field origins of the version 1 registry, still imported by modules that move
 # to level chains later (project, web, exchange).
@@ -220,18 +225,26 @@ def _check_postal(postal_code: str | None, postal_origin: LevelOrigin | None) ->
 
 
 def _known_place(place_id: str, levels: Sequence[Level]) -> KnownPlace | None:
-    """Anchor of a place, read on its validated levels (``None`` without any)."""
+    """Anchor of a place, read on its validated levels.
+
+    ``None`` without any, or when the first one is a ``commune_historique``
+    without code (no key would tell it from the current commune of that name).
+    """
     chain = validated(levels)
     if not chain:
         return None
     first = chain[0]
-    key = name_key(first.name)
     department = next((lv.identifier for lv in chain if lv.type == "departement"), None)
     if first.type == "commune_historique":
-        historical = None if first.identifier is None else f"{first.identifier}|{key}"
-        return KnownPlace(place_id, None, key, department, historical)
-    insee = next((lv.identifier for lv in chain if lv.type == "commune"), None)
-    return KnownPlace(place_id, insee, key, department)
+        if first.identifier is None:
+            return None
+        key = name_key(first.name)
+        return KnownPlace(place_id, None, key, department, f"{first.identifier}|{key}")
+    # A chain may start with an unrecognised sub-level before its commune.
+    commune = next((lv for lv in chain if lv.type == "commune"), None)
+    named = commune if commune is not None else first
+    insee = commune.identifier if commune is not None else None
+    return KnownPlace(place_id, insee, name_key(named.name), department)
 
 
 class PlaceRegistry:
@@ -244,7 +257,8 @@ class PlaceRegistry:
     def __init__(self, path: Path, ref: RefData | None = None) -> None:
         """Open (or create) the registry at ``path``.
 
-        ``ref`` is the reference data a schema migration reads.
+        ``ref`` is the reference data a schema migration reads: a version 1
+        file is migrated with it (``migrate_v1``), and refused without it.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         self._ref = ref
@@ -262,11 +276,14 @@ class PlaceRegistry:
                     f"{path}: registry schema version {version} is newer than "
                     f"the supported version {SCHEMA_VERSION}; upgrade the atelier"
                 )
-            if 0 < version < SCHEMA_VERSION:
-                raise SchemaVersionError(
-                    f"{path} : référentiel en version {version}, migration requise "
-                    f"vers la version {SCHEMA_VERSION}"
-                )
+            if version == 1:
+                if ref is None:
+                    raise SchemaVersionError(
+                        f"{path} : référentiel en version 1 ; sa migration vers "
+                        f"la version {SCHEMA_VERSION} nécessite les données de "
+                        "référence"
+                    )
+                migrate_v1(self._conn, path, ref)
             if version == 0:
                 schema = files(__package__).joinpath("schema.sql").read_text("utf-8")
                 self._conn.executescript(f"BEGIN IMMEDIATE;\n{schema}\nCOMMIT;")
@@ -392,7 +409,9 @@ class PlaceRegistry:
         Returns the place id and the journal entry written.
 
         Without ``place_id`` a new place (UUID4) is created; with it, that
-        place's chain and postal code are replaced (``KeyError`` if unknown).
+        place's chain and postal code are replaced by the given ones
+        (``KeyError`` if unknown): a caller attaching a writing to an existing
+        place must pass its stored chain and postal code to keep them.
         ``levels`` must pass ``check_chain`` (``ValueError``); ``postal_code``
         and ``postal_origin`` are both given or both ``None`` (no postal code).
         A writing decided otherwise before is re-attached; its previous row is
@@ -544,6 +563,21 @@ class PlaceRegistry:
             if row is None:
                 raise ValueError(f"no journal entry {entry_id}")
             action, payload, undone = row
+            if action == "migrate":
+                backup = json.loads(payload).get("backup")
+                raise ValueError(
+                    f"la migration ne s'annule pas ; la sauvegarde est {backup}"
+                )
+            migrated = self._conn.execute(
+                "SELECT MIN(entry_id) FROM journal WHERE action = 'migrate' "
+                "AND entry_id > ?",
+                (entry_id,),
+            ).fetchone()[0]
+            if migrated is not None:
+                raise ValueError(
+                    f"l'entrée {entry_id} précède la migration du référentiel "
+                    f"(entrée {migrated}) et ne s'annule plus"
+                )
             if action == "undo":
                 raise ValueError(f"entry {entry_id} is an undo and cannot be undone")
             if undone:
@@ -778,7 +812,7 @@ class PlaceRegistry:
             "ORDER BY entry_id DESC",
             (entry_id,),
         ):
-            rows = json.loads(payload)["rows"]
+            rows = json.loads(payload).get("rows", [])
             if any(_row_id(r["table"], r["key"]) == target for r in rows):
                 return int(later)
         return None

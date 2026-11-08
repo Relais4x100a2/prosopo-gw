@@ -265,6 +265,36 @@ def test_known_places_read_validated_levels_only(registry: PlaceRegistry) -> Non
     ]
 
 
+def test_known_places_key_on_the_commune_after_a_sub_level(
+    registry: PlaceRegistry,
+) -> None:
+    fives = renumber((Level(0, "Fives", origin="written"), *LILLE))
+    v = registry.validate(["Fives, Lille"], fives, None, None, "p1")
+    assert registry.known_places() == [
+        KnownPlace(v.place_id, "59350", name_key("Lille"), "59")
+    ]
+
+
+def test_known_places_key_on_the_first_level_without_commune(
+    registry: PlaceRegistry,
+) -> None:
+    v = registry.validate(["Winnipeg"], chain("Winnipeg", "Canada"), None, None, "p")
+    assert registry.known_places() == [
+        KnownPlace(v.place_id, None, name_key("Winnipeg"), None)
+    ]
+
+
+def test_known_places_skip_historical_commune_without_code(
+    registry: PlaceRegistry,
+) -> None:
+    historical = (
+        Level(0, "Marconne", type="commune_historique", origin="manual"),
+        Level(1, "Hesdin-la-Forêt", type="commune", identifier="62447"),
+    )
+    registry.validate(["Marconne"], historical, None, None, "p1")
+    assert registry.known_places() == []
+
+
 def test_new_registry_is_version_2(tmp_path: Path) -> None:
     PlaceRegistry(tmp_path / "r.sqlite").close()
     con = sqlite3.connect(tmp_path / "r.sqlite")
@@ -288,13 +318,13 @@ def test_journal_accepts_the_migrate_action(tmp_path: Path) -> None:
     con.close()
 
 
-def test_version_1_file_requires_migration(tmp_path: Path) -> None:
+def test_version_1_file_requires_reference_data(tmp_path: Path) -> None:
     path = tmp_path / "ref.sqlite"
     con = sqlite3.connect(path)
     con.execute("PRAGMA user_version = 1")
     con.close()
-    with pytest.raises(SchemaVersionError, match="migration requise"):
-        PlaceRegistry(path, ref=load_refdata(MINI))
+    with pytest.raises(SchemaVersionError, match="données de référence"):
+        PlaceRegistry(path)
 
 
 # --- validate, undo, reject, detach ---------------------------------------------
