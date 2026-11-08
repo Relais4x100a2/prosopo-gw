@@ -625,11 +625,12 @@ def _import_once(
         # Runs inside the import transaction: nothing can change after it.
         if registry.decisions(d.writing for d in applied):
             raise _PlanOutdated
-        if any(
-            (p.writing, p.complement, p.period) in registry.precision_decisions()
-            for p in new_precisions
-        ):
-            raise _PlanOutdated
+        if new_precisions:
+            current = registry.precision_decisions()
+            if any(
+                (p.writing, p.complement, p.period) in current for p in new_precisions
+            ):
+                raise _PlanOutdated
         if any(_known(registry, place_id) for place_id in created):
             raise _PlanOutdated
         if not all(_known(registry, place_id) for place_id in relied_on):

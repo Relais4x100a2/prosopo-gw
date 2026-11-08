@@ -978,6 +978,36 @@ def test_import_keeps_local_precision(
     assert ("Lyon", "", "") in target.precision_decisions()
 
 
+def test_import_many_precisions_with_a_race(
+    source: PlaceRegistry,
+    target: PlaceRegistry,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for n in range(1, 21):
+        source.decide_precision(f"Paris {n}e", None, "", f"paris-{n:02d}", None, "p")
+    source.decide_precision("Lyon", None, "", "69381", None, "p")
+    target.decide_precision("Paris 3e", None, "", "paris-03", None, "p")
+    real_apply = target.apply_import
+    calls = 0
+
+    def other_process_decides_first(*args: Any, **kwargs: Any) -> int | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with PlaceRegistry(tmp_path / "target.sqlite") as other:
+                other.decide_precision("Lyon", None, "", "69382", None, "other")
+        return real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(target, "apply_import", other_process_decides_first)
+    result = import_registry(target, export_registry(source))
+    decisions = target.precision_decisions()
+    assert len(decisions) == 21
+    assert decisions[("Lyon", "", "")].arrondissement_id == "69382"
+    assert decisions[("Paris 7e", "", "")].arrondissement_id == "paris-07"
+    assert ("Lyon", "", "") in result.precisions_kept_local
+
+
 def test_import_without_precisions_key(
     source: PlaceRegistry, target: PlaceRegistry
 ) -> None:
