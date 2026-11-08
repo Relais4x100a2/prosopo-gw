@@ -24,6 +24,14 @@ expressed by ``insee is None`` and several candidates; ``ambiguous`` stays
 ``False`` for them. Regions do not narrow the candidates (the reference data
 only gives their name).
 
+Every non-empty segment is kept, with its element or ``None``, so that
+unrecognised levels (a foreign county, a state…) survive. The first segment
+read as a commune name also yields the former-commune readings (renames left
+out): ``historical`` when the resolved commune was matched only through a former
+commune of that name, ``alternative`` when the current commune of that name is
+resolved, or still among the candidates, while a former commune of the same
+name belongs to another candidate (the first by former code).
+
 The function is pure, deterministic and never raises.
 """
 
@@ -32,8 +40,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..refdata import RefData
-from .model import Decomposition, Element
+from ..refdata import Former, NameMatch, RefData
+from .model import Decomposition, Element, Segment
 
 _CODE = r"(?:\d{5}|2[ABab]\d{3})"
 _SPLIT = re.compile(rf"[,;()]|\s-\s|(?<!\w)({_CODE})(?!\w)")
@@ -65,9 +73,12 @@ class _State:
     postal_codes: list[set[str]] = field(default_factory=list)
     department: str | None = None
     ambiguous: bool = False
+    name_matches: list[NameMatch] = field(default_factory=list)
 
 
-def _name_element(segment: str, ref: RefData) -> tuple[Element, set[str]] | None:
+def _name_element(
+    segment: str, ref: RefData
+) -> tuple[Element, set[str], list[NameMatch]] | None:
     matches = ref.communes_by_name(segment)
     if not matches:
         return None
@@ -75,10 +86,10 @@ def _name_element(segment: str, ref: RefData) -> tuple[Element, set[str]] | None
     current = sorted({m.commune.name for m in matches if m.former_name is None})
     if current:
         value = current[0] if len(current) == 1 else segment
-        return Element("commune", value, HINT_NAME), codes
+        return Element("commune", value, HINT_NAME), codes, matches
     former = sorted({m.former_name or segment for m in matches})
     value = former[0] if len(former) == 1 else segment
-    return Element("former_name", value, HINT_FORMER_NAME), codes
+    return Element("former_name", value, HINT_FORMER_NAME), codes, matches
 
 
 def _admin_element(segment: str, ref: RefData) -> Element | None:
@@ -107,6 +118,7 @@ def _read_text(index: int, segment: str, ref: RefData, state: _State) -> None:
     if named is not None and state.names is None:
         state.elements.append((index, named[0]))
         _add_names(state, named[1])
+        state.name_matches = named[2]
         return
     admin = _admin_element(segment, ref)
     if admin is not None:
@@ -175,7 +187,8 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
     """Split ``writing`` into typed elements and resolve its commune if possible."""
     state = _State()
     codes: list[tuple[int, str]] = []
-    for index, segment in enumerate(segments(writing)):
+    written = segments(writing)
+    for index, segment in enumerate(written):
         if _CODE_ONLY.match(segment):
             codes.append((index, segment.upper()))
         else:
@@ -207,13 +220,45 @@ def decompose(writing: str, ref: RefData) -> Decomposition:
     ordered = tuple(sorted(candidates)) if candidates else ()
     insee_code = ordered[0] if supported and len(ordered) == 1 else None
     elements = tuple(element for _, element in sorted(state.elements, key=_index))
+    by_index = dict(state.elements)
+    historical, alternative = _former_readings(
+        state.name_matches, insee_code, set(ordered)
+    )
     return Decomposition(
         writing=writing,
         elements=elements,
         insee=insee_code,
         candidates=ordered,
         ambiguous=state.ambiguous,
+        segments=tuple(
+            Segment(text, by_index.get(index)) for index, text in enumerate(written)
+        ),
+        historical=historical,
+        alternative=alternative,
     )
+
+
+def _former_readings(
+    matches: list[NameMatch], insee: str | None, candidates: set[str]
+) -> tuple[Former | None, Former | None]:
+    """Return the ``(historical, alternative)`` readings of the name segment."""
+    current = {m.commune.insee for m in matches if m.former is None}
+    formers = sorted(
+        (m.former for m in matches if m.former and m.former.nature != "renommage"),
+        key=lambda f: f.insee,
+    )
+    if insee is not None and insee not in current:
+        historical = next((f for f in formers if f.current == insee), None)
+        return historical, None
+    retained = {insee} if insee is not None else current & candidates
+    if not retained:
+        return None, None
+    others = [
+        f
+        for f in formers
+        if f.current not in retained and (insee is not None or f.current in candidates)
+    ]
+    return None, others[0] if others else None
 
 
 def _index(item: tuple[int, Element]) -> int:
