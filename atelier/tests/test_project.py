@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from prosopo_gw_atelier.places.model import ElementKind
+from prosopo_gw_atelier.places.levels import Level, LevelOrigin, renumber
 from prosopo_gw_atelier.project import ClusterView, Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
-from prosopo_gw_atelier.store.registry import Origin, PlaceRegistry
+from prosopo_gw_atelier.store.registry import PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 MINI = FIXTURES / "refdata_mini"
@@ -29,8 +29,8 @@ def ref() -> RefData:
 
 
 @pytest.fixture
-def registry(tmp_path: Path) -> Iterator[PlaceRegistry]:
-    with PlaceRegistry(tmp_path / "data" / "referentiel.sqlite") as reg:
+def registry(tmp_path: Path, ref: RefData) -> Iterator[PlaceRegistry]:
+    with PlaceRegistry(tmp_path / "data" / "referentiel.sqlite", ref) as reg:
         yield reg
 
 
@@ -65,17 +65,67 @@ def replace(path: Path, old: str, new: str) -> None:
 ADD_ROUBAIX_59 = "\nfam GARNIER Luc 1888 #bp Roubaix_(59) + ROUSSEL Claire 1890\n"
 
 
+def chain(*levels: tuple[str, str | None, str | None]) -> tuple[Level, ...]:
+    """A manual chain from ``(name, type, identifier)`` triples, rank 0 first."""
+    return renumber(
+        [
+            Level(0, name, type=type_, identifier=identifier, origin="manual")
+            for name, type_, identifier in levels
+        ]
+    )
+
+
+def commune(
+    name: str, insee: str | None = None, department: str | None = None
+) -> tuple[Level, ...]:
+    """A manual chain: a commune, and its department when given."""
+    levels: list[tuple[str, str | None, str | None]] = [(name, "commune", insee)]
+    if department is not None:
+        levels.append((department, "departement", department))
+    return chain(*levels)
+
+
+def validate(
+    registry: PlaceRegistry,
+    writings: list[str],
+    levels: tuple[Level, ...],
+    project: str,
+    place_id: str | None = None,
+    postal_code: str | None = None,
+) -> str:
+    """Validate ``writings`` to a place with ``levels``; returns the place id."""
+    origin: LevelOrigin | None = "manual" if postal_code is not None else None
+    return registry.validate(
+        writings, levels, postal_code, origin, project, place_id=place_id
+    ).place_id
+
+
+def validate_view(registry: PlaceRegistry, view: ClusterView, project: str) -> str:
+    """What the validation screen does with a cluster's chain, as shown."""
+    origin: LevelOrigin | None = None
+    if view.cluster.postal_code is not None:
+        origin = (
+            registry.place(view.place_id).postal_origin
+            if view.from_registry and view.place_id is not None
+            else "written"
+        )
+    return registry.validate(
+        view.cluster.writings,
+        view.cluster.levels,
+        view.cluster.postal_code,
+        origin,
+        project,
+        place_id=view.place_id if view.from_registry else None,
+    ).place_id
+
+
 def validate_all(project: Project, registry: PlaceRegistry) -> None:
-    """What the validation screen does, cluster by cluster, with the proposals."""
+    """What the validation screen does, cluster by cluster, with the chains."""
     for view in project.clusters():
-        cluster = view.cluster
-        if cluster.proposal:
-            origins: dict[ElementKind, Origin] = {k: "rule" for k in cluster.proposal}
-            registry.validate(
-                cluster.writings, cluster.proposal, origins, project.project_id
-            )
+        if view.needs_manual_levels:
+            registry.reject(view.cluster.writings, project.project_id)
         else:
-            registry.reject(cluster.writings, project.project_id)
+            validate_view(registry, view, project.project_id)
 
 
 def states(project: Project) -> dict[str, str]:
@@ -202,9 +252,7 @@ def test_reload_reapplies_decisions(
 def test_writing_of_the_registry_absent_from_the_gw_is_ignored(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:
-    registry.validate(
-        ["Nowhere-sur-Mer"], {"commune": "Nowhere"}, {"commune": "manual"}, "other"
-    )
+    validate(registry, ["Nowhere-sur-Mer"], commune("Nowhere"), "other")
     project = open_project(gw, registry, ref, projects_dir)
     every = [w for v in project.clusters() for w in v.cluster.writings]
     assert "Nowhere-sur-Mer" not in every
@@ -219,27 +267,18 @@ def test_cluster_states(
     assert project.cluster("rejected:name:en mer").state == "rejected"
 
     # Part of a cluster decided: the undecided rest joins the place, still to do.
-    roubaix = registry.validate(
-        ["Roubaix"], {"commune": "Roubaix"}, {"commune": "rule"}, pid
-    ).place_id
+    roubaix = validate(registry, ["Roubaix"], commune("Roubaix"), pid)
     view = project.cluster(f"place:{roubaix}")
     assert view.cluster.writings == ROUBAIX_WRITINGS
     assert view.state == "todo"
-    assert view.cluster.proposal == {"commune": "Roubaix"}
+    assert view.cluster.levels == commune("Roubaix")
+    assert view.from_registry is True
     assert view.cluster.confidence == "high"
 
     # One place, decided by two projects: already decided.
     lille = project.cluster("insee:59350").cluster.writings
-    place = registry.validate(
-        ["Lille"], {"commune": "Lille"}, {"commune": "rule"}, "other"
-    ).place_id
-    registry.validate(
-        [w for w in lille if w != "Lille"],
-        {"commune": "Lille"},
-        {"commune": "rule"},
-        pid,
-        place_id=place,
-    )
+    place = validate(registry, ["Lille"], commune("Lille"), "other")
+    validate(registry, [w for w in lille if w != "Lille"], commune("Lille"), pid, place)
     assert project.cluster(f"place:{place}").state == "already_decided"
 
     # Rejected by another project.
@@ -254,18 +293,19 @@ def test_clusters_are_sorted_by_state_confidence_and_occurrences(
     ids = [v.cluster.id for v in project.clusters()]
     assert ids == [
         "insee:59512",  # high, 5 occurrences
-        "insee:59350",  # high, 4
+        "insee:59350",  # high, 3 (Lomme is a former commune, apart)
         "insee:62765",  # high, 1
         "insee:69266",  # high, 1
         "insee:69123",  # medium, 2
+        "historique:59355|lomme",  # medium, 1
         "insee:62041",  # medium, 1
         "name:en mer",  # low, 1
         "name:merville",  # low, 1
     ]
     pid = project.project_id
     registry.reject(["En mer"], pid)
-    registry.validate(["Arras"], {"commune": "Arras"}, {"commune": "rule"}, pid)
-    registry.validate(["Lyon"], {"commune": "Lyon"}, {"commune": "rule"}, "other")
+    validate(registry, ["Arras"], commune("Arras"), pid)
+    validate(registry, ["Lyon"], commune("Lyon"), "other")
     arras = registry.decision("Arras")
     lyon = registry.decision("Lyon")
     assert arras is not None and lyon is not None
@@ -296,7 +336,10 @@ def test_split_follows_its_parent(
     assert new.cluster.writings == ["59512", "roubaix, Nord-Pas-de-Calais"]
     assert new.state == "todo"
     assert new.occurrences == 2
-    assert new.cluster.proposal["insee_code"] == "59512"
+    assert [lv.identifier for lv in new.cluster.levels if lv.type == "commune"] == [
+        "59512"
+    ]
+    assert new.from_registry is False
 
     ids = [v.cluster.id for v in project.clusters()]
     assert ids[ids.index("insee:59512") + 1] == new.cluster.id
@@ -402,11 +445,8 @@ def test_known_place_of_another_department_does_not_take_a_writing(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:
     project = open_project(gw, registry, ref, projects_dir)
-    registry.validate(
-        ["Merville"],
-        {"commune": "Merville", "department": "31"},
-        {"commune": "manual", "department": "manual"},
-        project.project_id,
+    validate(
+        registry, ["Merville"], commune("Merville", department="31"), project.project_id
     )
     append(gw, "\nfam LEROY Marc 1880 #bp Merville,_Nord + FAURE Alice 1882\n")
     project.reload()
@@ -420,9 +460,9 @@ def test_merged_anchored_group_takes_the_lowest_confidence(
     gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
 ) -> None:
     project = open_project(gw, registry, ref, projects_dir)
-    place = registry.validate(
-        ["En mer"], {"commune": "En mer"}, {"commune": "manual"}, project.project_id
-    ).place_id
+    place = validate(
+        registry, ["En mer"], chain(("En mer", None, None)), project.project_id
+    )
     append(gw, "\nfam LEROY Marc 1880 #bp EN_MER + FAURE Alice 1882\n")
     project.reload()
     view = view_of(project, "EN MER")
@@ -440,15 +480,16 @@ def test_split_state_follows_the_registry(
     # A split is never anchored: the user separated it on purpose.
     assert new.cluster.anchor_place_id is None
     assert new.place_id is None
-    place = registry.validate(
-        ["59512"], {"insee_code": "59512"}, {"insee_code": "rule"}, project.project_id
-    ).place_id
+    place = validate(
+        registry, ["59512"], commune("Roubaix", "59512"), project.project_id
+    )
     view = project.cluster(new.cluster.id)
     assert view.state == "validated"
     # Once decided, the split shows its place, as the registry has it.
     assert view.place_id == place
     assert view.cluster.anchor_place_id is None
-    assert view.cluster.proposal == {"insee_code": "59512"}
+    assert view.cluster.levels == commune("Roubaix", "59512")
+    assert view.from_registry is True
     assert view_of(project, "Roubaix").state == "todo"
 
 
@@ -519,12 +560,9 @@ def test_anchor_follows_the_registry_without_reload(
     project = open_project(gw, registry, ref, projects_dir)
     assert project.cluster("insee:59512").cluster.anchor_place_id is None
     # The place has no writing in this .gw: the anchored cluster keeps its id.
-    place_id = registry.validate(
-        ["Roubaix-Ville"],
-        {"commune": "Roubaix", "insee_code": "59512"},
-        {"commune": "rule", "insee_code": "rule"},
-        "other",
-    ).place_id
+    place_id = validate(
+        registry, ["Roubaix-Ville"], commune("Roubaix", "59512"), "other"
+    )
     view = project.cluster("insee:59512")
     assert view.cluster.anchor_place_id == place_id
     assert view.state == "todo"
@@ -543,15 +581,8 @@ def test_writings_validated_to_two_places_stay_apart(
     first = open_project(gw, registry, ref, projects_dir)
     one = ["Roubaix", "roubaix, Nord-Pas-de-Calais"]
     two = ["59100 Roubaix", "59512", "ROUBAIX, Nord, France"]
-    p1 = registry.validate(
-        one, {"commune": "Roubaix"}, {"commune": "manual"}, first.project_id
-    ).place_id
-    p2 = registry.validate(
-        two,
-        {"commune": "Roubaix", "insee_code": "59512"},
-        {"commune": "rule", "insee_code": "rule"},
-        first.project_id,
-    ).place_id
+    p1 = validate(registry, one, commune("Roubaix"), first.project_id)
+    p2 = validate(registry, two, commune("Roubaix", "59512"), first.project_id)
     assert first.cluster(f"place:{p1}").state == "validated"
 
     other = open_project(
@@ -565,7 +596,7 @@ def test_writings_validated_to_two_places_stay_apart(
     assert b.cluster.writings == two
     assert (a.state, b.state) == ("already_decided", "already_decided")
     assert a.cluster.anchor_place_id == p1
-    assert b.cluster.proposal == {"commune": "Roubaix", "insee_code": "59512"}
+    assert b.cluster.levels == commune("Roubaix", "59512")
     with pytest.raises(KeyError):
         other.cluster("insee:59512")
 
@@ -596,7 +627,7 @@ def test_rejected_cluster_stays_one_cluster(
     rejected = [v for v in views if v.state == "rejected"]
     assert [v.cluster.id for v in rejected] == ["rejected:insee:59350"]
     assert rejected[0].cluster.writings == lille
-    assert rejected[0].occurrences == 4
+    assert rejected[0].occurrences == 3
 
 
 def test_split_follows_its_parent_when_the_grouping_changes(
@@ -605,9 +636,7 @@ def test_split_follows_its_parent_when_the_grouping_changes(
     project = open_project(gw, registry, ref, projects_dir)
     new = project.split("insee:59512", ["59512"])
     rest = [w for w in ROUBAIX_WRITINGS if w != "59512"]
-    place = registry.validate(
-        rest, {"commune": "Roubaix"}, {"commune": "rule"}, project.project_id
-    ).place_id
+    place = validate(registry, rest, commune("Roubaix"), project.project_id)
     project.reload()
     ids = [v.cluster.id for v in project.clusters()]
     assert "insee:59512" not in ids
@@ -641,10 +670,10 @@ def test_views_are_frozen_and_do_not_share_the_cache(
     with pytest.raises(dataclasses.FrozenInstanceError):
         view.state = "validated"  # type: ignore[misc]
     view.cluster.writings.append("Nowhere")
-    view.cluster.proposal["commune"] = "Nowhere"
+    view.cluster.levels = ()
     again = project.cluster("insee:59512").cluster
     assert again.writings == ROUBAIX_WRITINGS
-    assert again.proposal["commune"] == "Roubaix"
+    assert again.levels[0].name == "Roubaix"
 
 
 def test_state_file_of_version_1_is_migrated(
@@ -662,3 +691,125 @@ def test_state_file_of_version_1_is_migrated(
     with sqlite3.connect(db) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
     conn.close()
+
+
+# --- Level chains ------------------------------------------------------------------
+
+HESDIN_GW = """encoding: utf-8
+gwplus
+
+fam DURAND Paul 1850 #bp Marconne,_Pas-de-Calais + LEFEBVRE Jeanne 1852
+beg
+- h Jacques 1876 #bp Hesdin-la-Forêt
+end
+
+pevt LEFEBVRE Jeanne
+#birt 1852 #p Hesdin,_Pas-de-Calais
+end pevt
+"""
+
+
+def test_marconne_and_hesdin_are_separate_clusters(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    gw = tmp_path / "bases" / "hesdin.gw"
+    gw.parent.mkdir(parents=True)
+    gw.write_text(HESDIN_GW, encoding="utf-8")
+    project = open_project(gw, registry, ref, projects_dir)
+    heads = {
+        v.cluster.id: [(lv.name, lv.type) for lv in v.cluster.levels[:2]]
+        for v in project.clusters()
+    }
+    assert heads == {
+        "historique:62549|marconne": [
+            ("Marconne", "commune_historique"),
+            ("Hesdin-la-Forêt", "commune"),
+        ],
+        "historique:62447|hesdin": [
+            ("Hesdin", "commune_historique"),
+            ("Hesdin-la-Forêt", "commune"),
+        ],
+        "insee:62447": [
+            ("Hesdin-la-Forêt", "commune"),
+            ("Pas-de-Calais", "departement"),
+        ],
+    }
+    marconne = project.cluster("historique:62549|marconne")
+    assert marconne.from_registry is False
+    place = validate_view(registry, marconne, project.project_id)
+    view = project.cluster(f"place:{place}")
+    assert view.from_registry is True
+    # The place is that former commune: nothing to flag.
+    assert view.historical_writings == {}
+    assert view_of(project, "Hesdin-la-Forêt").place_id is None
+
+
+def test_place_cluster_shows_registry_levels(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    rules = project.cluster("insee:59350").cluster.levels
+    assert rules[0].name == "Lille"
+    proposed = Level(0, "Fives", type="quartier", origin="rule", status="proposed")
+    stored = renumber([proposed, *rules])
+    place = validate(
+        registry, ["Lille"], stored, project.project_id, postal_code="59000"
+    )
+    view = project.cluster(f"place:{place}")
+    assert view.from_registry is True
+    assert view.cluster.levels == registry.place(place).levels == stored
+    assert view.cluster.levels[0].status == "proposed"
+    assert view.cluster.postal_code == "59000"
+    assert view.state == "todo"  # the other Lille writings joined it
+
+
+def test_historical_writings_flag_merged_place(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = open_project(gw, registry, ref, projects_dir)
+    lille = project.cluster("insee:59350").cluster.levels
+    # A version 1 place: Lomme validated with Lille, as the migration left it.
+    place = validate(registry, ["Lille", "Lomme"], lille, project.project_id)
+    view = project.cluster(f"place:{place}")
+    assert "Lomme" in view.cluster.writings
+    assert view.historical_writings == {"Lomme": "Lomme"}
+
+
+def test_validating_onto_an_anchored_place_keeps_its_manual_level(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    stored = chain(("Le Hameau", "lieu_dit", None), ("Roubaix", "commune", "59512"))
+    place = validate(registry, ["Roubaix-Ville"], stored, "other", postal_code="59101")
+    project = open_project(gw, registry, ref, projects_dir)
+    view = project.cluster("insee:59512")
+    assert view.cluster.anchor_place_id == place
+    assert view.place_id == place
+    # The anchored cluster shows the place as stored, not the rules' chain.
+    assert view.from_registry is True
+    assert view.cluster.levels == stored
+    assert view.cluster.postal_code == "59101"
+    assert validate_view(registry, view, project.project_id) == place
+    kept = registry.place(place)
+    assert kept.levels == stored
+    assert kept.levels[0].origin == "manual"
+    assert (kept.postal_code, kept.postal_origin) == ("59101", "manual")
+    assert project.cluster(f"place:{place}").state == "validated"
+
+
+def test_cluster_of_unknown_codes_is_entered_by_hand(
+    gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    append(gw, "\npevt DUPONT Jean\n#buri 1910 #p 99999\nend pevt\n")
+    project = open_project(gw, registry, ref, projects_dir)
+    view = view_of(project, "99999")
+    assert view.cluster.id == "name:99999"
+    assert view.cluster.levels == ()
+    assert view.needs_manual_levels is True
+    assert view.state == "todo"
+    assert view.from_registry is False
+    others = [v for v in project.clusters() if v.cluster.id != "name:99999"]
+    assert not any(v.needs_manual_levels for v in others)
+    # A chain entered by hand makes it a place like any other.
+    place = validate(registry, ["99999"], commune("Inconnu"), project.project_id)
+    assert view_of(project, "99999").needs_manual_levels is False
+    assert view_of(project, "99999").place_id == place
