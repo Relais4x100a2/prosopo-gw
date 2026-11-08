@@ -14,6 +14,7 @@ from prosopo_gw_atelier.store import paths
 from prosopo_gw_atelier.store.registry import (
     Decision,
     PlaceRegistry,
+    PrecisionDecision,
     RowChange,
     SchemaVersionError,
 )
@@ -318,12 +319,12 @@ def test_known_places_skip_historical_commune_without_code(
     assert registry.known_places() == []
 
 
-def test_new_registry_is_version_2(tmp_path: Path) -> None:
+def test_new_registry_is_version_3(tmp_path: Path) -> None:
     PlaceRegistry(tmp_path / "r.sqlite").close()
     con = sqlite3.connect(tmp_path / "r.sqlite")
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master")}
-    assert {"place_levels", "place_attributes"} <= tables
+    assert {"place_levels", "place_attributes", "precisions"} <= tables
     assert "place_fields" not in tables
     con.close()
 
@@ -688,7 +689,7 @@ def test_creates_missing_file_and_parent_dirs(tmp_path: Path) -> None:
         assert reg.journal() == []
     assert path.exists()
     con = sqlite3.connect(path)
-    assert con.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == 3
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
 
@@ -706,9 +707,9 @@ def test_reopen_keeps_data(tmp_path: Path) -> None:
 def test_newer_schema_version_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "ref.sqlite"
     con = sqlite3.connect(path)
-    con.execute("PRAGMA user_version = 3")
+    con.execute("PRAGMA user_version = 4")
     con.close()
-    with pytest.raises(SchemaVersionError, match="version 3"):
+    with pytest.raises(SchemaVersionError, match="version 4"):
         PlaceRegistry(path)
 
 
@@ -752,3 +753,98 @@ def test_known_place_without_insee_anchors_by_name(registry: PlaceRegistry) -> N
         {"SAINT INCONNU": decompose("SAINT INCONNU", ref)}, ref, known
     )
     assert cluster.anchor_place_id == place_id
+
+
+# --- arrondissement precision decisions ------------------------------------------
+
+
+def test_decide_precision_round_trip(registry: PlaceRegistry) -> None:
+    assert registry.precision_decisions() == {}
+    entry = registry.decide_precision(
+        "Paris 7e", "12, rue de Grenelle", "paris-1860", "75107", "paris-q-2", "p1"
+    )
+    assert entry is not None
+    key = ("Paris 7e", "12, rue de Grenelle", "paris-1860")
+    decision = registry.precision_decisions()[key]
+    assert decision == PrecisionDecision(
+        "Paris 7e",
+        "12, rue de Grenelle",
+        "paris-1860",
+        "75107",
+        "paris-q-2",
+        "p1",
+        decision.decided_at,
+    )
+    assert decision.decided_at
+    [last] = registry.journal()
+    assert last.action == "correct"
+    assert last.payload["details"]["kind"] == "precision"
+    # same decision again: nothing changes, nothing journaled
+    assert (
+        registry.decide_precision(
+            "Paris 7e", "12, rue de Grenelle", "paris-1860", "75107", "paris-q-2", "p1"
+        )
+        is None
+    )
+    assert len(registry.journal()) == 1
+    # another answer replaces it
+    registry.decide_precision(
+        "Paris 7e", "12, rue de Grenelle", "paris-1860", "75106", None, "p1"
+    )
+    assert registry.precision_decisions()[key].arrondissement_id == "75106"
+    assert registry.precision_decisions()[key].quartier_id is None
+
+
+def test_precision_key_uses_empty_complement_and_empty_period(
+    registry: PlaceRegistry,
+) -> None:
+    registry.decide_precision("Paris", None, "", "paris-07", None, "p1")
+    assert list(registry.precision_decisions()) == [("Paris", "", "")]
+    # None and "" are the same complement
+    assert registry.decide_precision("Paris", "", "", "paris-07", None, "p1") is None
+    assert registry.clear_precision("Paris", None, "", "p1") is not None
+    assert registry.precision_decisions() == {}
+    assert registry.clear_precision("Paris", None, "", "p1") is None
+
+
+def test_no_arrondissement_decision_has_both_ids_empty(
+    registry: PlaceRegistry,
+) -> None:
+    registry.decide_precision("Paris", None, "paris-1860", None, None, "p1")
+    decision = registry.precision_decisions()[("Paris", "", "paris-1860")]
+    assert (decision.arrondissement_id, decision.quartier_id) == (None, None)
+
+
+def test_candidate_id_empty_is_normalised_to_no_arrondissement(
+    registry: PlaceRegistry,
+) -> None:
+    # A Task 6 candidate "" means "this number did not exist at that date".
+    registry.decide_precision("Paris", None, "paris-1795", "", "", "p1")
+    decision = registry.precision_decisions()[("Paris", "", "paris-1795")]
+    assert (decision.arrondissement_id, decision.quartier_id) == (None, None)
+    con = sqlite3.connect(registry._conn.execute("PRAGMA database_list").fetchone()[2])
+    assert con.execute("SELECT arrondissement_id FROM precisions").fetchone() == (None,)
+    con.close()
+
+
+def test_undo_precision_decision(registry: PlaceRegistry) -> None:
+    first = registry.decide_precision("Paris", None, "paris-1860", "75107", None, "p")
+    assert first is not None
+    second = registry.decide_precision("Paris", None, "paris-1860", "75108", None, "p")
+    assert second is not None
+    with pytest.raises(ValueError, match="annuler"):
+        registry.undo(first)  # a later decision changed the row
+    registry.undo(second)
+    key = ("Paris", "", "paris-1860")
+    assert registry.precision_decisions()[key].arrondissement_id == "75107"
+    registry.undo(first)
+    assert registry.precision_decisions() == {}
+
+
+def test_undo_clear_precision(registry: PlaceRegistry) -> None:
+    registry.decide_precision("Paris", None, "paris-1860", "75107", None, "p")
+    cleared = registry.clear_precision("Paris", None, "paris-1860", "p")
+    assert cleared is not None
+    assert registry.precision_decisions() == {}
+    registry.undo(cleared)
+    assert list(registry.precision_decisions()) == [("Paris", "", "paris-1860")]

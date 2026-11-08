@@ -21,6 +21,11 @@ only by ``exported_at`` and diff cleanly under version control)::
          "place_id": "<uuid>", "project": "p1"},
         {"writing": "en mer", "status": "rejected",
          "place_id": null, "project": "p1"}
+      ],
+      "precisions": [
+        {"ecriture": "Paris", "complement": "rue de Rivoli",
+         "periode": "paris-1860", "arrondissement_id": "75101",
+         "quartier_id": null}
       ]
     }
 
@@ -30,6 +35,16 @@ is ``null`` without postal code. Creation and decision timestamps are not
 exported (imported rows get the import time). Level origins are the internal
 ones (``written``, ``rule``, ``manual``, ``insee``…) and statuses
 ``validated`` / ``proposed``.
+
+Precisions
+    The optional ``precisions`` list holds the arrondissement decisions
+    (``PlaceRegistry.decide_precision``), sorted by ``ecriture``, ``complement``,
+    ``periode``; ``complement`` is ``""`` without complement, ``periode`` ``""``
+    for an undated occurrence, and both ids ``null`` means "no arrondissement".
+    A document without the key has none. Project and date are not exported. On
+    import a decision absent locally is applied; one already present for the
+    same key is kept as is, silently (like the levels of a known place); an empty
+    id is read as ``null``; a duplicate key is a format error.
 
 Versions
     Version 2 is read as is. Version 1 (fixed ``fields`` per place) is still
@@ -85,6 +100,7 @@ from .registry import (
     Place,
     PlaceRegistry,
     PostalOrigin,
+    PrecisionDecision,
     RowChange,
     Status,
 )
@@ -172,6 +188,16 @@ def export_registry(registry: PlaceRegistry) -> dict[str, Any]:
                 "project": d.project,
             }
             for d in registry.all_decisions()
+        ],
+        "precisions": [
+            {
+                "ecriture": d.writing,
+                "complement": d.complement,
+                "periode": d.period,
+                "arrondissement_id": d.arrondissement_id,
+                "quartier_id": d.quartier_id,
+            }
+            for d in registry.precision_decisions().values()
         ],
     }
 
@@ -362,9 +388,28 @@ def _parse_writing(index: int, raw: Any) -> Decision:
     return Decision(writing, place_id, cast(Status, status), project)
 
 
+def _parse_precision(index: int, raw: Any) -> PrecisionDecision:
+    where = f"precisions[{index}]"
+    if not isinstance(raw, Mapping):
+        raise _fail(f"{where} must be an object")
+    writing = _text(_get(raw, "ecriture", where), f"{where}.ecriture")
+    complement = _get(raw, "complement", where)
+    period = _get(raw, "periode", where)
+    for name, value in (("complement", complement), ("periode", period)):
+        if not isinstance(value, str):
+            raise _fail(f"{where}.{name} must be a string, not {value!r}")
+    ids: list[str | None] = []
+    for name in ("arrondissement_id", "quartier_id"):
+        value = _get(raw, name, where)
+        if value is not None and not isinstance(value, str):
+            raise _fail(f"{where}.{name} must be a string or null, not {value!r}")
+        ids.append(value or None)
+    return PrecisionDecision(writing, complement, period, ids[0], ids[1], None, "")
+
+
 def _parse(
     data: object, local_places: set[str], ref: RefData | None
-) -> tuple[str, dict[str, Place], list[Decision]]:
+) -> tuple[str, dict[str, Place], list[Decision], list[PrecisionDecision]]:
     if not isinstance(data, Mapping):
         raise _fail("the document must be a JSON object")
     fmt = _get(data, "format", "document")
@@ -385,6 +430,18 @@ def _parse(
     raw_writings = _get(data, "writings", "document")
     if not isinstance(raw_writings, list):
         raise _fail("writings must be a list")
+    raw_precisions = data.get("precisions", [])
+    if not isinstance(raw_precisions, list):
+        raise _fail("precisions must be a list")
+    precisions: list[PrecisionDecision] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    for index, raw in enumerate(raw_precisions):
+        precision = _parse_precision(index, raw)
+        pkey = (precision.writing, precision.complement, precision.period)
+        if pkey in seen_keys:
+            raise _fail(f"precisions[{index}]: duplicate decision {pkey!r}")
+        seen_keys.add(pkey)
+        precisions.append(precision)
     writings: list[Decision] = []
     seen: set[str] = set()
     attached: dict[str, list[str]] = {}
@@ -414,7 +471,7 @@ def _parse(
                 f"writings[{index}]: place_id {pid!r} is neither in the document "
                 "nor in the registry"
             )
-    return exported_at, places, writings
+    return exported_at, places, writings, precisions
 
 
 # -- import ---------------------------------------------------------------
@@ -502,8 +559,14 @@ def _import_once(
     registry: PlaceRegistry, data: object, ref: RefData | None
 ) -> ImportResult:
     local_places = {place.place_id for place in registry.places()}
-    exported_at, places, incoming = _parse(data, local_places, ref)
+    exported_at, places, incoming, precisions = _parse(data, local_places, ref)
     local = registry.decisions(d.writing for d in incoming)
+    known_precisions = registry.precision_decisions()
+    new_precisions = [
+        p
+        for p in precisions
+        if (p.writing, p.complement, p.period) not in known_precisions
+    ]
 
     applied: list[Decision] = []
     conflicts: list[Conflict] = []
@@ -525,11 +588,29 @@ def _import_once(
             created.append(place_id)
             changes.extend(_place_changes(places[place_id], now))
     changes.extend(_writing_change(d, d.project, now) for d in applied)
+    changes.extend(
+        RowChange(
+            "precisions",
+            {"writing": p.writing, "complement": p.complement, "period": p.period},
+            {
+                "arrondissement_id": p.arrondissement_id,
+                "quartier_id": p.quartier_id,
+                "project": None,
+                "decided_at": now,
+            },
+        )
+        for p in new_precisions
+    )
     relied_on = needed - set(created)
 
     def plan_holds() -> None:
         # Runs inside the import transaction: nothing can change after it.
         if registry.decisions(d.writing for d in applied):
+            raise _PlanOutdated
+        if any(
+            (p.writing, p.complement, p.period) in registry.precision_decisions()
+            for p in new_precisions
+        ):
             raise _PlanOutdated
         if any(_known(registry, place_id) for place_id in created):
             raise _PlanOutdated
