@@ -969,6 +969,18 @@ def create_app(project: Project, registry: PlaceRegistry, ref: RefData) -> FastA
             _push_correct(entry, "precision")
             return schemas.PrecisionDecideOut(entry_id=entry)
 
+    @app.post("/api/precisions/clear")
+    def clear_precision(body: schemas.PrecisionClearIn) -> schemas.PrecisionDecideOut:
+        """Forget a decision: the group goes back to its computed status."""
+        with state.lock:
+            entry = registry.clear_precision(
+                body.writing, body.complement, body.period, project.project_id
+            )
+            if entry is None:
+                raise _error(400, "Aucune décision à retirer pour cette précision.")
+            _push_correct(entry, "precision")
+            return schemas.PrecisionDecideOut(entry_id=entry)
+
     # -- undo ---------------------------------------------------------------
 
     @app.post("/api/undo")

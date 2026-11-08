@@ -155,3 +155,6 @@ def test_precisions_tab_present(client: TestClient) -> None:
     assert "numéro écrit" in script
     assert "/api/precisions/decide" in script
     assert "aucun (n'existait pas à cette date)" in script
+    assert "/api/precisions/clear" in script
+    assert "Revenir au calcul" in script
+    assert "aucun arrondissement (choix manuel)" in script

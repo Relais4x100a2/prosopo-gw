@@ -1400,6 +1400,37 @@ def test_decide_precision_then_undo(paris_client: TestClient) -> None:
     assert back[0]["status"] == "conflict"
 
 
+def test_clear_precision_then_undo(paris_client: TestClient) -> None:
+    clear_body = {k: VAUGIRARD[k] for k in ("writing", "complement", "period")}
+    # nothing to clear yet
+    nothing = paris_client.post("/api/precisions/clear", json=clear_body)
+    assert nothing.status_code == 400
+    assert nothing.json()["detail"] == "Aucune décision à retirer pour cette précision."
+    paris_client.post(
+        "/api/precisions/decide",
+        json={**VAUGIRARD, "arrondissement_id": "75115", "quartier_id": None},
+    )
+    assert precision_groups(paris_client, "status=applied")
+    cleared = paris_client.post("/api/precisions/clear", json=clear_body)
+    assert cleared.status_code == 200, cleared.text
+    assert isinstance(cleared.json()["entry_id"], int)
+    assert not [
+        g
+        for g in precision_groups(paris_client, "status=applied")
+        if g["writing"] == "75007 Paris"
+    ]
+    assert precision_groups(paris_client)[0]["status"] == "conflict"
+    journal = paris_client.get("/api/registry/journal").json()["entries"]
+    assert journal[0]["action"] == "precision"
+    # undo brings the decision back
+    assert paris_client.post("/api/undo").json() == {"action": "precision"}
+    assert [
+        g
+        for g in precision_groups(paris_client, "status=applied")
+        if g["writing"] == "75007 Paris"
+    ]
+
+
 def test_decide_no_arrondissement(paris_client: TestClient) -> None:
     for empty in ("", None):
         response = paris_client.post(

@@ -1097,9 +1097,12 @@
   // -- precisions (arrondissements) ----------------------------------------------
 
   const NO_ARRONDISSEMENT = "aucun (n'existait pas à cette date)";
+  const NO_ARRONDISSEMENT_MANUAL = "aucun arrondissement (choix manuel)";
 
   function candidateLabel(candidate) {
-    if (!candidate.arrondissement) return NO_ARRONDISSEMENT;
+    if (!candidate.arrondissement) {
+      return candidate.clue === "manual" ? NO_ARRONDISSEMENT_MANUAL : NO_ARRONDISSEMENT;
+    }
     return candidate.quartier
       ? `${candidate.arrondissement} · ${candidate.quartier}`
       : candidate.arrondissement;
@@ -1166,11 +1169,21 @@
       ),
       el("p", { class: "sub", text: `${group.period_label} · ${plural(group.occurrences, "occurrence", "occurrences")}` }),
       none
-        ? el("p", { class: "sub" }, el("span", { class: "pill", text: CLUE_LABELS[none.clue] || none.clue }), ` ${NO_ARRONDISSEMENT}`)
+        ? el("p", { class: "sub" }, el("span", { class: "pill", text: CLUE_LABELS[none.clue] || none.clue }), ` ${candidateLabel(none)}`)
         : null,
       choices.length ? el("ul", { class: "precision-candidates" }, choices) : null,
       decided
-        ? el("p", { class: "sub", text: "Décision prise : pour la changer, annulez-la (Annuler) puis choisissez à nouveau." })
+        ? el(
+          "div",
+          { class: "actions" },
+          el("button", {
+            type: "button",
+            text: "Revenir au calcul",
+            title: "Oublier cette décision : le groupe retrouve son statut calculé",
+            onclick: () => run(() => clearPrecision(group)),
+          }),
+          el("span", { class: "sub", text: " Décision prise : revenez au calcul pour en prendre une autre." }),
+        )
         : el(
           "div",
           { class: "actions" },
@@ -1178,7 +1191,7 @@
             type: "button",
             text: "Aucun arrondissement",
             title: "Aucun arrondissement ne s'applique à ce groupe",
-              onclick: () => run(() => decidePrecision(group, "", null)),
+            onclick: () => run(() => decidePrecision(group, "", null)),
           }),
         ),
     );
@@ -1218,6 +1231,18 @@
         : `« ${group.writing} » : arrondissement retenu.`,
       "info",
     );
+  }
+
+  async function clearPrecision(group) {
+    await api("POST", "/api/precisions/clear", {
+      writing: group.writing,
+      complement: group.complement,
+      period: group.period,
+    });
+    state.history.push(state.currentId);
+    await loadPrecisions();
+    renderAll();
+    showMessage(`« ${group.writing} » : retour au calcul.`, "info");
   }
 
   async function showView(view) {

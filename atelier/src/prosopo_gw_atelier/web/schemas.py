@@ -274,5 +274,13 @@ class PrecisionDecideIn(BaseModel):
     quartier_id: str | None
 
 
+class PrecisionClearIn(BaseModel):
+    """Identifies the group whose decision goes back to the computed status."""
+
+    writing: str
+    complement: str
+    period: str
+
+
 class PrecisionDecideOut(BaseModel):
     entry_id: int | None
