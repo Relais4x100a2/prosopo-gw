@@ -152,6 +152,19 @@ Source proposals
     cluster once complete, until a reload, attach or change of the cluster, its
     chain or its refusals; a cleared queue result is seen after a reload.
 
+GeoNames mode
+    GeoNames only proposes for the clusters whose effective mode is ``geonames``
+    (``effective_mode``): the correction of the cluster if every one of its
+    writings has the same one (``set_cluster_mode`` writes one registry row per
+    writing, so it survives validation, reload and a change of the country
+    setting), else the setting of its country (``set_country_mode``, kept in the
+    registry and shared by the projects); a correction on only some writings is
+    ``partial`` and flagged. ``countries()`` lists the foreign countries of the
+    project (a historical one has no ISO code, hence no choice). Switching to
+    ``written`` hides the proposals (the overlay memo key holds the mode)
+    without clearing the cached results. A refused proposed level is put back to
+    the written level it replaced (or dropped) for every source.
+
 Order of ``clusters()``
     Top-level clusters by state (``todo``, ``already_decided``, ``validated``,
     ``rejected``), confidence (high first), occurrences (descending), then id;
@@ -184,7 +197,7 @@ from .places.cluster import (
 )
 from .places.collect import collect_writings
 from .places.decompose import decompose
-from .places.levels import Level, validated
+from .places.levels import Level, check_chain, renumber, validated
 from .places.model import Decomposition, Occurrence, Writing
 from .places.precision import Candidate, Precision, PrecisionStatus, precise
 from .refdata import RefData
@@ -194,12 +207,17 @@ from .sources.base import LevelQuery, Source, SourceCandidate
 from .sources.dicotopo.source import DICOTOPO
 from .sources.dicotopo.source import proposals as dicotopo_proposals
 from .sources.dicotopo.source import queries_for as dicotopo_queries
+from .sources.geonames.index import GeoNamesIndex
+from .sources.geonames.source import GEONAMES
+from .sources.geonames.source import proposals as geonames_proposals
+from .sources.geonames.source import queries_for as geonames_queries
 from .sources.queue import SourceQueue, match_payload
 from .store.registry import (
     Decision,
     PlaceRegistry,
     PrecisionDecision,
     SchemaVersionError,
+    SourceMode,
 )
 
 ClusterState = Literal["todo", "validated", "rejected", "already_decided"]
@@ -240,16 +258,22 @@ PRAGMA user_version = 2;
 """,
 }
 
-_QueriesFor = Callable[[Sequence[Level], Decomposition], list[LevelQuery]]
+_QueriesFor = Callable[[Sequence[Level], Decomposition, RefData], list[LevelQuery]]
 _Proposals = Callable[
     [Sequence[Level], Sequence[SourceCandidate]],
     tuple[tuple[Level, ...], tuple[tuple[Level, ...], ...]],
 ]
 # source name -> (queries of a chain, proposals from the candidates).
 _ADAPTERS: dict[str, tuple[_QueriesFor, _Proposals]] = {
-    DICOTOPO: (dicotopo_queries, dicotopo_proposals),
+    DICOTOPO: (lambda levels, d, ref: dicotopo_queries(levels, d), dicotopo_proposals),
+    GEONAMES: (
+        lambda levels, d, ref: _geonames_queries(levels, d, ref),
+        geonames_proposals,
+    ),
 }
 _TOUCH_PRIORITY = 10**9
+_FRANCE = "FR"
+ModeOrigin = Literal["country", "override", "partial"]
 
 _PLACE = "place:"
 _REJECTED = "rejected:"
@@ -293,6 +317,12 @@ class ClusterView:
     """Sources whose result is still awaited for this cluster."""
     failed_sources: tuple[str, ...] = ()
     """Sources whose job failed for good (see the Sources screen); not pending."""
+    geonames_mode: SourceMode = "written"
+    """Effective GeoNames mode of the cluster (see "GeoNames mode")."""
+    geonames_mode_origin: ModeOrigin = "country"
+    """Where it comes from: the country setting, a correction of every writing
+    of the cluster, or (``partial``) a correction of only some of them, which
+    the screen flags; the country setting then applies."""
 
     @property
     def alternatives(self) -> tuple[tuple[Level, ...], ...]:
@@ -305,6 +335,25 @@ class ClusterView:
         if self.state == "rejected":
             return False
         return not any(level.status == "validated" for level in self.cluster.levels)
+
+
+@dataclass(frozen=True)
+class CountryRow:
+    """A foreign country named by the writings of the project.
+
+    ``iso`` is ``None`` for a historical country (no GeoNames mode possible).
+    ``downloaded`` is the extraction date of the country's GeoNames index, if
+    indexed; ``overrides`` the writings of the country with a per-place
+    correction.
+    """
+
+    iso: str | None
+    name: str
+    writings: int
+    occurrences: int
+    mode: SourceMode
+    downloaded: str | None
+    overrides: int
 
 
 @dataclass(frozen=True)
@@ -371,6 +420,80 @@ def project_id_of(gw_path: Path) -> str:
     return hashlib.sha256(absolute.encode("utf-8")).hexdigest()[:16]
 
 
+def _foreign_country(decomposition: Decomposition, ref: RefData) -> str | None:
+    """The country token a writing names outside France, else ``None``.
+
+    The recognised country element, or (nothing at all recognised) the last
+    segment, which may be a historical country with no ISO code.
+    """
+    for element in decomposition.elements:
+        if element.kind == "country":
+            if ref.country_iso(element.value) == _FRANCE:
+                return None
+            return element.value
+    if decomposition.elements or len(decomposition.segments) < 2:
+        return None
+    return decomposition.segments[-1].text or None
+
+
+def _geonames_queries(
+    levels: Sequence[Level], decomposition: Decomposition, ref: RefData
+) -> list[LevelQuery]:
+    token = _foreign_country(decomposition, ref)
+    iso = ref.country_iso(token) if token is not None else None
+    if iso is None or iso == _FRANCE:
+        return []
+    return geonames_queries(levels, iso)
+
+
+def _revert_refused(
+    source: str,
+    original: Sequence[Level],
+    levels: tuple[Level, ...],
+    refused: frozenset[tuple[str, str]],
+) -> tuple[Level, ...]:
+    """``levels`` without the proposals of ``source`` that were refused.
+
+    A refused proposed level goes back to the written level it replaced (found
+    in ``original`` by name), or is dropped if it was inserted.
+    """
+
+    def bad(level: Level) -> bool:
+        return (
+            level.status == "proposed"
+            and source in (level.source, level.origin)
+            and level.identifier is not None
+            and (source, level.identifier) in refused
+        )
+
+    if not any(bad(level) for level in levels):
+        return levels
+    kept: list[Level] = []
+    for level in levels:
+        if not bad(level):
+            kept.append(level)
+            continue
+        keys = {name_key(n) for n in (level.name, level.written) if n}
+        taken = {name_key(k.name) for k in kept}
+        taken |= {name_key(k.name) for k in levels if not bad(k)}
+        back = next(
+            (
+                o
+                for o in original
+                if name_key(o.name) in keys and name_key(o.name) not in taken
+            ),
+            None,
+        )
+        if back is not None:
+            kept.append(back)
+    result = renumber(kept)
+    try:
+        check_chain(result)
+    except ValueError:
+        return tuple(original)
+    return result
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -429,6 +552,7 @@ class Project:
         self._precisions: tuple[object, list[OccurrencePrecision]] | None = None
         self._raw_precisions: tuple[object, list[PrecisionGroup]] | None = None
         self._queue: SourceQueue | None = None
+        self._geonames_index: GeoNamesIndex | None = None
         self._sources: dict[str, Source] = {}
         self._enqueued: set[tuple[str, str]] = set()
         self._overlays: dict[object, _Overlay] = {}
@@ -487,11 +611,20 @@ class Project:
             if self._queue is not None:
                 self._views()
 
-    def attach_sources(self, queue: SourceQueue, sources: Mapping[str, Source]) -> None:
-        """Connect the source queue (module docstring) and enqueue the matches."""
+    def attach_sources(
+        self,
+        queue: SourceQueue,
+        sources: Mapping[str, Source],
+        geonames_index: GeoNamesIndex | None = None,
+    ) -> None:
+        """Connect the source queue (module docstring) and enqueue the matches.
+
+        ``geonames_index`` (optional) tells which countries are downloaded.
+        """
         with self._lock:
             self._queue = queue
             self._sources = dict(sources)
+            self._geonames_index = geonames_index
             self._reset_sources()
             self._views()
 
@@ -565,6 +698,105 @@ class Project:
                 if view.cluster.id == cluster_id:
                     return view
         raise KeyError(cluster_id)
+
+    # -- GeoNames mode ---------------------------------------------------------
+
+    def countries(self) -> list[CountryRow]:
+        """Foreign countries of the project, most writings first (France left out)."""
+        with self._lock:
+            modes = self._registry.country_modes()
+            corrected = self._registry.overrides(GEONAMES)
+            dates = self._geonames_dates()
+            groups: dict[str, dict[str, object]] = {}
+            for text, decomposition in self._decompositions.items():
+                token = _foreign_country(decomposition, self._ref)
+                if token is None:
+                    continue
+                iso = self._ref.country_iso(token)
+                name = self._ref.country(token) or token
+                entry = groups.setdefault(
+                    iso or f"name:{name_key(name)}",
+                    {"iso": iso, "name": name, "writings": 0, "occ": 0, "ovr": 0},
+                )
+                entry["writings"] = int(str(entry["writings"])) + 1
+                entry["occ"] = int(str(entry["occ"])) + len(
+                    self.writings[text].occurrences
+                )
+                if text in corrected:
+                    entry["ovr"] = int(str(entry["ovr"])) + 1
+        rows = []
+        for entry in groups.values():
+            iso = entry["iso"] if isinstance(entry["iso"], str) else None
+            rows.append(
+                CountryRow(
+                    iso=iso,
+                    name=str(entry["name"]),
+                    writings=int(str(entry["writings"])),
+                    occurrences=int(str(entry["occ"])),
+                    mode=modes.get(iso, "written") if iso else "written",
+                    downloaded=dates.get(iso) if iso else None,
+                    overrides=int(str(entry["ovr"])),
+                )
+            )
+        rows.sort(key=lambda r: (-r.writings, r.name))
+        return rows
+
+    def _geonames_dates(self) -> dict[str, str]:
+        if self._geonames_index is None:
+            return {}
+        try:
+            return self._geonames_index.countries()
+        except sqlite3.Error:
+            return {}
+
+    def effective_mode(self, cluster_id: str) -> tuple[SourceMode, ModeOrigin]:
+        """GeoNames mode of a cluster and where it comes from (module docstring)."""
+        view = self.cluster(cluster_id)
+        return view.geonames_mode, view.geonames_mode_origin
+
+    def set_country_mode(self, country: str, mode: SourceMode) -> None:
+        """Choose the GeoNames mode of a country (ISO alpha-2 code).
+
+        ``ValueError`` for a name with no ISO code (historical country).
+        """
+        code = country.strip().upper()
+        if len(code) != 2 or not code.isalpha():
+            raise ValueError(f"pas de code ISO pour {country!r} : mode non réglable")
+        with self._lock:
+            self._registry.set_country_mode(code, mode, self.project_id)
+            self._views()
+
+    def set_cluster_mode(self, cluster_id: str, mode: SourceMode | None) -> None:
+        """Correct the GeoNames mode of a cluster (one correction per writing);
+        ``None`` removes the correction."""
+        with self._lock:
+            writings = self.cluster(cluster_id).cluster.writings
+            self._registry.set_override(writings, GEONAMES, mode, self.project_id)
+            self._views()
+
+    def _mode_of(
+        self,
+        writings: Sequence[str],
+        modes: Mapping[str, SourceMode],
+        corrected: Mapping[str, SourceMode],
+    ) -> tuple[SourceMode, ModeOrigin]:
+        isos = set()
+        for text in writings:
+            token = _foreign_country(self._decompositions[text], self._ref)
+            iso = self._ref.country_iso(token) if token is not None else None
+            if iso is not None:
+                isos.add(iso)
+        country: SourceMode = (
+            "geonames" if any(modes.get(i) == "geonames" for i in isos) else "written"
+        )
+        found = [corrected.get(text) for text in writings]
+        if found and all(m is not None for m in found) and len(set(found)) == 1:
+            mode = found[0]
+            if mode is not None:
+                return mode, "override"
+        if any(m is not None for m in found):
+            return country, "partial"
+        return country, "country"
 
     # -- actions --------------------------------------------------------------
 
@@ -773,6 +1005,8 @@ class Project:
         refusals: dict[str, set[tuple[str, str]]] = defaultdict(set)
         for subject, source, identifier in self._registry.all_refusals():
             refusals[subject].add((source, identifier))
+        modes = self._registry.country_modes()
+        corrected = self._registry.overrides(GEONAMES)
         overlays: dict[object, _Overlay] = {}
         queries: dict[str, list[tuple[str, LevelQuery]]] = {}
         pending: dict[str, set[str]] = {}
@@ -804,6 +1038,7 @@ class Project:
             if place_id is not None:
                 subjects.append(f"{_PLACE}{place_id}")
             refused = frozenset().union(*(refusals[s] for s in subjects))
+            mode, origin = self._mode_of(cluster.writings, modes, corrected)
             overlay = self._overlay(
                 cluster,
                 levels,
@@ -813,6 +1048,7 @@ class Project:
                 queries,
                 pending,
                 failed,
+                mode == "geonames",
             )
             state: ClusterState
             if any(d is None for d in found):
@@ -842,6 +1078,8 @@ class Project:
                     pending_sources=overlay.pending,
                     failed_sources=overlay.failed,
                     base_levels=levels,
+                    geonames_mode=mode,
+                    geonames_mode_origin=origin,
                 )
             )
         self._overlays = overlays
@@ -859,13 +1097,14 @@ class Project:
         queries: dict[str, list[tuple[str, LevelQuery]]],
         pending_keys: dict[str, set[str]],
         failed_keys: dict[str, set[str]],
+        geonames_on: bool = False,
     ) -> _Overlay:
         """The chain and alternatives of a cluster with the sources' proposals."""
         plain = _Overlay(levels, cluster.alternatives, (), ())
         queue = self._queue
         if queue is None or not levels:
             return plain
-        key = (cluster.id, levels, tuple(cluster.writings), refused)
+        key = (cluster.id, levels, tuple(cluster.writings), refused, geonames_on)
         cached = self._overlays.get(key)
         if cached is not None:
             overlays[key] = cached
@@ -877,9 +1116,13 @@ class Project:
         for name, source_adapter in _ADAPTERS.items():
             if name not in self._sources:
                 continue
+            if name == GEONAMES and not geonames_on:
+                continue
             wanted: dict[str, LevelQuery] = {}
             for writing in cluster.writings:
-                for query in source_adapter[0](levels, self._decompositions[writing]):
+                for query in source_adapter[0](
+                    levels, self._decompositions[writing], self._ref
+                ):
                     wanted.setdefault(query.key(), query)
             live = self._sources[name]
             wanted = {k: q for k, q in wanted.items() if live.can_answer(q)}
@@ -915,6 +1158,8 @@ class Project:
                 continue
             usable = [c for c in candidates if (name, c.identifier) not in refused]
             proposed, readings = source_adapter[1](chain, usable)
+            proposed = _revert_refused(name, chain, proposed, refused)
+            readings = tuple(_revert_refused(name, chain, r, refused) for r in readings)
             if proposed:
                 chain = proposed
             alternatives = alternatives + readings

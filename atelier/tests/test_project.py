@@ -8,7 +8,13 @@ import pytest
 
 from prosopo_gw_atelier.places import precision as precision_module
 from prosopo_gw_atelier.places.decompose import decompose
-from prosopo_gw_atelier.places.levels import Level, LevelOrigin, renumber, rule_levels
+from prosopo_gw_atelier.places.levels import (
+    Level,
+    LevelOrigin,
+    check_chain,
+    renumber,
+    rule_levels,
+)
 from prosopo_gw_atelier.project import ClusterView, Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
@@ -1435,3 +1441,295 @@ def test_queue_results_batch_and_clear(
     assert set(queue.results(DICOTOPO, [k1, k2, "absent"])) == {k1, k2}
     assert queue.clear_results(DICOTOPO, "62") == 1
     assert set(queue.results(DICOTOPO, [k1, k2])) == {k2}
+
+
+# --- GeoNames mode per country and per place -----------------------------------
+
+from prosopo_gw_atelier.project import CountryRow  # noqa: E402
+from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex  # noqa: E402
+from prosopo_gw_atelier.sources.geonames.source import (  # noqa: E402
+    GEONAMES,
+    GeoNamesSource,
+)
+from prosopo_gw_atelier.store.config import LocalConfig  # noqa: E402
+
+GN = FIXTURES / "geonames"
+WINNIPEG = "Winnipeg, , , Manitoba, Canada"
+WINNIPEG2 = "Winnipeg, Manitoba, Canada"
+STORRINGTON = "Storrington, , East Sussex, England, Royaume-Uni"
+KONIGSBERG = "Königsberg, Prusse"
+
+
+@pytest.fixture
+def geo_index(tmp_path: Path) -> GeoNamesIndex:
+    index = GeoNamesIndex(tmp_path / "geonames")
+    for cc in ("CA", "GB"):
+        index.build(
+            cc,
+            GN / f"{cc}.zip",
+            GN / "admin1CodesASCII.txt",
+            GN / "admin2Codes.txt",
+            "2026-11-08",
+        )
+    return index
+
+
+@pytest.fixture
+def geo_source(tmp_path: Path, geo_index: GeoNamesIndex) -> GeoNamesSource:
+    return GeoNamesSource(
+        geo_index, config=LocalConfig(), counter_path=tmp_path / "api_counter.json"
+    )
+
+
+@pytest.fixture
+def geo_gw(tmp_path: Path) -> Path:
+    return copy_fixture(tmp_path, "lieux_geonames.gw")
+
+
+def geo_worker(queue: SourceQueue, source: GeoNamesSource) -> Worker:
+    return Worker(
+        queue,
+        {
+            (GEONAMES, "match"): lambda job: handle_match(
+                job, source=source, queue=queue
+            )
+        },
+    )
+
+
+def geo_project(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    source: GeoNamesSource,
+    index: GeoNamesIndex | None = None,
+) -> Project:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    project.attach_sources(queue, {GEONAMES: source}, geonames_index=index)
+    return project
+
+
+def proposed_names(view: ClusterView) -> list[str]:
+    return [lv.name for lv in view.cluster.levels if lv.origin == "geonames"]
+
+
+def test_countries_of_project(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+    geo_index: GeoNamesIndex,
+) -> None:
+    project = geo_project(
+        geo_gw, registry, ref, projects_dir, queue, geo_source, geo_index
+    )
+    rows = project.countries()
+    assert rows[0] == CountryRow(
+        iso="CA",
+        name="Canada",
+        writings=2,
+        occurrences=2,
+        mode="written",
+        downloaded="2026-11-08",
+        overrides=0,
+    )
+    by_name = {r.name: r for r in rows}
+    assert set(by_name) == {"Canada", "Royaume-Uni", "Prusse"}
+    assert by_name["Royaume-Uni"].iso == "GB"
+    assert [r.writings for r in rows] == sorted(
+        (r.writings for r in rows), reverse=True
+    )
+
+
+def test_countries_without_index_are_not_downloaded(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    assert all(r.downloaded is None for r in project.countries())
+
+
+def test_written_mode_has_no_geonames_proposal(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+) -> None:
+    project = geo_project(geo_gw, registry, ref, projects_dir, queue, geo_source)
+    assert drain(geo_worker(queue, geo_source)) == 0
+    view = view_of(project, WINNIPEG)
+    assert proposed_names(view) == []
+    assert view.pending_sources == ()
+    assert project.effective_mode(view.cluster.id) == ("written", "country")
+    assert view.geonames_mode == "written"
+    assert view.geonames_mode_origin == "country"
+
+
+def test_switching_country_enqueues_matches(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+) -> None:
+    project = geo_project(geo_gw, registry, ref, projects_dir, queue, geo_source)
+    project.set_country_mode("CA", "geonames")
+    assert view_of(project, WINNIPEG).pending_sources == (GEONAMES,)
+    assert view_of(project, STORRINGTON).pending_sources == ()
+    assert drain(geo_worker(queue, geo_source)) >= 1
+    view = view_of(project, WINNIPEG)
+    assert "Manitoba" in proposed_names(view)
+    assert project.countries()[0].mode == "geonames"
+    # back to written: proposals are hidden, results stay cached
+    project.set_country_mode("CA", "written")
+    assert proposed_names(view_of(project, WINNIPEG)) == []
+    project.set_country_mode("CA", "geonames")
+    assert drain(geo_worker(queue, geo_source)) == 0
+    assert "Manitoba" in proposed_names(view_of(project, WINNIPEG))
+
+
+def test_country_setting_follows_another_project(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    registry.set_country_mode("CA", "geonames", "other-project")
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    assert project.countries()[0].mode == "geonames"
+    cluster = view_of(project, WINNIPEG).cluster.id
+    assert project.effective_mode(cluster) == ("geonames", "country")
+
+
+def test_override_flips_one_cluster(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+) -> None:
+    project = geo_project(geo_gw, registry, ref, projects_dir, queue, geo_source)
+    cluster = view_of(project, WINNIPEG).cluster
+    other = view_of(project, STORRINGTON).cluster.id
+    project.set_cluster_mode(cluster.id, "geonames")
+    assert project.effective_mode(cluster.id) == ("geonames", "override")
+    assert project.effective_mode(other) == ("written", "country")
+    drain(geo_worker(queue, geo_source))
+    assert "Manitoba" in proposed_names(view_of(project, WINNIPEG))
+    assert project.countries()[0].overrides == len(cluster.writings)
+    # the correction survives a change of the country setting
+    project.set_country_mode("CA", "geonames")
+    project.set_country_mode("CA", "written")
+    assert project.effective_mode(cluster.id) == ("geonames", "override")
+    # and a reload / reopen
+    project.reload()
+    assert project.effective_mode(cluster.id) == ("geonames", "override")
+    # a correction opposite to the country setting
+    project.set_country_mode("CA", "geonames")
+    project.set_cluster_mode(cluster.id, "written")
+    assert project.effective_mode(cluster.id) == ("written", "override")
+    project.set_cluster_mode(cluster.id, None)
+    assert project.effective_mode(cluster.id) == ("geonames", "country")
+
+
+def test_partial_override_follows_country_and_is_flagged(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    levels = chain(("Winnipeg", "localite", None), ("Canada", "pays", None))
+    validate(registry, [WINNIPEG, WINNIPEG2], levels, project.project_id)
+    cluster = view_of(project, WINNIPEG).cluster
+    assert set(cluster.writings) == {WINNIPEG, WINNIPEG2}
+    registry.set_override([WINNIPEG], GEONAMES, "geonames", project.project_id)
+    assert project.effective_mode(cluster.id) == ("written", "partial")
+    registry.set_override([WINNIPEG2], GEONAMES, "geonames", project.project_id)
+    assert project.effective_mode(cluster.id) == ("geonames", "override")
+    registry.set_override([WINNIPEG2], GEONAMES, "written", project.project_id)
+    assert project.effective_mode(cluster.id) == ("written", "partial")
+
+
+def test_override_survives_validation(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    first = view_of(project, WINNIPEG)
+    project.set_cluster_mode(first.cluster.id, "geonames")
+    validate_view(registry, first, project.project_id)
+    after = view_of(project, WINNIPEG)
+    assert after.cluster.id.startswith("place:")
+    assert project.effective_mode(after.cluster.id) == ("geonames", "override")
+
+
+def test_historical_country_has_no_choice(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+) -> None:
+    project = geo_project(geo_gw, registry, ref, projects_dir, queue, geo_source)
+    prusse = next(r for r in project.countries() if r.name == "Prusse")
+    assert (prusse.iso, prusse.mode) == (None, "written")
+    with pytest.raises(ValueError):
+        project.set_country_mode(prusse.name, "geonames")
+    cluster = view_of(project, KONIGSBERG).cluster.id
+    project.set_cluster_mode(cluster, "geonames")
+    drain(geo_worker(queue, geo_source))
+    assert proposed_names(view_of(project, KONIGSBERG)) == []
+
+
+def test_france_is_not_a_country_row(
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+) -> None:
+    project = Project.open(hamlet_gw, registry, ref, projects_dir)
+    assert project.countries() == []
+
+
+def test_refused_geonames_parent_is_reverted(
+    geo_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+) -> None:
+    project = geo_project(geo_gw, registry, ref, projects_dir, queue, geo_source)
+    project.set_country_mode("CA", "geonames")
+    drain(geo_worker(queue, geo_source))
+    view = view_of(project, WINNIPEG)
+    written = [lv.name for lv in view.base_levels]
+    manitoba = next(lv for lv in view.cluster.levels if lv.name == "Manitoba")
+    assert manitoba.status == "proposed" and manitoba.identifier is not None
+    registry.refuse_source_proposal(
+        f"writing:{WINNIPEG}", GEONAMES, manitoba.identifier, project.project_id
+    )
+    view = view_of(project, WINNIPEG)
+    levels = view.cluster.levels
+    check_chain(levels)
+    assert not any(lv.identifier == manitoba.identifier for lv in levels)
+    assert any(lv.name == "Manitoba" and lv.status == "validated" for lv in levels)
+    assert [lv.rank for lv in levels] == list(range(len(levels)))
+    base = {lv.name: lv for lv in view.base_levels}
+    assert next(lv for lv in levels if lv.name == "Manitoba") == base["Manitoba"]
+    for name in written:  # nothing written is lost
+        assert any(name in (lv.name, lv.written) for lv in levels)
