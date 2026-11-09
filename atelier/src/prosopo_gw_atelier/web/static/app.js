@@ -79,8 +79,16 @@
     ["applied", "Appliquées"],
     ["all", "Toutes"],
   ];
-  const SOURCE_LABELS = { dicotopo: "DicoTopo" };
+  const SOURCE_LABELS = { dicotopo: "DicoTopo", geonames: "GeoNames" };
   const DICOTOPO_LINK = "https://dicotopo.cths.fr/places/";
+  const GEONAMES_LINK = "https://www.geonames.org/";
+  const MODE_LABELS = { written: "garder tel qu'écrit", geonames: "proposer avec GeoNames" };
+  const MODE_ORIGIN_LABELS = {
+    country: "réglage du pays",
+    override: "corrigé pour ce lieu",
+    partial: "corrigé pour une partie des écritures",
+  };
+  const HISTORICAL_COUNTRY = "tel qu'écrit (pays historique)";
   const QUEUE_LABELS = [
     ["pending", "en attente"],
     ["running", "en cours"],
@@ -109,7 +117,7 @@
     occurrences: null, // null: hidden; else Map writing -> list or Error
     busy: false,
     history: [], // cluster open before each action, to come back on undo
-    view: "places", // "places" (validation screen), "registry" or "precisions"
+    view: "places", // "places" (validation screen), "registry", "precisions", "countries" or "sources"
     conflicts: [], // GET /api/registry/conflicts: pending import conflicts
     precisions: [], // GET /api/precisions: every precision group
     precisionFilter: "todo",
@@ -118,6 +126,10 @@
     sources: null, // GET /api/sources
     sourcesError: null, // message when the sources could not be loaded
     sourcesSelected: new Set(), // department codes ticked for download
+    countries: null, // GET /api/countries: foreign countries of the project
+    countriesError: null, // message when the countries could not be loaded
+    confirmCountry: null, // ISO code whose first download awaits a second click
+    countrySizes: {}, // ISO code -> announced size of its GeoNames file (bytes)
     confirmClear: false, // "Vider le cache" asks a second click
   };
 
@@ -264,6 +276,10 @@
     const inSources = state.view === "sources";
     sourcesButton.setAttribute("aria-pressed", String(inSources));
     sourcesButton.textContent = inSources ? "← Retour aux lieux" : "Sources";
+    const countriesButton = $("countries-button");
+    const inCountries = state.view === "countries";
+    countriesButton.setAttribute("aria-pressed", String(inCountries));
+    countriesButton.textContent = inCountries ? "← Retour aux lieux" : "Pays";
   }
 
   function renderFilters() {
@@ -321,10 +337,12 @@
     const inRegistry = state.view === "registry";
     const inPrecisions = state.view === "precisions";
     const inSources = state.view === "sources";
-    $("layout").hidden = inRegistry || inPrecisions || inSources;
+    const inCountries = state.view === "countries";
+    $("layout").hidden = inRegistry || inPrecisions || inSources || inCountries;
     $("registry").hidden = !inRegistry;
     $("precisions").hidden = !inPrecisions;
     $("sources").hidden = !inSources;
+    $("countries").hidden = !inCountries;
     renderHeader();
     renderFilters();
     renderQueue();
@@ -332,6 +350,7 @@
     if (inRegistry) renderRegistry();
     if (inPrecisions) renderPrecisions();
     if (inSources) renderSources();
+    if (inCountries) renderCountries();
     schedulePoll();
   }
 
@@ -385,6 +404,7 @@
       renderHistorical(detail),
       renderAlternatives(detail),
       renderPendingSources(detail),
+      renderGeonamesMode(detail),
       renderChain(detail),
     );
   }
@@ -406,16 +426,78 @@
     );
   }
 
-  /** Link to a DicoTopo article; null unless it stays on dicotopo.cths.fr. */
-  function articleLink(level) {
-    if (level.origin !== "dicotopo" || !level.identifier) return null;
-    const href = DICOTOPO_LINK + encodeURIComponent(level.identifier);
-    return href.startsWith("https://dicotopo.cths.fr/") ? href : null;
+  /** The foreign country of a place (its French view), null for France or none. */
+  function foreignCountry(detail) {
+    const country = detail.view && detail.view.country;
+    return country && country !== "France" ? country : null;
   }
 
+  /** Whether the place's country has no ISO code (historical): GeoNames cannot help. */
+  function historicalCountry(country) {
+    if (state.countries === null || country === null) return false;
+    const row = state.countries.find((c) => c.name === country);
+    return !row || !row.iso;
+  }
+
+  /** GeoNames mode of a foreign place, its origin and the per-place correction. */
+  function renderGeonamesMode(detail) {
+    const country = foreignCountry(detail);
+    const origin = detail.geonames_mode_origin;
+    if (!country && origin === "country") return null;
+    const mode = detail.geonames_mode;
+    const noIso = historicalCountry(country);
+    const historical = noIso && origin === "country";
+    const text = historical
+      ? `GeoNames : ${HISTORICAL_COUNTRY}`
+      : `GeoNames : ${MODE_LABELS[mode] || mode} (${MODE_ORIGIN_LABELS[origin] || origin})`;
+    const inverse = mode === "geonames" ? "written" : "geonames";
+    return el(
+      "div",
+      { class: "geonames-mode sub" },
+      el("span", { text }),
+      noIso && inverse === "geonames"
+        ? null
+        : el("button", {
+            type: "button",
+            class: "small",
+            text: inverse === "geonames" ? "Proposer avec GeoNames pour ce lieu" : "Garder tel qu'écrit pour ce lieu",
+            onclick: () => run(() => setClusterMode(inverse)),
+          }),
+      origin === "country"
+        ? null
+        : el("button", {
+            type: "button",
+            class: "small",
+            text: "Revenir au réglage du pays",
+            onclick: () => run(() => setClusterMode(null)),
+          }),
+    );
+  }
+
+  /**
+   * Link to the source's article: DicoTopo (stays on dicotopo.cths.fr) or
+   * GeoNames (numeric identifier only); null otherwise.
+   */
+  function articleLink(level) {
+    if (!level.identifier) return null;
+    if (level.origin === "dicotopo") {
+      const href = DICOTOPO_LINK + encodeURIComponent(level.identifier);
+      return href.startsWith("https://dicotopo.cths.fr/") ? href : null;
+    }
+    if (level.origin === "geonames" && /^[0-9]{1,12}$/.test(level.identifier)) {
+      return GEONAMES_LINK + level.identifier;
+    }
+    return null;
+  }
+
+  /** "type proposé : province (GeoNames)" when the source gives a type, else "proposé (…)". */
   function proposalLabel(level) {
     const name = SOURCE_LABELS[level.origin] || level.source;
-    return name ? `proposé (${name})` : "proposé";
+    const suffix = name ? ` (${name})` : "";
+    if (level.origin in SOURCE_LABELS && level.type) {
+      return `type proposé : ${typeLabel(level.type).toLowerCase()}${suffix}`;
+    }
+    return `proposé${suffix}`;
   }
 
   /** French fixed-field view of the place, read only, with each origin. */
@@ -601,13 +683,16 @@
             "span",
             { class: "level-proposal" },
             el("span", { class: "sub", text: proposalLabel(level) }),
+            level.written && level.written !== level.name
+              ? el("span", { class: "sub", text: `écrit : ${level.written}` })
+              : null,
             articleLink(level)
               ? el("a", {
                   href: articleLink(level),
                   target: "_blank",
                   rel: "noopener noreferrer",
                   text: "article",
-                  title: "Ouvrir l'article DicoTopo dans un nouvel onglet",
+                  title: `Ouvrir la fiche ${sourceName(level.origin)} dans un nouvel onglet`,
                 })
               : null,
             el("button", { type: "button", class: "small", text: "Accepter", onclick: () => run(() => acceptLevel(level)) }),
@@ -701,7 +786,7 @@
     return true;
   }
 
-  /** A level proposed by an external source (DicoTopo), not stored in the registry. */
+  /** A level proposed by an external source (DicoTopo, GeoNames), not stored in the registry. */
   function isSourceProposal(level) {
     return level.status === "proposed" && level.origin in SOURCE_LABELS;
   }
@@ -803,6 +888,28 @@
     await refresh();
     await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
     showMessage(`« ${detail.label || "Lieu"} » enregistré.`, "info");
+  }
+
+  /** Correct the GeoNames mode of the open place; null goes back to the country setting. */
+  async function setClusterMode(mode) {
+    const detail = state.detail;
+    if (!detail) return;
+    if (hasUnsavedEdits()) {
+      throw new Error(
+        "Des modifications de la chaîne ou du code postal ne sont pas enregistrées : " +
+          "cliquez d'abord sur « Enregistrer », ou rouvrez le lieu pour les abandonner.",
+      );
+    }
+    await api("PUT", clusterPath(detail.id, "geonames"), { mode });
+    state.history.push(detail.id);
+    await refresh();
+    await openCluster(clusterById(detail.id) ? detail.id : state.currentId, true);
+    showMessage(
+      mode === null
+        ? "Ce lieu suit de nouveau le réglage de son pays."
+        : `Ce lieu : ${MODE_LABELS[mode]} (corrigé pour ce lieu).`,
+      "info",
+    );
   }
 
   function renderComplements(detail) {
@@ -1380,9 +1487,16 @@
     stopPolling();
     state.view = view;
     state.confirmClear = false;
+    state.confirmCountry = null;
     if (view === "sources") {
       try {
         await loadSources();
+      } finally {
+        renderAll();
+      }
+    } else if (view === "countries") {
+      try {
+        await loadCountries();
       } finally {
         renderAll();
       }
@@ -1695,6 +1809,7 @@
     }
     section.replaceChildren(
       renderDicotopo(sources.dicotopo),
+      renderGeonames(sources.geonames),
       renderQueueCard(sources.queue),
       renderCacheCard(),
       renderAttributions(sources),
@@ -1753,6 +1868,340 @@
     showMessage("Cache DicoTopo vidé.", "info");
   }
 
+  // -- GeoNames (Sources screen) ---------------------------------------------------
+
+  /** Bytes as "850 ko" or "12,3 Mo". */
+  function formatSize(bytes) {
+    if (typeof bytes !== "number" || !Number.isFinite(bytes)) return "";
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString("fr-FR")} ko`;
+    const mo = bytes / (1024 * 1024);
+    return `${mo.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Mo`;
+  }
+
+  /** A day "YYYY-MM-DD" as "08/11/2026"; any other text as it is. */
+  function formatDay(day) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || "");
+    if (!match) return day ? formatDate(day) : "";
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString("fr-FR");
+  }
+
+  /** Whether the user is typing the GeoNames identifier (focus or unsent text). */
+  function typingUsername() {
+    const input = $("geonames-username");
+    return Boolean(input && (input === document.activeElement || input.value));
+  }
+
+  function renderGeonamesCountries(geonames) {
+    const countries = geonames.countries || [];
+    if (!countries.length) {
+      return el("p", {
+        class: "sub",
+        text: "Aucun pays téléchargé : choisissez « Proposer avec GeoNames » pour un pays, à l'écran Pays.",
+      });
+    }
+    return el(
+      "table",
+      null,
+      el(
+        "thead",
+        null,
+        el(
+          "tr",
+          null,
+          el("th", { text: "Code" }),
+          el("th", { text: "Pays" }),
+          el("th", { text: "Téléchargé le" }),
+          el("th", { class: "num", text: "Taille" }),
+          el("th", { text: "" }),
+        ),
+      ),
+      el(
+        "tbody",
+        null,
+        countries.map((country) =>
+          el(
+            "tr",
+            null,
+            el("td", null, el("code", { text: country.iso })),
+            el("td", { text: country.name }),
+            el("td", { text: formatDay(country.downloaded_at) }),
+            el("td", { class: "num", text: formatSize(country.size) }),
+            el(
+              "td",
+              null,
+              el("button", {
+                type: "button",
+                class: "small",
+                text: "Retirer",
+                title: "Retirer le fichier GeoNames de ce pays",
+                "aria-label": `Retirer le pays ${country.iso}`,
+                onclick: () => run(() => removeGeonamesCountry(country.iso)),
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /** The identifier field is input only: it is never filled with the saved value. */
+  function renderUsername(geonames) {
+    const input = el("input", {
+      type: "text",
+      id: "geonames-username",
+      autocomplete: "off",
+      spellcheck: "false",
+      placeholder: geonames.username_set ? "Nouvel identifiant" : "Identifiant du compte GeoNames",
+    });
+    return el(
+      "form",
+      {
+        class: "username",
+        onsubmit: (event) => {
+          event.preventDefault();
+          run(() => saveUsername(input));
+        },
+      },
+      el("label", { for: "geonames-username", text: "Identifiant GeoNames" }),
+      input,
+      el("button", { type: "submit", text: "Enregistrer" }),
+      geonames.username_set
+        ? el("span", { class: "saved", text: "Identifiant enregistré" })
+        : el("span", { class: "sub", text: "Aucun identifiant : l'API GeoNames n'est pas interrogée." }),
+      geonames.username_set
+        ? el("button", {
+            type: "button",
+            text: "Effacer",
+            title: "Effacer l'identifiant enregistré",
+            onclick: () => run(clearUsername),
+          })
+        : null,
+    );
+  }
+
+  function renderGeonames(geonames) {
+    if (!geonames) return null;
+    const quota = geonames.api || { today: 0, paused_until: null };
+    return el(
+      "div",
+      { class: "card" },
+      el("h2", null, el("span", { text: "GeoNames" })),
+      el("p", {
+        class: "sub",
+        text: "GeoNames, CC BY 4.0 : fichiers par pays gardés sur cet ordinateur ; le réglage de chaque pays se fait à l'écran Pays.",
+      }),
+      renderGeonamesCountries(geonames),
+      el("h3", { text: "API GeoNames (dernier recours)" }),
+      el("p", {
+        class: "sub",
+        text: "Interrogée seulement pour un lieu absent des fichiers, et seulement avec l'identifiant d'un compte GeoNames (gratuit). L'identifiant reste sur cet ordinateur.",
+      }),
+      renderUsername(geonames),
+      el("p", { class: "sub", text: `Requêtes à l'API aujourd'hui : ${quota.today}` }),
+      quota.paused_until
+        ? el("div", {
+            class: "warning",
+            role: "status",
+            text: `Plafond de l'API atteint : requêtes en pause jusqu'au ${formatDate(quota.paused_until)}.`,
+          })
+        : null,
+    );
+  }
+
+  async function saveUsername(input) {
+    const username = input.value.trim();
+    if (!username) throw new Error("Saisissez d'abord l'identifiant de votre compte GeoNames.");
+    try {
+      await api("PUT", "/api/sources/geonames/username", { username });
+    } finally {
+      input.value = ""; // never kept on the page
+    }
+    await reloadSources();
+    showMessage("Identifiant GeoNames enregistré.", "info");
+  }
+
+  async function clearUsername() {
+    await api("PUT", "/api/sources/geonames/username", { username: null });
+    await reloadSources();
+    showMessage("Identifiant GeoNames effacé.", "info");
+  }
+
+  async function removeGeonamesCountry(iso) {
+    state.sources = await api("DELETE", `/api/sources/geonames/countries/${encodeURIComponent(iso)}`);
+    await refresh(); // the countries and the places' proposals follow
+    await reloadSources();
+    showMessage(`Fichier GeoNames du pays ${iso} retiré.`, "info");
+  }
+
+  // -- countries (GeoNames mode) -----------------------------------------------------
+
+  async function loadCountries() {
+    try {
+      const result = await api("GET", "/api/countries");
+      state.countries = result.countries;
+      state.countriesError = null;
+    } catch (error) {
+      state.countriesError = error.message;
+      throw error;
+    }
+  }
+
+  /** A country set to GeoNames whose file is not indexed yet. */
+  function countriesDownloading() {
+    return (state.countries || []).some((c) => c.iso && c.mode === "geonames" && !c.downloaded);
+  }
+
+  function fileText(country) {
+    if (country.downloaded) return `téléchargé le ${formatDay(country.downloaded)}`;
+    const size = state.countrySizes[country.iso];
+    const sized = size ? ` (${formatSize(size)})` : "";
+    return country.mode === "geonames" ? `téléchargement en cours${sized}` : "non téléchargé";
+  }
+
+  function renderCountryMode(country) {
+    if (!country.iso) return el("span", { class: "sub", text: HISTORICAL_COUNTRY });
+    const choice = (mode, text) =>
+      el("button", {
+        type: "button",
+        class: "small",
+        "aria-pressed": String(country.mode === mode),
+        text,
+        onclick: () => run(() => setCountryMode(country, mode)),
+      });
+    return el(
+      "span",
+      { class: "mode-choice", role: "group", "aria-label": `Réglage GeoNames : ${country.name}` },
+      choice("written", "Garder tel qu'écrit"),
+      choice("geonames", "Proposer avec GeoNames"),
+    );
+  }
+
+  /** Before the first download of a country: what it costs, and a second click. */
+  function renderCountryConfirm(country) {
+    return el(
+      "tr",
+      { class: "confirm" },
+      el(
+        "td",
+        { colspan: "7" },
+        el(
+          "div",
+          { class: "warning", role: "status" },
+          el("span", {
+            text:
+              `Proposer avec GeoNames télécharge le fichier de ce pays (${country.name}) : ` +
+              "quelques Mo pour un petit pays, plusieurs centaines de Mo pour les plus grands. " +
+              "Sa taille exacte s'affiche dès la demande.",
+          }),
+          el("button", {
+            type: "button",
+            class: "primary",
+            text: "Télécharger et proposer",
+            onclick: () => run(() => setCountryMode(country, "geonames")),
+          }),
+          el("button", {
+            type: "button",
+            text: "Annuler",
+            onclick: () => {
+              state.confirmCountry = null;
+              renderCountries();
+            },
+          }),
+        ),
+      ),
+    );
+  }
+
+  function renderCountryRows(countries) {
+    return countries.flatMap((country) => {
+      const row = el(
+        "tr",
+        null,
+        el("td", { text: country.name }),
+        el("td", null, country.iso ? el("code", { text: country.iso }) : null),
+        el("td", { class: "num", text: String(country.writings) }),
+        el("td", { class: "num", text: String(country.occurrences) }),
+        el("td", null, renderCountryMode(country)),
+        el("td", { text: country.iso ? fileText(country) : "" }),
+        el("td", {
+          class: "num",
+          text: country.overrides ? plural(country.overrides, "écriture corrigée", "écritures corrigées") : "",
+        }),
+      );
+      return country.iso && state.confirmCountry === country.iso ? [row, renderCountryConfirm(country)] : [row];
+    });
+  }
+
+  function renderCountries() {
+    const section = $("countries");
+    const countries = state.countries;
+    const intro = [
+      el("h2", { text: "Pays" }),
+      el("p", {
+        class: "sub",
+        text:
+          "Par défaut, l'atelier garde ce qui est écrit. Pour un pays, GeoNames peut proposer le type des niveaux, " +
+          "les niveaux manquants et l'identifiant GeoNames, à valider lieu par lieu. Le réglage suit vos projets ; " +
+          "un lieu corrigé garde sa correction si le réglage du pays change.",
+      }),
+    ];
+    if (countries === null || state.countriesError) {
+      const text = state.countriesError
+        ? `Impossible de charger les pays : ${state.countriesError}`
+        : "Chargement…";
+      section.replaceChildren(...intro, el("p", { class: state.countriesError ? "empty error" : "empty", text }));
+      return;
+    }
+    if (!countries.length) {
+      section.replaceChildren(...intro, el("p", { class: "empty", text: "Aucun lieu étranger dans ce projet." }));
+      return;
+    }
+    section.replaceChildren(
+      ...intro,
+      el(
+        "table",
+        null,
+        el(
+          "thead",
+          null,
+          el(
+            "tr",
+            null,
+            el("th", { text: "Pays" }),
+            el("th", { text: "Code" }),
+            el("th", { class: "num", text: "Écritures" }),
+            el("th", { class: "num", text: "Occurrences" }),
+            el("th", { text: "Réglage" }),
+            el("th", { text: "Fichier GeoNames" }),
+            el("th", { class: "num", text: "Corrections" }),
+          ),
+        ),
+        el("tbody", null, renderCountryRows(countries)),
+      ),
+    );
+  }
+
+  async function setCountryMode(country, mode) {
+    if (mode === country.mode) return;
+    if (mode === "geonames" && !country.downloaded && state.confirmCountry !== country.iso) {
+      state.confirmCountry = country.iso; // first download: ask a second click
+      renderCountries();
+      return;
+    }
+    state.confirmCountry = null;
+    const result = await api("PUT", `/api/countries/${encodeURIComponent(country.iso)}`, { mode });
+    if (typeof result.size === "number") state.countrySizes[result.iso] = result.size;
+    state.history.push(state.currentId);
+    await refreshPlaces(); // the places of this country change mode (and the countries reload)
+    const sized = typeof result.size === "number" ? ` (${formatSize(result.size)})` : "";
+    showMessage(
+      result.queued
+        ? `${country.name} : ${MODE_LABELS[mode]} ; téléchargement du fichier GeoNames demandé${sized}.`
+        : `${country.name} : ${MODE_LABELS[mode]}.`,
+      "info",
+    );
+  }
+
   // -- polling -------------------------------------------------------------------
 
   function stopPolling() {
@@ -1763,6 +2212,7 @@
   /** Poll only while jobs run: on the sources screen, or for the open place. */
   function pollWanted() {
     if (state.view === "sources") return queueActive(state.sources);
+    if (state.view === "countries") return countriesDownloading();
     if (state.view === "places") {
       return Boolean(state.detail && (state.detail.pending_sources || []).length);
     }
@@ -1795,7 +2245,13 @@
           // pollWanted() turns false and polling stops for good.
           state.sources = await api("GET", "/api/sources");
           state.sourcesError = null;
-          if (state.view === "sources") renderSources();
+          // Never redraw under the user typing the identifier: it would be lost.
+          if (state.view === "sources" && !typingUsername()) renderSources();
+        } else if (state.view === "countries") {
+          const result = await api("GET", "/api/countries");
+          state.countries = result.countries;
+          state.countriesError = null;
+          if (state.view === "countries") renderCountries();
         } else if (state.view === "places") {
           await pollDetail();
         }
@@ -1809,13 +2265,16 @@
   // -- loading -------------------------------------------------------------------
 
   async function refresh() {
-    const [project, clusters, conflicts, precisions] = await Promise.all([
+    const [project, clusters, conflicts, precisions, countries] = await Promise.all([
       api("GET", "/api/project"),
       api("GET", "/api/clusters"),
       api("GET", "/api/registry/conflicts"),
       api("GET", "/api/precisions"),
+      api("GET", "/api/countries"),
     ]);
     state.precisions = precisions.groups;
+    state.countries = countries.countries;
+    state.countriesError = null;
     state.project = project;
     state.clusters = clusters;
     state.conflicts = conflicts.conflicts;
@@ -2066,6 +2525,9 @@
     });
     $("sources-button").addEventListener("click", () => {
       run(() => showView(state.view === "sources" ? "places" : "sources"));
+    });
+    $("countries-button").addEventListener("click", () => {
+      run(() => showView(state.view === "countries" ? "places" : "countries"));
     });
     document.addEventListener("keydown", onKeyDown);
     run(async () => {

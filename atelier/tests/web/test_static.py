@@ -175,3 +175,39 @@ def test_precisions_tab_present(client: TestClient) -> None:
     assert "/api/precisions/clear" in script
     assert "Revenir au calcul" in script
     assert "aucun arrondissement (choix manuel)" in script
+
+
+def test_countries_tab_present(client: TestClient) -> None:
+    page = client.get("/").text
+    script = client.get("/static/app.js").text
+    assert 'id="countries-button"' in page
+    assert 'id="countries"' in page
+    assert "Pays" in page + script
+    for text in (
+        "Proposer avec GeoNames",
+        "Garder tel qu'écrit",
+        "Revenir au réglage du pays",
+        "Garder tel qu'écrit pour ce lieu",
+        "Proposer avec GeoNames pour ce lieu",
+        "réglage du pays",
+        "corrigé pour ce lieu",
+        "corrigé pour une partie des écritures",
+        "tel qu'écrit (pays historique)",
+        "Identifiant GeoNames",
+        "Identifiant enregistré",
+        "Effacer",
+        "CC BY 4.0",
+        "/api/countries",
+        "/api/sources/geonames/username",
+        "/api/sources/geonames/countries/",
+        "/geonames",
+    ):
+        assert text in script, text
+
+
+def test_script_treats_geonames_as_a_source(client: TestClient) -> None:
+    """GeoNames proposals get the same controls as DicoTopo's (accept, refuse)."""
+    script = client.get("/static/app.js").text
+    assert 'geonames: "GeoNames"' in script
+    assert "type proposé : " in script
+    assert "https://www.geonames.org/" in script
