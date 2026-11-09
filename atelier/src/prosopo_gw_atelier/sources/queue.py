@@ -347,16 +347,19 @@ class SourceQueue:
                 )
             }
 
-    def clear_results(self, source: str, department: str) -> int:
-        """Delete the cached results of ``source`` whose query is for
-        ``department``; returns how many. Always bumps the reset epoch."""
+    def clear_results(
+        self, source: str, department: str, *, field: str = "department"
+    ) -> int:
+        """Delete the cached results of ``source`` whose query has ``department``
+        as its ``field`` (``"country"`` for GeoNames); returns how many. Always
+        bumps the reset epoch."""
         with self._db() as db:
             doomed = []
             for row in db.execute(
                 "SELECT query_key FROM results WHERE source=?", (source,)
             ):
                 try:
-                    found = json.loads(row["query_key"]).get("department")
+                    found = json.loads(row["query_key"]).get(field)
                 except (ValueError, AttributeError):
                     continue
                 if found == department:

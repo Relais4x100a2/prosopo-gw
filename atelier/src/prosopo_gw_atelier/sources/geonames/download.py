@@ -166,8 +166,18 @@ def handle_download(job: Job, *, cache: Path, opener: Opener | None = None) -> N
         _sidecar(cache, country).write_text(stamp, encoding="utf-8")
 
 
-def handle_index(job: Job, *, cache: Path, index: GeoNamesIndex) -> None:
-    """Index a downloaded country; a missing or partial file is an error."""
+def handle_index(
+    job: Job,
+    *,
+    cache: Path,
+    index: GeoNamesIndex,
+    queue: SourceQueue | None = None,
+) -> None:
+    """Index a downloaded country; a missing or partial file is an error.
+
+    With ``queue``, the cached match results for that country are deleted so the
+    projects match it again against the new index.
+    """
     country = _check_country(job.key)
     directory = _directory(cache)
     zip_path = directory / f"{country}.zip"
@@ -193,6 +203,8 @@ def handle_index(job: Job, *, cache: Path, index: GeoNamesIndex) -> None:
         directory / "admin2Codes.txt",
         extracted,
     )
+    if queue is not None:
+        queue.clear_results(GEONAMES, country, field="country")
 
 
 def remote_size(url: str, *, opener: Opener | None = None) -> int | None:

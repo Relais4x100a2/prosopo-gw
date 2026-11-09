@@ -1,8 +1,14 @@
 """Sources externes de lieux et file de fond.
 
 ``SourceRuntime`` regroupe ce que l'application web partage avec le fil de fond :
-la file de tâches, la configuration locale, les sources (DicoTopo), leur index et
-le ``Worker`` qui exécute les tâches (téléchargement, indexation, appariement).
+la file de tâches, la configuration locale, les sources (DicoTopo, GeoNames), leurs
+index et le ``Worker`` qui exécute les tâches (téléchargement, indexation, appariement).
+
+GeoNames : une seule ``GeoNamesSource`` et un seul ``RateLimiter`` (4 s) pour toute la
+durée du runtime (le compteur de requêtes de l'API est protégé par un verrou propre à
+l'instance). Index et fichiers dans ``<cache>/geonames/``, compteur de l'API dans
+``<cache>/geonames/api_counter.json``. L'identifiant GeoNames est lu dans ``config``
+(objet partagé) à chaque requête : le changer ne recrée pas la source.
 """
 
 from __future__ import annotations
@@ -20,6 +26,9 @@ from prosopo_gw_atelier.sources.dicotopo import download as dicotopo_download
 from prosopo_gw_atelier.sources.dicotopo.index import DicoTopoIndex
 from prosopo_gw_atelier.sources.dicotopo.source import DicoTopoSource
 from prosopo_gw_atelier.sources.fetch import Opener
+from prosopo_gw_atelier.sources.geonames import download as geonames_download
+from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex
+from prosopo_gw_atelier.sources.geonames.source import MIN_INTERVAL, GeoNamesSource
 from prosopo_gw_atelier.sources.queue import (
     Job,
     JobKind,
@@ -31,16 +40,19 @@ from prosopo_gw_atelier.sources.queue import (
 from prosopo_gw_atelier.store.config import LocalConfig, load_config, save_config
 
 DICOTOPO = dicotopo_download.DICOTOPO
+GEONAMES = geonames_download.GEONAMES
+API_COUNTER = "api_counter.json"
 COVERAGE_FAILED = "coverage.failed"
 COVERAGE_RETRY_SECONDS = 3600
 
 
 @dataclass
 class SourceRuntime:
-    """Queue, config, sources, index and worker of one atelier run.
+    """Queue, config, sources, indexes and worker of one atelier run.
 
     ``sources`` is replaced (not mutated) when the config changes: pass it again
-    to ``Project.attach_sources``.
+    to ``Project.attach_sources`` (with ``geonames_index``). The GeoNames source is
+    the same instance in every ``sources`` mapping.
     """
 
     queue: SourceQueue
@@ -50,12 +62,25 @@ class SourceRuntime:
     index: DicoTopoIndex
     ref: RefData
     sources: dict[str, Source]
+    geonames_index: GeoNamesIndex
     opener: Opener | None = None
     limiter: RateLimiter | None = None
+    geonames_limiter: RateLimiter | None = None
+    geonames: GeoNamesSource = field(init=False)
     worker: Worker = field(init=False)
     _refreshing: threading.Lock = field(init=False, default_factory=threading.Lock)
 
     def __post_init__(self) -> None:
+        if self.geonames_limiter is None:
+            self.geonames_limiter = RateLimiter(MIN_INTERVAL)
+        self.geonames = GeoNamesSource(
+            self.geonames_index,
+            config=self.config,
+            counter_path=self.cache / GEONAMES / API_COUNTER,
+            opener=self.opener,
+            limiter=self.geonames_limiter,
+            queue=self.queue,
+        )
         self.worker = Worker(self.queue, self._handlers())
 
     @classmethod
@@ -73,6 +98,7 @@ class SourceRuntime:
         config_path = directory / "config.json"
         config = load_config(config_path)
         index = DicoTopoIndex(cache / DICOTOPO / "index.sqlite")
+        geonames_index = GeoNamesIndex(cache / GEONAMES)
         runtime = cls(
             queue=SourceQueue(cache / "queue.sqlite"),
             config=config,
@@ -81,10 +107,11 @@ class SourceRuntime:
             index=index,
             ref=ref,
             sources={},
+            geonames_index=geonames_index,
             opener=opener,
             limiter=limiter,
         )
-        runtime.sources = {DICOTOPO: runtime._dicotopo()}
+        runtime.sources = {DICOTOPO: runtime._dicotopo(), GEONAMES: runtime.geonames}
         return runtime
 
     def _dicotopo(self) -> DicoTopoSource:
@@ -113,10 +140,22 @@ class SourceRuntime:
                 job, cache=self.cache, index=self.index, queue=self.queue
             )
 
+        def geonames_download_job(job: Job) -> None:
+            geonames_download.handle_download(job, cache=self.cache, opener=self.opener)
+
+        def geonames_index_job(job: Job) -> None:
+            # Clears the country's cached matches: the projects match it again.
+            geonames_download.handle_index(
+                job, cache=self.cache, index=self.geonames_index, queue=self.queue
+            )
+
         return {
             (DICOTOPO, "match"): match,
             (DICOTOPO, "download"): download,
             (DICOTOPO, "index"): index,
+            (GEONAMES, "match"): match,
+            (GEONAMES, "download"): geonames_download_job,
+            (GEONAMES, "index"): geonames_index_job,
         }
 
     def set_api_enabled(self, enabled: bool) -> None:
@@ -124,6 +163,23 @@ class SourceRuntime:
         self.config.dicotopo_api = enabled
         save_config(self.config, self.config_path)
         self.sources = {**self.sources, DICOTOPO: self._dicotopo()}
+
+    def set_geonames_username(self, username: str | None) -> None:
+        """Set or clear the GeoNames user name; written to ``config.json`` only.
+
+        The caller validates the value. The shared ``GeoNamesSource`` reads it from
+        ``config`` at each request.
+        """
+        self.config.geonames_username = username or None
+        save_config(self.config, self.config_path)
+
+    def geonames_size(self, country: str) -> int | None:
+        """Size of the cached ``<CC>.zip`` of ``country`` (``None`` if absent)."""
+        path = self.cache / GEONAMES / f"{country}.zip"
+        try:
+            return path.stat().st_size
+        except OSError:
+            return None
 
     def coverage(self) -> list[str]:
         """Cached coverage only: never touches the network."""
@@ -175,4 +231,4 @@ class SourceRuntime:
         self.worker.stop()
 
 
-__all__ = ["DICOTOPO", "SourceRuntime"]
+__all__ = ["DICOTOPO", "GEONAMES", "SourceRuntime"]

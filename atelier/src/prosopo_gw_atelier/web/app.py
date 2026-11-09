@@ -76,9 +76,10 @@ from ..places.precision import PrecisionStatus
 from ..project import ClusterState, ClusterView, PrecisionGroup, Project
 from ..refdata import RefData
 from ..refdata.arrondissements import name_of
-from ..sources import DICOTOPO, SourceRuntime
+from ..sources import DICOTOPO, GEONAMES, SourceRuntime
 from ..sources.base import SourceError
 from ..sources.dicotopo.download import remove_department, request_download
+from ..sources.geonames.download import country_size, remove_country, request_country
 from ..store.exchange import (
     Conflict,
     RegistryFormatError,
@@ -87,7 +88,7 @@ from ..store.exchange import (
     import_registry,
     resolve_conflict,
 )
-from ..store.registry import JournalEntry, Place, PlaceRegistry
+from ..store.registry import JournalEntry, Place, PlaceRegistry, SourceMode
 from . import schemas
 
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
@@ -118,10 +119,26 @@ ATTRIBUTIONS = [
     "chartes et Comité des travaux historiques et scientifiques (CTHS), "
     "licence CC BY-NC-ND 3.0 FR (usage non commercial, sans modification).",
     "Source et conditions : https://github.com/chartes/dico-topo",
+    "GeoNames (https://www.geonames.org/), licence CC BY 4.0 : fichiers par pays "
+    "et service web, téléchargés à la demande.",
 ]
 """Credits shown on the Sources screen."""
 
 _SOURCES_OFF = "Les sources externes ne sont pas disponibles."
+
+_SOURCE_ORIGINS: frozenset[str] = frozenset({DICOTOPO, GEONAMES})
+"""Origins of the levels a source proposes (laid over a chain, never saved as is)."""
+
+_SOURCE_MODES: tuple[SourceMode, ...] = get_args(SourceMode)
+_GEONAMES_USERNAME = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+_USERNAME_INVALID = (
+    "Identifiant GeoNames invalide : lettres, chiffres, « _ », « - » et « . » "
+    "seulement (100 caractères au plus)."
+)
+_MODE_INVALID = (
+    "Mode GeoNames inconnu : « written » (garder tel qu'écrit) ou « geonames » "
+    "(proposer avec GeoNames) attendu."
+)
 
 RefKind = Literal["registry", "project"]
 
@@ -302,17 +319,18 @@ def _checked_levels(
 def _strip_overlay(levels: Sequence[Level], view: ClusterView) -> tuple[Level, ...]:
     """``levels`` without the sources' proposals laid over the chain.
 
-    A level proposed by a source (origin ``dicotopo``, status ``proposed``, absent
-    from ``view.base_levels``) is not saved: the written level it made precise
-    (same name or written form, untyped) comes back in its place; without such a
-    level, it is dropped. The other proposed levels (recorded ones) are kept.
+    A level proposed by a source (origin ``dicotopo`` or ``geonames``, status
+    ``proposed``, absent from ``view.base_levels``) is not saved: the written level
+    it made precise (same name or written form, untyped) comes back in its place;
+    without such a level, it is dropped. The other proposed levels (recorded ones)
+    are kept.
     """
     base = {(lv.name, lv.type, lv.identifier) for lv in view.base_levels}
     out: list[Level] = []
     for level in levels:
         overlay = (
             level.status == "proposed"
-            and level.origin == "dicotopo"
+            and level.origin in _SOURCE_ORIGINS
             and (level.name, level.type, level.identifier) not in base
         )
         if not overlay:
@@ -442,6 +460,8 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
             for text, count in sorted(complements.items(), key=lambda i: (-i[1], i[0]))
         ],
         writings=rows,
+        geonames_mode=view.geonames_mode,
+        geonames_mode_origin=view.geonames_mode_origin,
     )
 
 
@@ -718,8 +738,15 @@ def create_app(
     (tests pass ``False`` and drive ``sources.worker.run_once()``).
     """
     state = AppState(project, registry, ref, sources=sources)
-    if sources is not None:
-        project.attach_sources(sources.queue, sources.sources)
+
+    def reattach() -> None:
+        """(Re)connect the project to the sources: they or their data changed."""
+        if sources is not None:
+            project.attach_sources(
+                sources.queue, sources.sources, geonames_index=sources.geonames_index
+            )
+
+    reattach()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -1013,6 +1040,28 @@ def create_app(
             ],
         )
 
+    def _geonames_status(runtime: SourceRuntime) -> schemas.GeoNamesStatus:
+        """Cache and queue only, never the network; never the user name."""
+        paused = runtime.queue.paused_until(GEONAMES)
+        return schemas.GeoNamesStatus(
+            countries=[
+                schemas.GeoNamesCountry(
+                    iso=iso,
+                    name=ref.country_of_iso(iso) or iso,
+                    downloaded_at=extracted,
+                    size=runtime.geonames_size(iso),
+                )
+                for iso, extracted in sorted(runtime.geonames_index.countries().items())
+            ],
+            username_set=bool(runtime.config.geonames_username),
+            api=schemas.GeoNamesApi(
+                today=runtime.geonames.requests_today(),
+                paused_until=None
+                if paused is None
+                else datetime.fromtimestamp(paused, UTC).isoformat(timespec="seconds"),
+            ),
+        )
+
     @app.get("/api/sources")
     def get_sources() -> schemas.SourcesOut:
         runtime = _runtime()
@@ -1033,6 +1082,7 @@ def create_app(
                 ],
                 api_enabled=runtime.config.dicotopo_api,
             ),
+            geonames=_geonames_status(runtime),
             queue=_queue_status(runtime),
             attributions=list(ATTRIBUTIONS),
         )
@@ -1064,7 +1114,7 @@ def create_app(
             except SourceError as exc:
                 raise _error(400, str(exc)) from None
             runtime.queue.clear_results(DICOTOPO, code.strip().upper())
-            project.attach_sources(runtime.queue, runtime.sources)
+            reattach()
         return get_sources()
 
     @app.put("/api/sources/dicotopo/api")
@@ -1072,8 +1122,39 @@ def create_app(
         runtime = _runtime()
         with state.lock:
             runtime.set_api_enabled(body.enabled)
-            project.attach_sources(runtime.queue, runtime.sources)
+            reattach()
         return schemas.ApiToggleOut(api_enabled=runtime.config.dicotopo_api)
+
+    @app.put("/api/sources/geonames/username")
+    def set_geonames_username(
+        body: schemas.GeoNamesUsernameIn,
+    ) -> schemas.GeoNamesUsernameOut:
+        """Write-only: the value goes to ``config.json`` and is never sent back,
+        logged or quoted in a message; ``null`` (or blank) clears it."""
+        runtime = _runtime()
+        value = (body.username or "").strip()
+        if value and not _GEONAMES_USERNAME.fullmatch(value):
+            raise _error(400, _USERNAME_INVALID)
+        with state.lock:
+            runtime.set_geonames_username(value or None)
+            reattach()  # the API may now answer (or no longer)
+        return schemas.GeoNamesUsernameOut(
+            username_set=bool(runtime.config.geonames_username)
+        )
+
+    @app.delete("/api/sources/geonames/countries/{iso}")
+    def delete_geonames_country(iso: str) -> schemas.SourcesOut:
+        runtime = _runtime()
+        with state.lock:
+            try:
+                remove_country(
+                    runtime.cache, runtime.geonames_index, iso, queue=runtime.queue
+                )
+            except SourceError as exc:
+                raise _error(400, str(exc)) from None
+            runtime.queue.clear_results(GEONAMES, iso.strip().upper(), field="country")
+            reattach()
+        return get_sources()
 
     @app.post("/api/sources/queue/retry")
     def retry_sources_queue() -> schemas.QueueStatus:
@@ -1088,7 +1169,7 @@ def create_app(
             raise _error(400, f"Source inconnue : {body.source!r}.")
         with state.lock:
             runtime.queue.clear(body.source)
-            project.attach_sources(runtime.queue, runtime.sources)
+            reattach()
         return schemas.CacheClearOut(cleared=body.source)
 
     @app.post("/api/places/{place_id}/source-proposals/accept")
@@ -1151,6 +1232,99 @@ def create_app(
             )
             _push_correct(entry)
             return schemas.SourceProposalRefuseOut(entry_id=entry)
+
+    # -- countries (GeoNames mode) -------------------------------------------
+
+    def _country_rows() -> list[schemas.CountryRowOut]:
+        return [
+            schemas.CountryRowOut(
+                iso=row.iso,
+                name=row.name,
+                writings=row.writings,
+                occurrences=row.occurrences,
+                mode=row.mode,
+                downloaded=row.downloaded,
+                overrides=row.overrides,
+            )
+            for row in project.countries()
+        ]
+
+    def _mode_in(value: str | None) -> SourceMode | None:
+        if value is None:
+            return None
+        for mode in _SOURCE_MODES:
+            if value == mode:
+                return mode
+        raise _error(400, _MODE_INVALID)
+
+    @app.get("/api/countries")
+    def list_countries() -> schemas.CountriesOut:
+        with state.lock:
+            return schemas.CountriesOut(countries=_country_rows())
+
+    @app.put("/api/countries/{iso}")
+    def set_country_mode(iso: str, body: schemas.ModeIn) -> schemas.CountryModeOut:
+        """Choose the GeoNames mode of a country (undoable).
+
+        ``geonames`` for a country not indexed yet queues its download; the
+        response then gives the announced size of the file (one ``HEAD`` request,
+        made outside the lock).
+        """
+        mode = _mode_in(body.mode)
+        if mode is None:
+            raise _error(400, _MODE_INVALID)
+        code = iso.strip().upper()
+        unknown = f"Code pays inconnu : « {code} » (code ISO à deux lettres attendu)."
+        runtime = sources
+        queued = False
+        with state.lock:
+            if code not in {row.iso for row in project.countries() if row.iso}:
+                raise _error(400, unknown)
+            if (
+                runtime is not None
+                and mode == "geonames"
+                and code not in runtime.geonames_index.countries()
+            ):
+                try:  # checked before the setting: an error leaves nothing done
+                    request_country(runtime.queue, code, cache=runtime.cache)
+                except SourceError as exc:
+                    raise _error(400, str(exc)) from None
+                queued = True
+            try:
+                entry = project.set_country_mode(code, mode)
+            except ValueError:
+                raise _error(400, unknown) from None
+            _push_correct(entry)
+            rows = _country_rows()
+        size: int | None = None
+        if runtime is not None and mode == "geonames":
+            size = runtime.geonames_size(code)
+            if size is None and queued:
+                size = country_size(code, opener=runtime.opener)
+        return schemas.CountryModeOut(
+            iso=code, mode=mode, queued=queued, size=size, countries=rows
+        )
+
+    @app.put("/api/clusters/{cluster_id:path}/geonames")
+    def set_cluster_geonames(
+        cluster_id: str, body: schemas.ModeIn
+    ) -> schemas.ClusterDetail:
+        """Correct the GeoNames mode of one place (all its writings; undoable);
+        ``null`` goes back to the country setting."""
+        mode = _mode_in(body.mode)
+        with state.lock:
+            _cluster_or_404(project, cluster_id)
+            try:
+                entry = project.set_cluster_mode(cluster_id, mode)
+            except KeyError:
+                raise _error(
+                    404, "Ce lieu n'existe pas (ou plus) dans la file."
+                ) from None
+            except ValueError as exc:
+                raise _error(400, f"Correction impossible : {exc}.") from None
+            _push_correct(entry)
+            project.touch(cluster_id)
+            return _detail(state, _cluster_or_404(project, cluster_id))
 
     # -- occurrences --------------------------------------------------------
 

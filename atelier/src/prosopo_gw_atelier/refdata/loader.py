@@ -250,6 +250,14 @@ class RefData:
         name = self.country(token)
         return self._country_iso.get(name) if name is not None else None
 
+    def country_of_iso(self, code: str) -> str | None:
+        """Return the canonical name of the country whose ISO alpha-2 code is
+        ``code`` (the first one listed when several names share it)."""
+        wanted = code.strip().upper()
+        return next(
+            (name for name, iso in self._country_iso.items() if iso == wanted), None
+        )
+
     def is_country_iso(self, code: str) -> bool:
         """Whether ``code`` is the ISO 3166-1 alpha-2 code of a known country."""
         return code.strip().upper() in self._country_iso.values()

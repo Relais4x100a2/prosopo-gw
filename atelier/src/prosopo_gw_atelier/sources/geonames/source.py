@@ -377,6 +377,18 @@ class GeoNamesSource:
 
     # -- daily counter ----------------------------------------------------
 
+    def requests_today(self) -> int:
+        """API requests counted today (UTC); 0 when the counter is absent."""
+        today = datetime.fromtimestamp(self._clock(), UTC).date().isoformat()
+        with self._lock:
+            try:
+                raw = json.loads(self._counter_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return 0
+        if isinstance(raw, dict) and raw.get("date") == today:
+            return max(0, _int(raw.get("count")))
+        return 0
+
     def _count_request(self) -> None:
         """Count one request against today's limit (UTC); raise when it is reached."""
         now = self._clock()

@@ -3,10 +3,13 @@ import io
 import json
 import shutil
 import sqlite3
+import time
+import urllib.error
+import urllib.request
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import quote
 
 import pytest
@@ -21,6 +24,10 @@ from prosopo_gw_atelier.places.levels import (
 from prosopo_gw_atelier.project import Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
+from prosopo_gw_atelier.sources import DICOTOPO, GEONAMES, SourceRuntime
+from prosopo_gw_atelier.sources.base import LevelQuery, SourceCandidate
+from prosopo_gw_atelier.sources.geonames import download as geo_dl
+from prosopo_gw_atelier.store.config import load_config
 from prosopo_gw_atelier.store.exchange import export_registry
 from prosopo_gw_atelier.store.registry import PlaceRegistry
 from prosopo_gw_atelier.web import app as web_app
@@ -1472,3 +1479,295 @@ def test_decide_rejects_unknown_candidate(paris_client: TestClient) -> None:
     )
     assert bad_quartier.status_code == 400
     assert paris_client.post("/api/undo").status_code == 409
+
+
+# -- countries and GeoNames ----------------------------------------------------
+
+GEO = FIXTURES / "geonames"
+WINNIPEG = "Winnipeg, , , Manitoba, Canada"
+KONIGSBERG = "Königsberg, Prusse"
+DEMO_USER = "demo_user"
+
+
+class _GeoResponse(io.BytesIO):
+    def __init__(self, data: bytes, headers: dict[str, str]) -> None:
+        super().__init__(data)
+        self.headers = headers
+
+
+class GeoServer:
+    """Serves the GeoNames fixtures as the dump server would (no network)."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str]] = []
+
+    def __call__(self, request: urllib.request.Request, timeout: float) -> BinaryIO:
+        url = request.full_url
+        self.requests.append((request.get_method(), url))
+        name = url.rsplit("/", 1)[-1]
+        path = GEO / name
+        if url != geo_dl.DUMP_URL + name or not path.is_file():
+            raise urllib.error.HTTPError(url, 404, "Not Found", None, None)  # type: ignore[arg-type]
+        data = path.read_bytes()
+        headers = {
+            "Content-Length": str(len(data)),
+            "Last-Modified": "Sun, 08 Nov 2026 03:38:08 GMT",
+        }
+        body = b"" if request.get_method() == "HEAD" else data
+        return _GeoResponse(body, headers)  # type: ignore[return-value]
+
+
+@pytest.fixture
+def geo_runtime(tmp_path: Path, ref: RefData) -> SourceRuntime:
+    return SourceRuntime.build(tmp_path / "data", ref, opener=GeoServer())
+
+
+@pytest.fixture
+def geo_client(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData, geo_runtime: SourceRuntime
+) -> TestClient:
+    project = open_project(tmp_path, registry, ref, "lieux_geonames.gw")
+    app = create_app(project, registry, ref, sources=geo_runtime, start_worker=False)
+    return TestClient(app, base_url="http://127.0.0.1")
+
+
+def drain(runtime: SourceRuntime) -> int:
+    count = 0
+    while runtime.worker.run_once():
+        count += 1
+    return count
+
+
+def cluster_of(client: TestClient, writing: str) -> str:
+    for row in client.get("/api/clusters").json():
+        if writing in writings_of(detail(client, row["id"])):
+            return str(row["id"])
+    raise AssertionError(writing)
+
+
+def test_list_countries(geo_client: TestClient) -> None:
+    response = geo_client.get("/api/countries")
+    assert response.status_code == 200
+    rows = response.json()["countries"]
+    assert rows[0] == {
+        "iso": "CA",
+        "name": "Canada",
+        "writings": 2,
+        "occurrences": 2,
+        "mode": "written",
+        "downloaded": None,
+        "overrides": 0,
+    }
+    by_name = {row["name"]: row for row in rows}
+    assert set(by_name) == {"Canada", "Royaume-Uni", "Prusse"}
+    assert by_name["Prusse"]["iso"] is None
+
+
+def test_list_countries_without_sources(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData
+) -> None:
+    client = make_client(tmp_path, registry, ref, "lieux_geonames.gw")
+    rows = client.get("/api/countries").json()["countries"]
+    assert rows[0]["iso"] == "CA"
+    changed = client.put("/api/countries/CA", json={"mode": "geonames"})
+    assert changed.status_code == 200
+    assert changed.json()["queued"] is False
+    assert client.get("/api/countries").json()["countries"][0]["mode"] == "geonames"
+
+
+def test_set_country_mode_enqueues_download(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    response = geo_client.put("/api/countries/ca", json={"mode": "geonames"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["iso"] == "CA"
+    assert body["mode"] == "geonames"
+    assert body["queued"] is True
+    assert body["size"] == (GEO / "CA.zip").stat().st_size
+    assert body["countries"][0]["mode"] == "geonames"
+    assert geo_runtime.queue.counts()[GEONAMES]["pending"] >= 2
+    drain(geo_runtime)  # common files, CA.zip, index, then the matches
+    assert geo_runtime.queue.errors() == []
+    (country,) = geo_client.get("/api/sources").json()["geonames"]["countries"]
+    assert country == {
+        "iso": "CA",
+        "name": "Canada",
+        "downloaded_at": "2026-11-08",
+        "size": (GEO / "CA.zip").stat().st_size,
+    }
+    rows = geo_client.get("/api/countries").json()["countries"]
+    assert rows[0]["downloaded"] == "2026-11-08"
+    winnipeg = detail(geo_client, cluster_of(geo_client, WINNIPEG))
+    drain(geo_runtime)
+    winnipeg = detail(geo_client, winnipeg["id"])
+    assert winnipeg["geonames_mode"] == "geonames"
+    assert winnipeg["geonames_mode_origin"] == "country"
+    assert any(lv["origin"] == "geonames" for lv in winnipeg["levels"])
+    # Indexed already: nothing more to download.
+    again = geo_client.put("/api/countries/CA", json={"mode": "written"})
+    assert again.json()["queued"] is False
+    again = geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    assert again.json()["queued"] is False
+    # The setting goes through the undo stack.
+    assert geo_client.post("/api/undo").json() == {"action": "correct"}
+    assert geo_client.get("/api/countries").json()["countries"][0]["mode"] == "written"
+
+
+def test_remove_country(geo_client: TestClient, geo_runtime: SourceRuntime) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    assert geo_runtime.geonames_index.countries() == {"CA": "2026-11-08"}
+    response = geo_client.delete("/api/sources/geonames/countries/ca")
+    assert response.status_code == 200
+    assert response.json()["geonames"]["countries"] == []
+    assert geo_runtime.geonames_index.countries() == {}
+    assert not (geo_runtime.cache / "geonames" / "CA.zip").exists()
+    assert geo_client.delete("/api/sources/geonames/countries/C1").status_code == 400
+
+
+def test_cluster_override_then_undo(geo_client: TestClient) -> None:
+    cluster_id = cluster_of(geo_client, WINNIPEG)
+    before = detail(geo_client, cluster_id)
+    assert (before["geonames_mode"], before["geonames_mode_origin"]) == (
+        "written",
+        "country",
+    )
+    url = cluster_url(cluster_id, "geonames")
+    response = geo_client.put(url, json={"mode": "geonames"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["geonames_mode"], body["geonames_mode_origin"]) == (
+        "geonames",
+        "override",
+    )
+    rows = geo_client.get("/api/countries").json()["countries"]
+    assert rows[0]["overrides"] == len(before["writings"])
+    assert geo_client.post("/api/undo").json() == {"action": "correct"}
+    after = detail(geo_client, cluster_id)
+    assert (after["geonames_mode"], after["geonames_mode_origin"]) == (
+        "written",
+        "country",
+    )
+    # null removes a correction
+    geo_client.put(url, json={"mode": "written"})
+    cleared = geo_client.put(url, json={"mode": None}).json()
+    assert cleared["geonames_mode_origin"] == "country"
+    missing = geo_client.put(
+        cluster_url("name:nulle-part", "geonames"), json={"mode": "geonames"}
+    )
+    assert missing.status_code == 404
+
+
+def test_cluster_override_needs_a_known_country(geo_client: TestClient) -> None:
+    cluster_id = cluster_of(geo_client, KONIGSBERG)
+    url = cluster_url(cluster_id, "geonames")
+    response = geo_client.put(url, json={"mode": "geonames"})
+    assert response.status_code == 400
+    assert "GeoNames" in response.json()["detail"]
+    assert geo_client.put(url, json={"mode": "maybe"}).status_code == 400
+    assert geo_client.post("/api/undo").status_code == 409
+
+
+def test_username_is_write_only(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    status = geo_client.get("/api/sources").json()["geonames"]
+    assert status == {
+        "countries": [],
+        "username_set": False,
+        "api": {"today": 0, "paused_until": None},
+    }
+    response = geo_client.put(
+        "/api/sources/geonames/username", json={"username": DEMO_USER}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"username_set": True}
+    assert DEMO_USER not in response.text
+    got = geo_client.get("/api/sources")
+    assert got.json()["geonames"]["username_set"] is True
+    assert DEMO_USER not in got.text
+    assert load_config(geo_runtime.config_path).geonames_username == DEMO_USER
+    assert DEMO_USER not in repr(geo_runtime)
+    cleared = geo_client.put("/api/sources/geonames/username", json={"username": None})
+    assert cleared.json() == {"username_set": False}
+    assert load_config(geo_runtime.config_path).geonames_username is None
+
+
+def test_sources_report_the_api_pause(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    until = time.time() + 3600
+    geo_runtime.queue.pause(GEONAMES, until)
+    api = geo_client.get("/api/sources").json()["geonames"]["api"]
+    assert api["today"] == 0
+    assert api["paused_until"] is not None
+    assert api["paused_until"].startswith(time.strftime("%Y-", time.gmtime(until)))
+
+
+@pytest.mark.parametrize(
+    "value", ["demo user", "demo/user", "démo", "x?y=1", "a" * 101, "demo_user&z"]
+)
+def test_invalid_username_400(
+    geo_client: TestClient, geo_runtime: SourceRuntime, value: str
+) -> None:
+    response = geo_client.put(
+        "/api/sources/geonames/username", json={"username": value}
+    )
+    assert response.status_code == 400
+    assert value not in response.text
+    assert load_config(geo_runtime.config_path).geonames_username is None
+
+
+def test_invalid_country_400(geo_client: TestClient) -> None:
+    for code in ("XX", "C1", "CAN"):
+        response = geo_client.put(f"/api/countries/{code}", json={"mode": "geonames"})
+        assert response.status_code == 400, code
+    bad_mode = geo_client.put("/api/countries/CA", json={"mode": "toujours"})
+    assert bad_mode.status_code == 400
+    assert geo_client.post("/api/undo").status_code == 409
+
+
+def test_runtime_keeps_one_geonames_source(geo_runtime: SourceRuntime) -> None:
+    source = geo_runtime.sources[GEONAMES]
+    geo_runtime.set_api_enabled(True)
+    assert geo_runtime.sources[GEONAMES] is source
+    assert DICOTOPO in geo_runtime.sources
+
+
+def test_index_clears_cached_geonames_results(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    query = LevelQuery(name="Winnipeg", country="CA")
+    other = LevelQuery(name="Storrington", country="GB")
+    stale = [SourceCandidate(source=GEONAMES, identifier="1", name="Winnipeg")]
+    geo_runtime.queue.store_result(GEONAMES, query.key(), stale)
+    geo_runtime.queue.store_result(GEONAMES, other.key(), stale)
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    assert geo_runtime.queue.result(GEONAMES, query.key()) != stale
+    assert geo_runtime.queue.result(GEONAMES, other.key()) == stale
+
+
+def test_validate_strips_geonames_proposals(
+    geo_client: TestClient, geo_runtime: SourceRuntime, registry: PlaceRegistry
+) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    cluster_id = cluster_of(geo_client, WINNIPEG)
+    drain(geo_runtime)
+    data = detail(geo_client, cluster_id)
+    proposed = [lv for lv in data["levels"] if lv["origin"] == "geonames"]
+    assert proposed and all(lv["status"] == "proposed" for lv in proposed)
+    response = geo_client.post(
+        cluster_url(cluster_id, "validate"),
+        json={
+            "levels": data["levels"],
+            "postal_code": None,
+            "checked": writings_of(data),
+        },
+    )
+    assert response.status_code == 200, response.text
+    place = registry.place(response.json()["place_id"])
+    assert all(lv.origin != "geonames" for lv in place.levels)
+    assert [lv.name for lv in place.levels][0] == "Winnipeg"

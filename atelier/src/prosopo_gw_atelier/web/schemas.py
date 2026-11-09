@@ -24,8 +24,8 @@ from ..places.levels import (
 )
 from ..places.model import ElementKind
 from ..places.precision import PrecisionStatus
-from ..project import ClusterState
-from ..store.registry import Status
+from ..project import ClusterState, ModeOrigin
+from ..store.registry import SourceMode, Status
 
 
 class Counts(BaseModel):
@@ -125,6 +125,8 @@ class ClusterDetail(BaseModel):
     failed_sources: list[str]
     complements: list[Complement]
     writings: list[WritingOut]
+    geonames_mode: SourceMode
+    geonames_mode_origin: ModeOrigin
 
 
 class ValidateIn(BaseModel):
@@ -316,10 +318,79 @@ class QueueStatus(BaseModel):
     errors: list[QueueError]
 
 
+class GeoNamesCountry(BaseModel):
+    """An indexed country: ``downloaded_at`` is the extraction date of its file,
+    ``size`` the bytes of the cached ``<CC>.zip`` (``None`` if it is gone)."""
+
+    iso: str
+    name: str
+    downloaded_at: str
+    size: int | None
+
+
+class GeoNamesApi(BaseModel):
+    """Requests counted today (UTC) and end of the pause (ISO 8601 UTC) if any."""
+
+    today: int
+    paused_until: str | None
+
+
+class GeoNamesStatus(BaseModel):
+    """Never the user name itself: only whether one is set."""
+
+    countries: list[GeoNamesCountry]
+    username_set: bool
+    api: GeoNamesApi
+
+
 class SourcesOut(BaseModel):
     dicotopo: DicoTopoStatus
+    geonames: GeoNamesStatus
     queue: QueueStatus
     attributions: list[str]
+
+
+class GeoNamesUsernameIn(BaseModel):
+    username: str | None
+
+
+class GeoNamesUsernameOut(BaseModel):
+    username_set: bool
+
+
+class CountryRowOut(BaseModel):
+    """A foreign country of the project (``iso`` is ``None`` for a historical one);
+    ``downloaded`` is the extraction date of its indexed GeoNames file."""
+
+    iso: str | None
+    name: str
+    writings: int
+    occurrences: int
+    mode: SourceMode
+    downloaded: str | None
+    overrides: int
+
+
+class CountriesOut(BaseModel):
+    countries: list[CountryRowOut]
+
+
+class ModeIn(BaseModel):
+    """GeoNames mode sent by the client; checked by the route (400 if unknown).
+
+    ``None`` removes a per-place correction (refused for a country)."""
+
+    mode: str | None
+
+
+class CountryModeOut(CountriesOut):
+    """``queued``: the download of the country was put in the queue; ``size``: the
+    announced size of ``<CC>.zip`` in bytes, when known."""
+
+    iso: str
+    mode: SourceMode
+    queued: bool
+    size: int | None
 
 
 class DownloadIn(BaseModel):
