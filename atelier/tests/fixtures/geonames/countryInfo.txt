@@ -1,3 +1,4 @@
 #ISO	ISO3	ISO-Numeric	fips	Country	Capital	Area(in sq km)
 CA	CAN	124	CA	Canada	Ottawa	9984670
+JP	JPN	392	JA	Japan	Tokyo	377835
 GB	GBR	826	UK	United Kingdom	London	244820

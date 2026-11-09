@@ -24,10 +24,11 @@ from the status code or from the generic messages of ``fetch`` and raised outsid
 any ``except`` block, so no exception chain carries the URL.
 
 Candidates carry ``identifier`` ``"<geonameid>"``, ``source_text`` ``"GeoNames <date>"``
-(extraction date of the local file, or the query date for API answers) and the
-coordinates. ``type`` is left empty and ``parents`` are untyped, proposed levels for
-the first- and second-level divisions (smallest first, ranks from 1); the typing is
-refined where candidates are turned into proposals.
+(extraction date of the local file, or the query date for API answers), the
+coordinates and the population. ``type`` is the level type of the place for its country
+(``localite`` for a populated place, see ``types.level_type``; ``None`` when unknown)
+and ``parents`` are proposed levels, typed the same way, for the second- and first-level
+divisions (smallest first, ranks from 1).
 """
 
 from __future__ import annotations
@@ -42,7 +43,8 @@ import threading
 import time
 import urllib.error
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -61,10 +63,11 @@ from prosopo_gw_atelier.sources.geonames.index import (
     GeoPlace,
     check_country,
 )
+from prosopo_gw_atelier.sources.geonames.types import level_type
 from prosopo_gw_atelier.sources.queue import RateLimiter, SourceQueue
 from prosopo_gw_atelier.store.config import LocalConfig
 
-__all__ = ["GEONAMES", "GeoNamesSource", "QuotaReached"]
+__all__ = ["GEONAMES", "GeoNamesSource", "QuotaReached", "proposals", "queries_for"]
 
 logger = logging.getLogger(__name__)
 
@@ -221,15 +224,15 @@ class GeoNamesSource:
         self, country: str, admin1: str, admin2: str, date: str
     ) -> tuple[Level, ...]:
         """Untyped, proposed levels for ADM2 then ADM1 (names known from the index)."""
-        found: list[tuple[str, int]] = []
+        found: list[tuple[str, int, str | None]] = []
         if admin1 and admin2:
             second = self._index.admin_name(country, admin1, admin2)
             if second is not None:
-                found.append(second)
+                found.append((*second, level_type("ADM2", country)))
         if admin1:
             first = self._index.admin_name(country, admin1)
             if first is not None:
-                found.append(first)
+                found.append((*first, level_type("ADM1", country)))
         return _levels(found, date)
 
     def _local_candidate(self, place: GeoPlace, date: str) -> SourceCandidate:
@@ -241,11 +244,13 @@ class GeoNamesSource:
             source=GEONAMES,
             identifier=str(place.geonameid),
             name=place.name,
+            type=level_type(place.feature_code, place.country),
             parents=parents,
             latitude=place.latitude,
             longitude=place.longitude,
             link=_link(place.geonameid),
             source_text=f"GeoNames {date}",
+            population=place.population,
         )
 
     # -- API --------------------------------------------------------------
@@ -257,20 +262,29 @@ class GeoNamesSource:
         name = _text(entry.get("name"))
         if not geonameid or not name:
             return None
-        found: list[tuple[str, int]] = []
+        country = _text(entry.get("countryCode")).upper()
+        found: list[tuple[str, int, str | None]] = []
         for number in ("2", "1"):
             admin = _text(entry.get(f"adminName{number}"))
             if admin and admin != name:
-                found.append((admin, _int(entry.get(f"adminId{number}"))))
+                found.append(
+                    (
+                        admin,
+                        _int(entry.get(f"adminId{number}")),
+                        level_type(f"ADM{number}", country),
+                    )
+                )
         return SourceCandidate(
             source=GEONAMES,
             identifier=str(geonameid),
             name=name,
+            type=level_type(_text(entry.get("fcode")), country),
             parents=_levels(found, date),
             latitude=_num(entry.get("lat")),
             longitude=_num(entry.get("lng")),
             link=_link(geonameid),
             source_text=f"GeoNames {date}",
+            population=_int(entry.get("population")),
         )
 
     def _api_search(self, name: str, country: str) -> list[dict[str, object]]:
@@ -385,19 +399,175 @@ class GeoNamesSource:
             raise
 
 
-def _levels(found: list[tuple[str, int]], date: str) -> tuple[Level, ...]:
+def _levels(found: list[tuple[str, int, str | None]], date: str) -> tuple[Level, ...]:
     return tuple(
         Level(
             rank,
             name,
+            type=type_,
             identifier=str(geonameid) if geonameid else None,
             source=f"GeoNames {date}",
             origin="geonames",
             status="proposed",
         )
-        for rank, (name, geonameid) in enumerate(found, start=1)
+        for rank, (name, geonameid, type_) in enumerate(found, start=1)
     )
 
 
 def _link(geonameid: int) -> str:
     return f"https://www.geonames.org/{geonameid}"
+
+
+# -- from candidates to proposals --------------------------------------------
+
+MAX_ALTERNATIVES = 5
+
+
+def _is_target(levels: Sequence[Level]) -> bool:
+    """Level 0 is a written, validated level that nothing has typed yet."""
+    return bool(levels) and (
+        levels[0].status == "validated"
+        and levels[0].type is None
+        and levels[0].origin == "written"
+    )
+
+
+def _above(levels: Sequence[Level]) -> list[Level]:
+    """Written levels above level 0 that can confirm a division (not the country)."""
+    return [lv for lv in levels[1:] if lv.status == "validated" and lv.type != "pays"]
+
+
+def queries_for(levels: Sequence[Level], country_iso: str) -> list[LevelQuery]:
+    """The query for level 0 of a foreign writing, with its written levels above it.
+
+    ``country_iso`` is the ISO 3166 alpha-2 code of the country (the caller finds it
+    from the country level). Nothing is asked when level 0 is already typed or
+    resolved, or when the code is not valid.
+    """
+    iso = country_iso.strip().upper()
+    try:
+        check_country(iso)
+    except SourceError:
+        return []
+    if not _is_target(levels):
+        return []
+    return [
+        LevelQuery(
+            name=levels[0].name,
+            parents=tuple(lv.name for lv in _above(levels)),
+            country=iso,
+        )
+    ]
+
+
+def _own_parents(candidate: SourceCandidate) -> list[Level]:
+    """Divisions of the candidate, smallest first, without the candidate itself."""
+    return [
+        p
+        for p in candidate.parents
+        if p.identifier is None or p.identifier != candidate.identifier
+    ]
+
+
+def _confirmations(candidate: SourceCandidate, keys: set[str]) -> int:
+    return sum(1 for p in _own_parents(candidate) if name_key(p.name) in keys)
+
+
+def _typed(level: Level, name: str, proposal: Level, source: str | None) -> Level:
+    """Proposal twin of the written ``level``: same rank, the written name is kept
+    (the GeoNames name goes in the proposal when it really differs)."""
+    same = name_key(level.name) == name_key(name)
+    return replace(
+        level,
+        name=level.name if same else name,
+        written=None if same else level.name,
+        type=proposal.type,
+        identifier=proposal.identifier,
+        source=source,
+        latitude=proposal.latitude,
+        longitude=proposal.longitude,
+        origin="geonames",
+        status="proposed",
+    )
+
+
+def _reading(levels: Sequence[Level], candidate: SourceCandidate) -> tuple[Level, ...]:
+    """``levels`` untouched, each with its typed proposal, plus the missing levels."""
+    source = candidate.source_text
+    own = Level(
+        0,
+        candidate.name,
+        type=candidate.type,
+        identifier=candidate.identifier,
+        latitude=candidate.latitude,
+        longitude=candidate.longitude,
+    )
+    twins: dict[int, Level] = {0: _typed(levels[0], candidate.name, own, source)}
+    inserted: dict[int, list[Level]] = {}
+    candidates_above = {id(lv) for lv in _above(levels)}
+    free = {i: lv for i, lv in enumerate(levels) if id(lv) in candidates_above}
+    anchor = 0
+    for parent in _own_parents(candidate):
+        key = name_key(parent.name)
+        found = next((i for i, lv in free.items() if name_key(lv.name) == key), None)
+        if found is None:
+            # Missing division: right above the lowest level it contains.
+            above = levels[anchor + 1].rank if anchor + 1 < len(levels) else None
+            rank = above if above is not None else levels[anchor].rank + 1
+            inserted.setdefault(anchor, []).append(
+                replace(parent, rank=rank, status="proposed")
+            )
+            continue
+        del free[found]
+        anchor = max(anchor, found)
+        if levels[found].type is None:
+            twins[found] = _typed(levels[found], parent.name, parent, parent.source)
+    out: list[Level] = []
+    for i, level in enumerate(levels):
+        out.append(level)
+        if i in twins:
+            out.append(twins[i])
+        out.extend(inserted.get(i, ()))
+    return tuple(out)
+
+
+def proposals(
+    levels: Sequence[Level], candidates: Sequence[SourceCandidate]
+) -> tuple[tuple[Level, ...], tuple[tuple[Level, ...], ...]]:
+    """Chain with its levels proposed by GeoNames, and the alternative readings.
+
+    Level 0 is read as a populated place (``localite``) of the country, else as an
+    administrative division when there is no populated place. The written levels above
+    confirm candidates (a written level with the name of the candidate's first- or
+    second-level division); with confirmations only the confirmed candidates remain.
+    One candidate left: the chain, whose validated levels are returned unchanged, each
+    one followed by its proposed twin (same rank, with the type, identifier and source;
+    the written name is kept, the GeoNames name only goes in the proposal when it
+    differs) and with the missing divisions added as proposed levels, between the level
+    they contain and the one that contains them. Several candidates (homonyms): the most
+    populous is never chosen; the chain is empty and each of the (at most 5, most
+    populous first) readings is a whole alternative chain. No candidate: both empty.
+    A written level GeoNames does not know stays as it is.
+    """
+    if not _is_target(levels):
+        return (), ()
+    seen: set[str] = set()
+    pool = []
+    for c in candidates:
+        if c.source == GEONAMES and c.identifier not in seen:
+            seen.add(c.identifier)
+            pool.append(c)
+    keys = {name_key(lv.name) for lv in _above(levels)}
+    for stage in (
+        [c for c in pool if c.type == "localite"],
+        [c for c in pool if c.type != "localite"],
+    ):
+        if not stage:
+            continue
+        confirmed = [c for c in stage if _confirmations(c, keys) > 0]
+        kept = confirmed or stage
+        if len(kept) == 1:
+            return _reading(levels, kept[0]), ()
+        ordered = sorted(kept, key=lambda c: -(c.population or 0))
+        return (), tuple(_reading(levels, c) for c in ordered[:MAX_ALTERNATIVES])
+    return (), ()

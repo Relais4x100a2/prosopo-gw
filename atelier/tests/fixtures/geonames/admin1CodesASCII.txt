@@ -1,3 +1,4 @@
+JP.01	Fictive Prefecture	Fictive Prefecture	9300002
 CA.03	Manitoba	Manitoba	9000002
 CA.08	Ontario	Ontario	9000003
 GB.ENG	England	England	9100002

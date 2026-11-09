@@ -65,7 +65,7 @@ def test_admin_codes() -> None:
     assert admin1["CA.03"] == ("Manitoba", 9000002)
     assert read_admin_codes(ADMIN2)["GB.ENG.P5"] == ("East Sussex", 9100003)
     info = read_country_info(FIXTURES / "countryInfo.txt")
-    assert info == {"CA": "Canada", "GB": "United Kingdom"}
+    assert info == {"CA": "Canada", "JP": "Japan", "GB": "United Kingdom"}
 
 
 def test_lookup_by_name_and_alternate(idx: GeoNamesIndex) -> None:

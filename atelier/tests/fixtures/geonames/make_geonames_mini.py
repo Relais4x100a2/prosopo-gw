@@ -1,7 +1,7 @@
 """Generate the tiny synthetic GeoNames fixtures (run: python make_geonames_mini.py).
 
 Real place names, invented geonameids and populations. Produces ``CA.zip``,
-``GB.zip`` (a ``<CC>.txt`` plus a ``readme.txt``), ``admin1CodesASCII.txt``,
+``GB.zip``, ``JP.zip`` (a ``<CC>.txt`` plus a ``readme.txt``), ``admin1CodesASCII.txt``,
 ``admin2Codes.txt`` and ``countryInfo.txt``, next to this script.
 """
 
@@ -98,7 +98,12 @@ GB = [
     row(9100003, "East Sussex", "", "A", "ADM2", "GB", "ENG", "P5", 840000, 50.9, 0.3),
     row(9100004, "Fictive Hill", "", "T", "HLL", "GB", "ENG", "P5", 0),
 ]
+JP = [
+    row(9300001, "Hanamura", "", "P", "PPL", "JP", "01", "", 5000, 35.0, 139.0),
+    row(9300002, "Fictive Prefecture", "", "A", "ADM1", "JP", "01", "", 900000),
+]
 ADMIN1 = [
+    "JP.01\tFictive Prefecture\tFictive Prefecture\t9300002",
     "CA.03\tManitoba\tManitoba\t9000002",
     "CA.08\tOntario\tOntario\t9000003",
     "GB.ENG\tEngland\tEngland\t9100002",
@@ -111,6 +116,7 @@ ADMIN2 = [
 COUNTRY_INFO = [
     "#ISO\tISO3\tISO-Numeric\tfips\tCountry\tCapital\tArea(in sq km)",
     "CA\tCAN\t124\tCA\tCanada\tOttawa\t9984670",
+    "JP\tJPN\t392\tJA\tJapan\tTokyo\t377835",
     "GB\tGBR\t826\tUK\tUnited Kingdom\tLondon\t244820",
 ]
 
@@ -124,6 +130,7 @@ def write_zip(path: Path, country: str, lines: list[str]) -> None:
 def main() -> None:
     write_zip(HERE / "CA.zip", "CA", CA)
     write_zip(HERE / "GB.zip", "GB", GB)
+    write_zip(HERE / "JP.zip", "JP", JP)
     (HERE / "admin1CodesASCII.txt").write_text(
         "\n".join(ADMIN1) + "\n", encoding="utf-8"
     )

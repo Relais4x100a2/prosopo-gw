@@ -52,6 +52,7 @@ class SourceCandidate:
     link: str | None = None
     insee: str | None = None
     source_text: str | None = None  # citation, e.g. "GeoNames 2026-11-08"
+    population: int | None = None  # to order homonyms (GeoNames)
 
 
 class SourceError(Exception):
