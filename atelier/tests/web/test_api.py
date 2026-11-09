@@ -1898,3 +1898,30 @@ def test_validate_strips_geonames_proposals(
     place = registry.place(response.json()["place_id"])
     assert all(lv.origin != "geonames" for lv in place.levels)
     assert [lv.name for lv in place.levels][0] == "Winnipeg"
+
+
+def test_accepting_a_renamed_proposal_replaces_the_written_level(
+    geo_client: TestClient, registry: PlaceRegistry
+) -> None:
+    written = (
+        Level(0, "Ouinipegue", origin="written"),
+        Level(1, "Manitoba", origin="written"),
+        Level(2, "Canada", origin="written"),
+    )
+    place_id = registry.validate(["Ouinipegue"], written, None, None, "p").place_id
+    proposed = {
+        "rank": 0,
+        "name": "Winnipeg",
+        "written": "Ouinipegue",
+        "type": "ppl",
+        "identifier": "9000001",
+        "origin": "geonames",
+        "status": "proposed",
+    }
+    response = geo_client.post(
+        f"/api/places/{place_id}/source-proposals/accept", json={"level": proposed}
+    )
+    assert response.status_code == 200, response.text
+    names = [lv["name"] for lv in response.json()["levels"]]
+    assert names == ["Winnipeg", "Manitoba", "Canada"]
+    assert registry.place(place_id).levels[0].written == "Ouinipegue"

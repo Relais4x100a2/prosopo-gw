@@ -694,9 +694,11 @@ class PlaceRegistry:
         The level is validated whatever its status. If the level now at that rank
         has the same name key and is untyped (the written level the new one makes
         precise) or of the same type and identifier, it is replaced instead of
-        duplicated. ``KeyError`` if the place is unknown, ``ValueError`` if the
-        rank is beyond the end of the chain or the chain is invalid. ``None`` if
-        the chain does not change.
+        duplicated. So is an untyped level whose name is the new level's
+        ``written`` form (a source renaming the written level, e.g. a French
+        writing of a foreign place). ``KeyError`` if the place is unknown,
+        ``ValueError`` if the rank is beyond the end of the chain or the chain is
+        invalid. ``None`` if the chain does not change.
         """
         with self._transaction():
             if not self._place_exists(place_id):
@@ -709,12 +711,18 @@ class PlaceRegistry:
                 )
             new = replace(level, status="validated")
             at = levels[level.rank] if level.rank < len(levels) else None
-            if (
-                at is not None
-                and name_key(at.name) == name_key(new.name)
-                and (
+            if at is not None and (
+                (
+                    name_key(at.name) == name_key(new.name)
+                    and (
+                        at.type is None
+                        or (at.type, at.identifier) == (new.type, new.identifier)
+                    )
+                )
+                or (
                     at.type is None
-                    or (at.type, at.identifier) == (new.type, new.identifier)
+                    and new.written is not None
+                    and name_key(at.name) == name_key(new.written)
                 )
             ):
                 levels[level.rank] = new

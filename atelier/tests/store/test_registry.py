@@ -950,6 +950,82 @@ def test_add_level_replaces_the_written_level_it_makes_precise(
     ]
 
 
+def test_add_level_replaces_the_written_level_it_renames(
+    registry: PlaceRegistry,
+) -> None:
+    written = (
+        Level(0, "Ouinipegue", origin="written"),
+        Level(1, "Manitoba", origin="written"),
+        Level(2, "Canada", origin="written"),
+    )
+    place = registry.validate(["Ouinipegue"], written, None, None, "p").place_id
+    renamed = Level(
+        0,
+        "Winnipeg",
+        written="Ouinipegue",
+        type="ppl",
+        identifier="9000001",
+        origin="geonames",
+        status="proposed",
+    )
+    registry.add_level(place, renamed, "p")
+    levels = registry.place(place).levels
+    assert [(lv.name, lv.written, lv.type) for lv in levels] == [
+        ("Winnipeg", "Ouinipegue", "ppl"),
+        ("Manitoba", None, None),
+        ("Canada", None, None),
+    ]
+
+
+def test_add_level_replaces_an_old_commune_name_from_dicotopo(
+    registry: PlaceRegistry,
+) -> None:
+    written = (
+        Level(0, "Fictimont-le-Vieux", origin="written"),
+        Level(1, "Nord", type="departement", identifier="59", origin="rule"),
+    )
+    place = registry.validate(["Fictimont-le-Vieux"], written, None, None, "p").place_id
+    commune = Level(
+        0,
+        "Fictimont",
+        written="Fictimont-le-Vieux",
+        type="commune",
+        identifier="59999",
+        origin="dicotopo",
+        status="proposed",
+    )
+    registry.add_level(place, commune, "p")
+    assert [(lv.name, lv.written) for lv in registry.place(place).levels] == [
+        ("Fictimont", "Fictimont-le-Vieux"),
+        ("Nord", None),
+    ]
+
+
+def test_add_level_keeps_a_typed_level_of_another_name(
+    registry: PlaceRegistry,
+) -> None:
+    chain = (
+        Level(0, "Fictimont", type="lieu_dit", identifier="P2", origin="dicotopo"),
+        Level(1, "Roubaix", type="commune", identifier="59512", origin="rule"),
+    )
+    place = registry.validate(["Fictimont"], chain, None, None, "p").place_id
+    other = Level(
+        0,
+        "Le Fictibois",
+        written="Fictimont",
+        type="lieu_dit",
+        identifier="P7",
+        origin="dicotopo",
+        status="proposed",
+    )
+    registry.add_level(place, other, "p")
+    assert [lv.name for lv in registry.place(place).levels] == [
+        "Le Fictibois",
+        "Fictimont",
+        "Roubaix",
+    ]
+
+
 # --- GeoNames settings (schema 5) -------------------------------------------
 
 
