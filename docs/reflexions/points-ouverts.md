@@ -127,6 +127,16 @@ sources, événements « Autre », organisations) reste dans :
 - L'acceptation fait confiance au niveau envoyé par le client : seuls l'origine et l'identifiant sont
   vérifiés.
 
+### GeoNames (étape 4)
+
+- Les types `ADM1` / `ADM2` de GeoNames sont à compléter pays par pays (libellé et type de niveau).
+- Le fichier `cities500` n'est pas utilisé.
+- Les tâches GeoNames déjà en file ne sont pas annulées quand un pays repasse en « Garder tel qu'écrit ».
+- Les pays historiques absents de la liste de l'INSEE n'apparaissent pas sur l'écran Pays : ils restent tels
+  qu'écrits.
+- Les limites de l'API (10 000 requêtes par jour, 1 000 par heure) viennent de la documentation de GeoNames ;
+  elles n'ont pas été éprouvées en conditions réelles.
+
 ## 6. Moteur `core`
 
 - Le parser retire les guillemets d'un lieu `#bp` mais pas d'un lieu `#mp` ni `#p` (audit de

@@ -136,6 +136,37 @@ rien n'est envoyé sans votre action.
 - **Test ou miroir** : la variable d'environnement `PROSOPO_GW_ATELIER_DICOTOPO_RAW` remplace l'adresse de
   téléchargement des fichiers (avec le marqueur `{dept}`). Elle sert aux tests et à un miroir local.
 
+## Lieux hors de France (GeoNames)
+
+Pour un lieu écrit hors de France, l'atelier peut proposer des niveaux (localité, région, pays) à partir de
+[GeoNames](https://www.geonames.org/). Par défaut, chaque pays est en « Garder tel qu'écrit » : rien n'est
+proposé et rien n'est envoyé.
+
+- **Écran Pays** : il liste les pays rencontrés dans la base ; seuls ceux que la liste des pays de l'INSEE
+  reconnaît y figurent. Un pays sans code ISO (pays historique) reste tel qu'il est écrit. Par pays, le réglage
+  « Proposer avec GeoNames » est à activer, puis le fichier du pays se télécharge depuis l'écran ; celui-ci
+  affiche la taille exacte avant le premier téléchargement. À titre indicatif, `CA.zip` pèse environ 8 Mo,
+  `FR.zip` 7 Mo, `GB.zip` 3,6 Mo et `US.zip` 71 Mo (relevé du 8 novembre 2026). Le réglage d'un pays vaut pour
+  tous vos projets.
+- **Correction par lieu** : un lieu peut être traité autrement que son pays (proposer ou garder tel qu'écrit).
+  « Revenir au réglage du pays » supprime cette correction. Une correction par lieu reste valable si le réglage
+  du pays change.
+- **Identifiant GeoNames** : il n'est nécessaire que pour le mode API (interrogation en ligne d'un lieu absent
+  des fichiers téléchargés) ; les fichiers de pays téléchargés n'en demandent pas. Il est gardé seulement dans le
+  `config.json` du dossier de données de l'atelier. Il n'est jamais réaffiché (l'écran dit seulement
+  « Identifiant enregistré »), exporté, écrit dans un journal ni placé dans le référentiel.
+- **Quota** : l'API gratuite de GeoNames autorise 10 000 requêtes par jour et 1 000 par heure. L'atelier met
+  ses tâches API en pause jusqu'à l'heure suivante ou jusqu'à minuit UTC.
+- **Propositions** : un niveau proposé par GeoNames (origine `geonames`) reste « proposé » tant que vous ne
+  l'avez pas validé ; un niveau écrit que GeoNames ne connaît pas est conservé tel quel.
+- **Licence et export** : GeoNames est publié sous licence CC BY 4.0. Rien de GeoNames n'est dans ce dépôt ni
+  dans le paquet ; les tests utilisent de petits fichiers synthétiques. À l'export, un niveau d'origine
+  `geonames` porte son `geonameid` dans `identifiant`, `GeoNames <date>` dans `source` et ses coordonnées ; les
+  coordonnées de `lieux` sont celles du niveau le plus précis qui en a. Le `LISEZMOI.txt` de l'archive cite
+  GeoNames, la licence et les pays téléchargés avec leur date seulement si un niveau `geonames` est exporté.
+- **Test ou miroir** : la variable `PROSOPO_GW_ATELIER_GEONAMES_DUMP` remplace l'adresse de téléchargement
+  (URL http(s) terminée par `/`).
+
 ## Export
 
 L'export pivot contient les tables de `geneweb-py`, puis `lieux`, `niveaux_lieux` et `ecritures_lieux`.

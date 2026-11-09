@@ -316,6 +316,12 @@ réinterroger le réseau. **(choix de conception)**
 **Ordre proposé** : le COG est déjà dans la v1 (§ 6.1) ; viennent ensuite Wikidata (QID,
 coordonnées, hiérarchie), puis les autres. **(choix de conception)**
 
+**GeoNames (lieux hors de France).** Réalisé à l'étape 4 : réglage par pays (« Garder tel qu'écrit » par
+défaut, « Proposer avec GeoNames » sur option), correction par lieu, fichiers de pays téléchargés à la demande,
+mode API facultatif avec identifiant gardé dans `config.json`. Les niveaux validés d'origine `geonames` sont
+exportés avec leur `geonameid`, leur date et leurs coordonnées, et le `LISEZMOI.txt` cite GeoNames (CC BY 4.0)
+seulement dans ce cas. Détail et conditions d'usage : `atelier/README.md`, section « Lieux hors de France ».
+
 ## 9. Sortie : le pivot
 
 Décision de l'auteur : un **schéma simple et unique**, adapté ensuite à chaque outil cible.
