@@ -250,6 +250,10 @@ class RefData:
         name = self.country(token)
         return self._country_iso.get(name) if name is not None else None
 
+    def is_country_iso(self, code: str) -> bool:
+        """Whether ``code`` is the ISO 3166-1 alpha-2 code of a known country."""
+        return code.strip().upper() in self._country_iso.values()
+
 
 def _read_table(directory: Path, name: str) -> Iterator[dict[str, str]]:
     with gzip.open(directory / name, "rt", encoding="utf-8", newline="") as handle:

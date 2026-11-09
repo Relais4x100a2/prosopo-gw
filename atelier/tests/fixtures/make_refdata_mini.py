@@ -82,6 +82,7 @@ TABLES: dict[str, list[list[str]]] = {
         ["Canada", "Canada", "CA"],
         ["France", "République française", "FR"],
         ["Royaume-Uni", "Royaume-Uni de Grande-Bretagne et d'Irlande du Nord", "GB"],
+        ["Prusse", "", ""],  # historical state: a country with no ISO code
     ],
     "codes_postaux.csv.gz": [
         ["code_postal", "insee"],

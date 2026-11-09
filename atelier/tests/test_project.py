@@ -15,9 +15,17 @@ from prosopo_gw_atelier.places.levels import (
     renumber,
     rule_levels,
 )
-from prosopo_gw_atelier.project import ClusterView, Project
+from prosopo_gw_atelier.project import (
+    ClusterView,
+    CountryRow,
+    Project,
+    _revert_refused,
+)
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
+from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex
+from prosopo_gw_atelier.sources.geonames.source import GEONAMES, GeoNamesSource
+from prosopo_gw_atelier.store.config import LocalConfig
 from prosopo_gw_atelier.store.registry import PlaceRegistry
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -1445,14 +1453,6 @@ def test_queue_results_batch_and_clear(
 
 # --- GeoNames mode per country and per place -----------------------------------
 
-from prosopo_gw_atelier.project import CountryRow  # noqa: E402
-from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex  # noqa: E402
-from prosopo_gw_atelier.sources.geonames.source import (  # noqa: E402
-    GEONAMES,
-    GeoNamesSource,
-)
-from prosopo_gw_atelier.store.config import LocalConfig  # noqa: E402
-
 GN = FIXTURES / "geonames"
 WINNIPEG = "Winnipeg, , , Manitoba, Canada"
 WINNIPEG2 = "Winnipeg, Manitoba, Canada"
@@ -1690,7 +1690,8 @@ def test_historical_country_has_no_choice(
     with pytest.raises(ValueError):
         project.set_country_mode(prusse.name, "geonames")
     cluster = view_of(project, KONIGSBERG).cluster.id
-    project.set_cluster_mode(cluster, "geonames")
+    with pytest.raises(ValueError):
+        project.set_cluster_mode(cluster, "geonames")
     drain(geo_worker(queue, geo_source))
     assert proposed_names(view_of(project, KONIGSBERG)) == []
 
@@ -1733,3 +1734,89 @@ def test_refused_geonames_parent_is_reverted(
     assert next(lv for lv in levels if lv.name == "Manitoba") == base["Manitoba"]
     for name in written:  # nothing written is lost
         assert any(name in (lv.name, lv.written) for lv in levels)
+
+
+def test_unrecognised_last_segments_are_not_countries(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    gw = copy_fixture(tmp_path, "lieux_sans_pays.gw")
+    project = Project.open(gw, registry, ref, projects_dir)
+    assert project.countries() == []
+
+
+def test_set_country_mode_rejects_unknown_code_and_returns_entry(
+    geo_gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    with pytest.raises(ValueError):
+        project.set_country_mode("ZZ", "geonames")
+    entry = project.set_country_mode("ca", "geonames")
+    assert entry is not None
+    registry.undo(entry)
+    assert project.countries()[0].mode == "written"
+    assert project.set_country_mode("CA", "written") is None
+
+
+def test_set_cluster_mode_returns_entry_and_needs_an_iso_country(
+    geo_gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    winnipeg = view_of(project, WINNIPEG).cluster.id
+    entry = project.set_cluster_mode(winnipeg, "geonames")
+    assert entry is not None
+    registry.undo(entry)
+    assert project.effective_mode(winnipeg) == ("written", "country")
+    prusse = view_of(project, KONIGSBERG).cluster.id
+    with pytest.raises(ValueError):
+        project.set_cluster_mode(prusse, "geonames")
+    assert project.set_cluster_mode(prusse, "written") is not None
+
+
+def test_mixed_country_cluster_is_geonames_only_if_all_countries_are(
+    geo_gw: Path, registry: PlaceRegistry, ref: RefData, projects_dir: Path
+) -> None:
+    project = Project.open(geo_gw, registry, ref, projects_dir)
+    levels = chain(("Quelque part", "localite", None))
+    validate(registry, [WINNIPEG, STORRINGTON], levels, project.project_id)
+    cluster = view_of(project, WINNIPEG).cluster.id
+    assert STORRINGTON in view_of(project, WINNIPEG).cluster.writings
+    project.set_country_mode("CA", "geonames")
+    assert project.effective_mode(cluster) == ("written", "country")
+    project.set_country_mode("GB", "geonames")
+    assert project.effective_mode(cluster) == ("geonames", "country")
+
+
+def _proposed(name: str, identifier: str, source: str, written: str | None) -> Level:
+    return Level(
+        0,
+        name,
+        written=written,
+        type="lieu_dit",
+        identifier=identifier,
+        source=source,
+        origin="dicotopo",
+        status="proposed",
+    )
+
+
+def test_revert_refused_is_generic_over_sources() -> None:
+    original = chain(("Fictimont", None, None), ("Nord", "departement", "59"))
+    typed = _proposed("Fictimont", "P1", DICOTOPO, None)
+    inserted = _proposed("Hesdin", "P2", DICOTOPO, None)
+    levels = renumber([typed, inserted, original[1]])
+    kept = _revert_refused(DICOTOPO, original, levels, frozenset())
+    assert kept == levels
+    reverted = _revert_refused(
+        DICOTOPO, original, levels, frozenset({(DICOTOPO, "P1")})
+    )
+    assert [(lv.name, lv.status, lv.rank) for lv in reverted] == [
+        ("Fictimont", "validated", 0),
+        ("Hesdin", "proposed", 1),
+        ("Nord", "validated", 2),
+    ]
+    dropped = _revert_refused(DICOTOPO, original, levels, frozenset({(DICOTOPO, "P2")}))
+    assert [lv.name for lv in dropped] == ["Fictimont", "Nord"]
+    check_chain(dropped)
+    # another source's refusal does not touch it
+    other = _revert_refused(DICOTOPO, original, levels, frozenset({(GEONAMES, "P1")}))
+    assert other == levels

@@ -276,8 +276,12 @@ def test_old_region_is_kept(ref: RefData) -> None:
 
 
 def test_historical_country_stays_as_written(ref: RefData) -> None:
+    # a country the refdata lists without ISO code is still a country level
     chain = rule_levels(decompose("Königsberg, Prusse", ref), ref)
-    assert _names(chain) == [("Königsberg", None), ("Prusse", None)]
+    assert _names(chain) == [("Königsberg", None), ("Prusse", "pays")]
+    # an unknown last segment is not
+    chain = rule_levels(decompose("Königsberg, Ailleurs", ref), ref)
+    assert _names(chain) == [("Königsberg", None), ("Ailleurs", None)]
 
 
 def test_unresolved_writing_normalises_known_levels(ref: RefData) -> None:

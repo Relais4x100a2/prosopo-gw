@@ -356,6 +356,15 @@ class CountryRow:
     overrides: int
 
 
+@dataclass
+class _CountryCount:
+    iso: str | None
+    name: str
+    writings: int = 0
+    occurrences: int = 0
+    overrides: int = 0
+
+
 @dataclass(frozen=True)
 class OccurrencePrecision:
     """The arrondissement precision of one occurrence (module docstring)."""
@@ -421,19 +430,18 @@ def project_id_of(gw_path: Path) -> str:
 
 
 def _foreign_country(decomposition: Decomposition, ref: RefData) -> str | None:
-    """The country token a writing names outside France, else ``None``.
+    """The country a writing names outside France (as written), else ``None``.
 
-    The recognised country element, or (nothing at all recognised) the last
-    segment, which may be a historical country with no ISO code.
+    Only a country RefData recognises counts: one with an ISO code, or a
+    historical state listed without one (``Prusse``). An unrecognised last
+    segment is never taken for a country.
     """
     for element in decomposition.elements:
         if element.kind == "country":
             if ref.country_iso(element.value) == _FRANCE:
                 return None
             return element.value
-    if decomposition.elements or len(decomposition.segments) < 2:
-        return None
-    return decomposition.segments[-1].text or None
+    return None
 
 
 def _geonames_queries(
@@ -707,37 +715,32 @@ class Project:
             modes = self._registry.country_modes()
             corrected = self._registry.overrides(GEONAMES)
             dates = self._geonames_dates()
-            groups: dict[str, dict[str, object]] = {}
+            groups: dict[str, _CountryCount] = {}
             for text, decomposition in self._decompositions.items():
                 token = _foreign_country(decomposition, self._ref)
                 if token is None:
                     continue
                 iso = self._ref.country_iso(token)
                 name = self._ref.country(token) or token
-                entry = groups.setdefault(
-                    iso or f"name:{name_key(name)}",
-                    {"iso": iso, "name": name, "writings": 0, "occ": 0, "ovr": 0},
+                count = groups.setdefault(
+                    iso or f"name:{name_key(name)}", _CountryCount(iso, name)
                 )
-                entry["writings"] = int(str(entry["writings"])) + 1
-                entry["occ"] = int(str(entry["occ"])) + len(
-                    self.writings[text].occurrences
-                )
+                count.writings += 1
+                count.occurrences += len(self.writings[text].occurrences)
                 if text in corrected:
-                    entry["ovr"] = int(str(entry["ovr"])) + 1
-        rows = []
-        for entry in groups.values():
-            iso = entry["iso"] if isinstance(entry["iso"], str) else None
-            rows.append(
-                CountryRow(
-                    iso=iso,
-                    name=str(entry["name"]),
-                    writings=int(str(entry["writings"])),
-                    occurrences=int(str(entry["occ"])),
-                    mode=modes.get(iso, "written") if iso else "written",
-                    downloaded=dates.get(iso) if iso else None,
-                    overrides=int(str(entry["ovr"])),
-                )
+                    count.overrides += 1
+        rows = [
+            CountryRow(
+                iso=c.iso,
+                name=c.name,
+                writings=c.writings,
+                occurrences=c.occurrences,
+                mode=modes.get(c.iso, "written") if c.iso else "written",
+                downloaded=dates.get(c.iso) if c.iso else None,
+                overrides=c.overrides,
             )
+            for c in groups.values()
+        ]
         rows.sort(key=lambda r: (-r.writings, r.name))
         return rows
 
@@ -754,25 +757,48 @@ class Project:
         view = self.cluster(cluster_id)
         return view.geonames_mode, view.geonames_mode_origin
 
-    def set_country_mode(self, country: str, mode: SourceMode) -> None:
+    def set_country_mode(self, country: str, mode: SourceMode) -> int | None:
         """Choose the GeoNames mode of a country (ISO alpha-2 code).
 
-        ``ValueError`` for a name with no ISO code (historical country).
+        Returns the registry journal entry id (``None`` if nothing changes).
+        ``ValueError`` for a name with no ISO code (historical country) or a
+        code RefData does not know.
         """
         code = country.strip().upper()
-        if len(code) != 2 or not code.isalpha():
-            raise ValueError(f"pas de code ISO pour {country!r} : mode non réglable")
+        if not self._ref.is_country_iso(code):
+            raise ValueError(f"code pays inconnu : {country!r} (mode non réglable)")
         with self._lock:
-            self._registry.set_country_mode(code, mode, self.project_id)
+            entry = self._registry.set_country_mode(code, mode, self.project_id)
             self._views()
+            return entry
 
-    def set_cluster_mode(self, cluster_id: str, mode: SourceMode | None) -> None:
+    def set_cluster_mode(self, cluster_id: str, mode: SourceMode | None) -> int | None:
         """Correct the GeoNames mode of a cluster (one correction per writing);
-        ``None`` removes the correction."""
+        ``None`` removes the correction. Returns the registry journal entry id.
+
+        ``ValueError`` when asking ``geonames`` for a cluster with no country
+        that has an ISO code (nothing could be proposed).
+        """
         with self._lock:
             writings = self.cluster(cluster_id).cluster.writings
-            self._registry.set_override(writings, GEONAMES, mode, self.project_id)
+            if mode == "geonames" and not self._isos(writings):
+                raise ValueError(
+                    "aucun pays reconnu pour ce lieu : GeoNames impossible"
+                )
+            entry = self._registry.set_override(
+                writings, GEONAMES, mode, self.project_id
+            )
             self._views()
+            return entry
+
+    def _isos(self, writings: Sequence[str]) -> set[str]:
+        isos = set()
+        for text in writings:
+            token = _foreign_country(self._decompositions[text], self._ref)
+            iso = self._ref.country_iso(token) if token is not None else None
+            if iso is not None:
+                isos.add(iso)
+        return isos
 
     def _mode_of(
         self,
@@ -780,14 +806,11 @@ class Project:
         modes: Mapping[str, SourceMode],
         corrected: Mapping[str, SourceMode],
     ) -> tuple[SourceMode, ModeOrigin]:
-        isos = set()
-        for text in writings:
-            token = _foreign_country(self._decompositions[text], self._ref)
-            iso = self._ref.country_iso(token) if token is not None else None
-            if iso is not None:
-                isos.add(iso)
+        isos = self._isos(writings)
         country: SourceMode = (
-            "geonames" if any(modes.get(i) == "geonames" for i in isos) else "written"
+            "geonames"
+            if isos and all(modes.get(i) == "geonames" for i in isos)
+            else "written"
         )
         found = [corrected.get(text) for text in writings]
         if found and all(m is not None for m in found) and len(set(found)) == 1:
@@ -1160,9 +1183,12 @@ class Project:
             proposed, readings = source_adapter[1](chain, usable)
             proposed = _revert_refused(name, chain, proposed, refused)
             readings = tuple(_revert_refused(name, chain, r, refused) for r in readings)
+            before = chain
             if proposed:
                 chain = proposed
-            alternatives = alternatives + readings
+            alternatives = alternatives + tuple(
+                r for r in readings if r not in (before, chain)
+            )
         queries[cluster.id] = asked
         result = _Overlay(chain, alternatives, tuple(pending), tuple(failing))
         if not pending and not failing:
