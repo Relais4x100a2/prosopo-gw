@@ -53,6 +53,7 @@ class SourceCandidate:
     insee: str | None = None
     source_text: str | None = None  # citation, e.g. "GeoNames 2026-11-08"
     population: int | None = None  # to order homonyms (GeoNames)
+    feature_code: str | None = None  # GeoNames feature code, e.g. PPLA, ADM1
 
 
 class SourceError(Exception):

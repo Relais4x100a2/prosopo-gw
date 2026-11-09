@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from prosopo_gw_atelier.places.decompose import decompose
-from prosopo_gw_atelier.places.levels import FOREIGN_TYPES, Level, rule_levels
+from prosopo_gw_atelier.places.levels import (
+    FOREIGN_TYPES,
+    Level,
+    check_chain,
+    rule_levels,
+)
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.sources.base import SourceCandidate
 from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex
@@ -61,12 +66,23 @@ def run(source: GeoNamesSource, ref: RefData, writing: str, iso: str) -> Chain:
     return proposals(levels, search_all(source, levels, iso))
 
 
-def written(chain: Sequence[Level]) -> list[Level]:
-    return [lv for lv in chain if lv.status == "validated"]
-
-
 def proposed(chain: Sequence[Level]) -> dict[str, Level]:
+    """Proposed levels by name (GeoNames name, or the written one if it is kept)."""
+    check_chain(chain)
     return {lv.name: lv for lv in chain if lv.status == "proposed"}
+
+
+def untouched(chain: Sequence[Level], levels: Sequence[Level]) -> None:
+    """Nothing written is lost: each input level is kept as is (ranks aside), or
+    proposed in place with its written name kept (in ``name`` or ``written``)."""
+    check_chain(chain)
+    plain = [replace(lv, rank=0) for lv in chain if lv.status == "validated"]
+    for lv in levels:
+        if replace(lv, rank=0) in plain:
+            continue
+        assert any(
+            p.status == "proposed" and lv.name in (p.name, p.written) for p in chain
+        ), lv
 
 
 def test_level_type_table() -> None:
@@ -91,12 +107,13 @@ def test_level_type_table() -> None:
 
 def test_queries_for_level_zero_with_written_parents(ref: RefData) -> None:
     levels = rule_levels(decompose("Winnipeg, , , Manitoba, Canada", ref), ref)
-    (query,) = queries_for(levels, "CA")
+    query, upper = queries_for(levels, "CA")
     assert (query.name, query.country, query.parents) == (
         "Winnipeg",
         "CA",
         ("Manitoba",),
     )
+    assert (upper.name, upper.country, upper.parents) == ("Manitoba", "CA", ())
     assert queries_for(levels, "Canada") == []
     assert queries_for([], "CA") == []
     typed = [replace(levels[0], type="localite"), *levels[1:]]
@@ -117,13 +134,11 @@ def test_winnipeg_gets_types_and_identifier(
     assert by_name["Winnipeg"].origin == "geonames"
     assert by_name["Winnipeg"].latitude == pytest.approx(49.88)
     assert by_name["Manitoba"].type == "province"
-    assert written(chain) == list(levels)  # nothing overwritten
-    assert [lv.name for lv in chain] == [
-        "Winnipeg",
-        "Winnipeg",
-        "Manitoba",
-        "Manitoba",
-        "Canada",
+    untouched(chain, levels)  # nothing overwritten
+    assert [(lv.name, lv.status) for lv in chain] == [
+        ("Winnipeg", "proposed"),
+        ("Manitoba", "proposed"),
+        ("Canada", "validated"),
     ]
     assert by_name["Winnipeg"].rank == 0 and by_name["Manitoba"].rank == 1
 
@@ -140,19 +155,19 @@ def test_storrington_keeps_four_levels_and_adds_types(
     assert by_name["England"].type == "nation_constitutive"
     assert by_name["Storrington"].type == "localite"
     assert "United Kingdom" not in by_name
-    assert len(chain) == 7 and written(chain) == list(levels)
+    untouched(chain, levels)
+    assert [lv.status for lv in chain] == ["proposed"] * 3 + ["validated"]
 
 
 def test_missing_province_is_added(source: GeoNamesSource, ref: RefData) -> None:
     levels = rule_levels(decompose("Winnipeg, Canada", ref), ref)
     chain, _ = proposals(levels, search_all(source, levels, "CA"))
     assert [(lv.name, lv.status) for lv in chain] == [
-        ("Winnipeg", "validated"),
         ("Winnipeg", "proposed"),
         ("Manitoba", "proposed"),
         ("Canada", "validated"),
     ]
-    assert written(chain) == list(levels)
+    untouched(chain, levels)
     manitoba = proposed(chain)["Manitoba"]
     assert manitoba.type == "province" and manitoba.identifier == "9000002"
 
@@ -160,7 +175,7 @@ def test_missing_province_is_added(source: GeoNamesSource, ref: RefData) -> None
 def test_unknown_written_level_stays(source: GeoNamesSource, ref: RefData) -> None:
     levels = rule_levels(decompose("Winnipeg, Prusse-Fictive, Canada", ref), ref)
     chain, _ = proposals(levels, search_all(source, levels, "CA"))
-    assert written(chain) == list(levels)
+    untouched(chain, levels)
     names = [lv.name for lv in chain]
     assert "Prusse-Fictive" in names
     assert "Prusse-Fictive" not in proposed(chain)
@@ -172,11 +187,10 @@ def test_written_name_differs_from_geonames(
 ) -> None:
     levels = rule_levels(decompose("Ouinipègue, Manitoba, Canada", ref), ref)
     chain, _ = proposals(levels, search_all(source, levels, "CA"))
-    assert written(chain)[0].name == "Ouinipègue"
     twin = proposed(chain)["Winnipeg"]
     assert twin.written == "Ouinipègue" and twin.rank == 0
     assert twin.identifier == "9000001"
-    assert written(chain) == list(levels)
+    untouched(chain, levels)
 
 
 def test_homonyms_without_parents_give_alternatives(
@@ -193,7 +207,7 @@ def test_homonyms_without_parents_give_alternatives(
     assert second["Beaumont"].identifier == "9000005"
     assert second["Ontario"].type == "province"
     for alt in alternatives:
-        assert written(alt) == list(levels)
+        untouched(alt, levels)
 
 
 def test_alternatives_are_capped_and_ordered() -> None:
@@ -204,6 +218,7 @@ def test_alternatives_are_capped_and_ordered() -> None:
             identifier=str(i),
             name="Bourg",
             type="localite",
+            feature_code="PPL",
             population=i * 10,
         )
         for i in range(1, 9)
@@ -220,7 +235,9 @@ def test_parents_disambiguate_homonyms(source: GeoNamesSource, ref: RefData) -> 
     assert alternatives == ()
     assert proposed(chain)["Beaumont"].identifier == "9000005"
     assert proposed(chain)["Ontario"].type == "province"
-    assert len(chain) == 5 and written(chain) == list(levels)
+    untouched(chain, levels)
+    check_chain(chain)
+    assert len(chain) == 3
 
 
 def test_homonyms_in_same_division_stay_alternatives(
@@ -239,7 +256,7 @@ def test_country_without_admin_types_gets_identifier_only(
     assert by_name["Hanamura"].type == "localite"
     assert by_name["Fictive Prefecture"].type is None
     assert by_name["Fictive Prefecture"].identifier == "9300002"
-    assert written(chain) == list(levels)
+    untouched(chain, levels)
 
 
 def test_admin_division_alone_when_no_populated_place(
@@ -249,8 +266,32 @@ def test_admin_division_alone_when_no_populated_place(
     chain, _ = proposals(levels, search_all(source, levels, "CA"))
     twin = proposed(chain)["Manitoba"]
     assert twin.type == "province" and twin.identifier == "9000002"
-    assert len(chain) == 3
+    check_chain(chain)
+    assert len(chain) == 2
 
 
 def test_no_candidate_gives_nothing(source: GeoNamesSource, ref: RefData) -> None:
     assert run(source, ref, "Nulle-Part, Canada", "CA") == ((), ())
+
+
+def test_written_other_division_excludes_candidate(
+    source: GeoNamesSource, ref: RefData
+) -> None:
+    assert run(source, ref, "Winnipeg, Ontario, Canada", "CA") == ((), ())
+
+
+def test_fallback_keeps_only_admin_features() -> None:
+    levels = [Level(0, "Pays-Fictif", origin="written")]
+    country = SourceCandidate(
+        source="geonames", identifier="1", name="Pays-Fictif", feature_code="PCLI"
+    )
+    assert proposals(levels, [country]) == ((), ())
+    admin = SourceCandidate(
+        source="geonames",
+        identifier="2",
+        name="Pays-Fictif",
+        type="province",
+        feature_code="ADM1",
+    )
+    chain, _ = proposals(levels, [country, admin])
+    assert [lv.identifier for lv in chain] == ["2"]

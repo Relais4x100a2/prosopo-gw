@@ -49,7 +49,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from prosopo_gw_atelier.places.cluster import name_key
-from prosopo_gw_atelier.places.levels import Level
+from prosopo_gw_atelier.places.levels import Level, renumber
 from prosopo_gw_atelier.sources.base import (
     LevelQuery,
     PermanentSourceError,
@@ -223,7 +223,7 @@ class GeoNamesSource:
     def _parents(
         self, country: str, admin1: str, admin2: str, date: str
     ) -> tuple[Level, ...]:
-        """Untyped, proposed levels for ADM2 then ADM1 (names known from the index)."""
+        """Typed, proposed levels for ADM2 then ADM1 (names known from the index)."""
         found: list[tuple[str, int, str | None]] = []
         if admin1 and admin2:
             second = self._index.admin_name(country, admin1, admin2)
@@ -251,6 +251,7 @@ class GeoNamesSource:
             link=_link(place.geonameid),
             source_text=f"GeoNames {date}",
             population=place.population,
+            feature_code=place.feature_code,
         )
 
     # -- API --------------------------------------------------------------
@@ -285,6 +286,7 @@ class GeoNamesSource:
             link=_link(geonameid),
             source_text=f"GeoNames {date}",
             population=_int(entry.get("population")),
+            feature_code=_text(entry.get("fcode")) or None,
         )
 
     def _api_search(self, name: str, country: str) -> list[dict[str, object]]:
@@ -438,11 +440,12 @@ def _above(levels: Sequence[Level]) -> list[Level]:
 
 
 def queries_for(levels: Sequence[Level], country_iso: str) -> list[LevelQuery]:
-    """The query for level 0 of a foreign writing, with its written levels above it.
+    """Queries for a foreign writing: level 0 first, then each written level above it.
 
     ``country_iso`` is the ISO 3166 alpha-2 code of the country (the caller finds it
-    from the country level). Nothing is asked when level 0 is already typed or
-    resolved, or when the code is not valid.
+    from the country level). The queries for the upper levels tell ``proposals`` which
+    written levels are other divisions of the country. Nothing is asked when level 0 is
+    already typed or resolved, or when the code is not valid.
     """
     iso = country_iso.strip().upper()
     try:
@@ -451,13 +454,16 @@ def queries_for(levels: Sequence[Level], country_iso: str) -> list[LevelQuery]:
         return []
     if not _is_target(levels):
         return []
-    return [
+    above = _above(levels)
+    queries = [
         LevelQuery(
             name=levels[0].name,
-            parents=tuple(lv.name for lv in _above(levels)),
+            parents=tuple(lv.name for lv in above),
             country=iso,
         )
     ]
+    queries += [LevelQuery(name=lv.name, country=iso) for lv in above]
+    return queries
 
 
 def _own_parents(candidate: SourceCandidate) -> list[Level]:
@@ -473,14 +479,25 @@ def _confirmations(candidate: SourceCandidate, keys: set[str]) -> int:
     return sum(1 for p in _own_parents(candidate) if name_key(p.name) in keys)
 
 
+def _is_admin(candidate: SourceCandidate) -> bool:
+    return (candidate.feature_code or "").startswith("ADM")
+
+
+def _is_populated(candidate: SourceCandidate) -> bool:
+    return (candidate.feature_code or "").startswith("PPL")
+
+
 def _typed(level: Level, name: str, proposal: Level, source: str | None) -> Level:
-    """Proposal twin of the written ``level``: same rank, the written name is kept
-    (the GeoNames name goes in the proposal when it really differs)."""
+    """The written ``level`` replaced by its typed proposal, at the same place.
+
+    The GeoNames name is the proposal's name when it really differs (the written name
+    then goes in ``written``); otherwise the written name stays.
+    """
     same = name_key(level.name) == name_key(name)
     return replace(
         level,
         name=level.name if same else name,
-        written=None if same else level.name,
+        written=level.written if same else level.name,
         type=proposal.type,
         identifier=proposal.identifier,
         source=source,
@@ -492,8 +509,7 @@ def _typed(level: Level, name: str, proposal: Level, source: str | None) -> Leve
 
 
 def _reading(levels: Sequence[Level], candidate: SourceCandidate) -> tuple[Level, ...]:
-    """``levels`` untouched, each with its typed proposal, plus the missing levels."""
-    source = candidate.source_text
+    """``levels`` with the confirmed levels proposed and the missing ones inserted."""
     own = Level(
         0,
         candidate.name,
@@ -502,33 +518,32 @@ def _reading(levels: Sequence[Level], candidate: SourceCandidate) -> tuple[Level
         latitude=candidate.latitude,
         longitude=candidate.longitude,
     )
-    twins: dict[int, Level] = {0: _typed(levels[0], candidate.name, own, source)}
+    replaced: dict[int, Level] = {
+        0: _typed(levels[0], candidate.name, own, candidate.source_text)
+    }
     inserted: dict[int, list[Level]] = {}
-    candidates_above = {id(lv) for lv in _above(levels)}
-    free = {i: lv for i, lv in enumerate(levels) if id(lv) in candidates_above}
+    free = [i for i in range(1, len(levels)) if _is_above(levels[i])]
     anchor = 0
     for parent in _own_parents(candidate):
         key = name_key(parent.name)
-        found = next((i for i, lv in free.items() if name_key(lv.name) == key), None)
+        found = next((i for i in free if name_key(levels[i].name) == key), None)
         if found is None:
             # Missing division: right above the lowest level it contains.
-            above = levels[anchor + 1].rank if anchor + 1 < len(levels) else None
-            rank = above if above is not None else levels[anchor].rank + 1
-            inserted.setdefault(anchor, []).append(
-                replace(parent, rank=rank, status="proposed")
-            )
+            inserted.setdefault(anchor, []).append(replace(parent, status="proposed"))
             continue
-        del free[found]
+        free.remove(found)
         anchor = max(anchor, found)
         if levels[found].type is None:
-            twins[found] = _typed(levels[found], parent.name, parent, parent.source)
+            replaced[found] = _typed(levels[found], parent.name, parent, parent.source)
     out: list[Level] = []
     for i, level in enumerate(levels):
-        out.append(level)
-        if i in twins:
-            out.append(twins[i])
+        out.append(replaced.get(i, level))
         out.extend(inserted.get(i, ()))
-    return tuple(out)
+    return renumber(out)
+
+
+def _is_above(level: Level) -> bool:
+    return level.status == "validated" and level.type != "pays"
 
 
 def proposals(
@@ -536,32 +551,50 @@ def proposals(
 ) -> tuple[tuple[Level, ...], tuple[tuple[Level, ...], ...]]:
     """Chain with its levels proposed by GeoNames, and the alternative readings.
 
-    Level 0 is read as a populated place (``localite``) of the country, else as an
-    administrative division when there is no populated place. The written levels above
-    confirm candidates (a written level with the name of the candidate's first- or
-    second-level division); with confirmations only the confirmed candidates remain.
-    One candidate left: the chain, whose validated levels are returned unchanged, each
-    one followed by its proposed twin (same rank, with the type, identifier and source;
-    the written name is kept, the GeoNames name only goes in the proposal when it
-    differs) and with the missing divisions added as proposed levels, between the level
-    they contain and the one that contains them. Several candidates (homonyms): the most
-    populous is never chosen; the chain is empty and each of the (at most 5, most
+    Same contract as DicoTopo's: a confirmed, untyped written level is replaced in
+    place by its proposal (``status="proposed"``, ``origin="geonames"``, type,
+    identifier and source; the GeoNames name goes in ``name`` and the written one in
+    ``written`` when they differ), missing divisions are inserted as proposed levels
+    between the level they contain and the one that contains them, and the ranks are
+    renumbered. Other levels, including a written level GeoNames does not know, are
+    unchanged.
+
+    Level 0 is read as a populated place of the country, else as an administrative
+    division when there is none. The written levels above confirm candidates (a written
+    level with the name of the candidate's first- or second-level division) and a
+    written level that is another division of the country excludes the candidate
+    (``queries_for`` also asks for the upper levels). With confirmations only the
+    confirmed candidates remain. One candidate left: its chain. Several (homonyms): the
+    most populous is never chosen; the chain is empty and each of the (at most 5, most
     populous first) readings is a whole alternative chain. No candidate: both empty.
-    A written level GeoNames does not know stays as it is.
     """
     if not _is_target(levels):
         return (), ()
+    keys = {name_key(lv.name) for lv in _above(levels)}
+    first = name_key(levels[0].name)
+    pool: list[SourceCandidate] = []
     seen: set[str] = set()
-    pool = []
     for c in candidates:
         if c.source == GEONAMES and c.identifier not in seen:
             seen.add(c.identifier)
             pool.append(c)
-    keys = {name_key(lv.name) for lv in _above(levels)}
-    for stage in (
-        [c for c in pool if c.type == "localite"],
-        [c for c in pool if c.type != "localite"],
+    divisions = {
+        name_key(c.name) for c in pool if _is_admin(c) and name_key(c.name) in keys
+    }
+
+    def foreign(c: SourceCandidate) -> bool:
+        mine = {name_key(p.name) for p in _own_parents(c)} | {name_key(c.name)}
+        return bool((divisions & keys) - mine - {first})
+
+    def level_zero(c: SourceCandidate) -> bool:
+        # candidates of the upper-level queries are not readings of level 0
+        return name_key(c.name) not in keys or name_key(c.name) == first
+
+    for readings in (
+        [c for c in pool if _is_populated(c) and level_zero(c)],
+        [c for c in pool if _is_admin(c) and level_zero(c)],
     ):
+        stage = [c for c in readings if not foreign(c)]
         if not stage:
             continue
         confirmed = [c for c in stage if _confirmations(c, keys) > 0]
