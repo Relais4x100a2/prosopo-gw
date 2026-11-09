@@ -295,3 +295,69 @@ def test_fallback_keeps_only_admin_features() -> None:
     )
     chain, _ = proposals(levels, [country, admin])
     assert [lv.identifier for lv in chain] == ["2"]
+
+
+def test_same_name_on_level_and_upper_level(
+    source: GeoNamesSource, ref: RefData
+) -> None:
+    levels = rule_levels(decompose("Quebec, Quebec, Canada", ref), ref)
+    queries = queries_for(levels, "CA")
+    assert [q.role for q in queries] == ["level", "upper"]
+    found = search_all(source, levels, "CA")
+    assert {c.role for c in found} == {"level", "upper"}
+    chain, alternatives = proposals(levels, found)
+    assert alternatives == ()
+    check_chain(chain)
+    assert [(lv.name, lv.type, lv.identifier) for lv in chain[:2]] == [
+        ("Quebec", "localite", "9000010"),
+        ("Quebec", "province", "9000011"),
+    ]
+
+
+def test_role_in_key_and_queue_payload() -> None:
+    from prosopo_gw_atelier.sources.base import LevelQuery
+    from prosopo_gw_atelier.sources.queue import match_payload
+
+    level = LevelQuery(name="Ontario", country="CA")
+    upper = LevelQuery(name="Ontario", country="CA", role="upper")
+    assert level.key() != upper.key()
+    assert '"role"' not in level.key()  # keys already stored stay valid
+    assert match_payload(upper)["role"] == "upper"
+
+
+def test_upper_query_never_uses_the_api(tmp_path: Path, ref: RefData) -> None:
+    from prosopo_gw_atelier.sources.base import LevelQuery
+
+    calls: list[object] = []
+
+    def opener(*args: object, **kwargs: object) -> object:
+        calls.append(args)
+        raise AssertionError("no request expected")
+
+    idx = GeoNamesIndex(tmp_path / "geonames")  # no country indexed
+    api = GeoNamesSource(
+        idx,
+        config=LocalConfig(geonames_username="user-x"),
+        counter_path=tmp_path / "api_counter.json",
+        opener=opener,  # type: ignore[arg-type]
+    )
+    upper = LevelQuery(name="Ontario", country="CA", role="upper")
+    assert api.can_answer(upper) is False
+    assert api.can_answer(LevelQuery(name="Ontario", country="CA")) is True
+    assert api.search(upper) == []
+    assert calls == []
+    # without upper candidates the candidate's own parents are all there is
+    levels = rule_levels(decompose("Winnipeg, Ontario, Canada", ref), ref)
+    winnipeg = SourceCandidate(
+        source="geonames",
+        identifier="1",
+        name="Winnipeg",
+        type="localite",
+        feature_code="PPL",
+        parents=(
+            Level(1, "Manitoba", type="province", origin="geonames", status="proposed"),
+        ),
+    )
+    chain, _ = proposals(levels, [winnipeg])
+    check_chain(chain)
+    assert "Manitoba" in proposed(chain)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from prosopo_gw_atelier.places.levels import Level
 
@@ -19,18 +19,24 @@ class LevelQuery:
     country: str | None = None
     department: str | None = None
     insee: str | None = None
+    # "upper": a written level above level 0, asked only to know the divisions of
+    # the country (GeoNames); "level": the level being read.
+    role: Literal["level", "upper"] = "level"
 
     def key(self) -> str:
         """Stable cache key: sorted JSON of the fields."""
+        fields: dict[str, object] = {
+            "name": self.name.strip().casefold(),
+            "type": self.type,
+            "parents": [p.strip().casefold() for p in self.parents],
+            "country": self.country,
+            "department": self.department,
+            "insee": self.insee,
+        }
+        if self.role != "level":  # the default keeps the keys already stored
+            fields["role"] = self.role
         return json.dumps(
-            {
-                "name": self.name.strip().casefold(),
-                "type": self.type,
-                "parents": [p.strip().casefold() for p in self.parents],
-                "country": self.country,
-                "department": self.department,
-                "insee": self.insee,
-            },
+            fields,
             sort_keys=True,
             ensure_ascii=False,
         )
@@ -54,6 +60,7 @@ class SourceCandidate:
     source_text: str | None = None  # citation, e.g. "GeoNames 2026-11-08"
     population: int | None = None  # to order homonyms (GeoNames)
     feature_code: str | None = None  # GeoNames feature code, e.g. PPLA, ADM1
+    role: Literal["level", "upper"] = "level"  # role of the query that found it
 
 
 class SourceError(Exception):

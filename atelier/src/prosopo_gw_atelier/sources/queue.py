@@ -485,6 +485,7 @@ def match_payload(query: LevelQuery) -> dict[str, object]:
         "country": query.country,
         "department": query.department,
         "insee": query.insee,
+        "role": query.role,
     }
 
 
@@ -503,6 +504,7 @@ def handle_match(job: Job, *, source: Source, queue: SourceQueue) -> None:
         country=cast("str | None", raw.get("country")),
         department=cast("str | None", raw.get("department")),
         insee=cast("str | None", raw.get("insee")),
+        role="upper" if raw.get("role") == "upper" else "level",
     )
     if not source.can_answer(query):
         return  # nothing is cached: the source will be asked again once it can

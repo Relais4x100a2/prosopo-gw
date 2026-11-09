@@ -42,6 +42,8 @@ def test_read_dump_keeps_p_and_a() -> None:
         9000005,
         9000006,
         9000007,
+        9000010,
+        9000011,
     }
     winnipeg = places[9000001]
     assert (winnipeg.name, winnipeg.feature_code, winnipeg.admin1) == (

@@ -66,6 +66,8 @@ CA = [
     row(9000006, "Rosedale", "", "P", "PPL", "CA", "03", "", 300, 50.3, -97.8),
     row(9000007, "Rosedale", "", "P", "PPL", "CA", "03", "", 150, 49.6, -98.4),
     row(9000008, "Mount Fictive", "", "T", "MT", "CA", "03", "", 0),
+    row(9000010, "Quebec", "", "P", "PPLA", "CA", "10", "", 540000, 46.8, -71.2),
+    row(9000011, "Quebec", "", "A", "ADM1", "CA", "10", "", 8500000, 52.0, -72.0),
     row(9000009, "Fictive Creek", "", "H", "STM", "CA", "08", "", 0),
 ]
 GB = [
@@ -106,6 +108,7 @@ ADMIN1 = [
     "JP.01\tFictive Prefecture\tFictive Prefecture\t9300002",
     "CA.03\tManitoba\tManitoba\t9000002",
     "CA.08\tOntario\tOntario\t9000003",
+    "CA.10\tQuebec\tQuebec\t9000011",
     "GB.ENG\tEngland\tEngland\t9100002",
     "FR.A1\tNowhere\tNowhere\t9200001",
 ]

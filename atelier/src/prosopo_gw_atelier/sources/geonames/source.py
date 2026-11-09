@@ -149,10 +149,16 @@ class GeoNamesSource:
         return country is not None and self._extraction(country) is not None
 
     def can_answer(self, query: LevelQuery) -> bool:
-        """Country indexed, or a user name set (API) for a known country."""
+        """Country indexed, or a user name set (API) for a known country.
+
+        An ``upper`` query (only used to exclude candidates) is answered from the
+        local index: it never costs an API request.
+        """
         country = self._country(query)
         if country is None:
             return False
+        if query.role == "upper":
+            return self._extraction(country) is not None
         return self._api_allowed or self._extraction(country) is not None
 
     def search(self, query: LevelQuery) -> list[SourceCandidate]:
@@ -168,8 +174,11 @@ class GeoNamesSource:
                 logger.warning("Index GeoNames illisible", exc_info=True)
                 local = []
             if local:
-                return [self._local_candidate(p, date) for p in local]
-        if not self._api_allowed:
+                return [
+                    replace(self._local_candidate(p, date), role=query.role)
+                    for p in local
+                ]
+        if not self._api_allowed or query.role == "upper":
             return []
         today = self._today()
         entries = self._api_search(query.name, country)
@@ -462,7 +471,7 @@ def queries_for(levels: Sequence[Level], country_iso: str) -> list[LevelQuery]:
             country=iso,
         )
     ]
-    queries += [LevelQuery(name=lv.name, country=iso) for lv in above]
+    queries += [LevelQuery(name=lv.name, country=iso, role="upper") for lv in above]
     return queries
 
 
@@ -563,36 +572,38 @@ def proposals(
     division when there is none. The written levels above confirm candidates (a written
     level with the name of the candidate's first- or second-level division) and a
     written level that is another division of the country excludes the candidate
-    (``queries_for`` also asks for the upper levels). With confirmations only the
-    confirmed candidates remain. One candidate left: its chain. Several (homonyms): the
-    most populous is never chosen; the chain is empty and each of the (at most 5, most
-    populous first) readings is a whole alternative chain. No candidate: both empty.
+    (``queries_for`` also asks for the upper levels, tagged ``role="upper"``; their
+    candidates only tell which divisions exist and are never readings of level 0).
+    Without them (country not indexed locally: the API is never used for these
+    queries) nothing is excluded and the candidates' own parents are used. With
+    confirmations only the confirmed candidates remain. One candidate left: its
+    chain. Several (homonyms): the most populous is never chosen; the chain is empty
+    and each of the (at most 5, most populous first) readings is a whole alternative
+    chain. No candidate: both empty.
     """
     if not _is_target(levels):
         return (), ()
     keys = {name_key(lv.name) for lv in _above(levels)}
     first = name_key(levels[0].name)
     pool: list[SourceCandidate] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for c in candidates:
-        if c.source == GEONAMES and c.identifier not in seen:
-            seen.add(c.identifier)
+        if c.source == GEONAMES and (c.role, c.identifier) not in seen:
+            seen.add((c.role, c.identifier))
             pool.append(c)
     divisions = {
-        name_key(c.name) for c in pool if _is_admin(c) and name_key(c.name) in keys
+        name_key(c.name)
+        for c in pool
+        if c.role == "upper" and _is_admin(c) and name_key(c.name) in keys
     }
 
     def foreign(c: SourceCandidate) -> bool:
         mine = {name_key(p.name) for p in _own_parents(c)} | {name_key(c.name)}
         return bool((divisions & keys) - mine - {first})
 
-    def level_zero(c: SourceCandidate) -> bool:
-        # candidates of the upper-level queries are not readings of level 0
-        return name_key(c.name) not in keys or name_key(c.name) == first
-
     for readings in (
-        [c for c in pool if _is_populated(c) and level_zero(c)],
-        [c for c in pool if _is_admin(c) and level_zero(c)],
+        [c for c in pool if _is_populated(c) and c.role == "level"],
+        [c for c in pool if _is_admin(c) and c.role == "level"],
     ):
         stage = [c for c in readings if not foreign(c)]
         if not stage:
