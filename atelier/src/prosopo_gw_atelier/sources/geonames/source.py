@@ -51,8 +51,8 @@ from pathlib import Path
 from prosopo_gw_atelier.places.cluster import name_key
 from prosopo_gw_atelier.places.levels import Level, renumber
 from prosopo_gw_atelier.sources.base import (
+    CredentialsRejected,
     LevelQuery,
-    PermanentSourceError,
     QuotaReached,
     SourceCandidate,
     SourceError,
@@ -77,6 +77,10 @@ DAILY_LIMIT = 10_000
 MIN_INTERVAL = 4.0
 _HOURLY_CODES = frozenset({19})
 _DAILY_CODES = frozenset({18, 20})
+REJECTED_TEXT = (
+    "GeoNames refuse l'identifiant (compte inconnu ou service web non activé)"
+)
+
 _STATUS_TEXT = {
     10: "identifiant refusé",
     18: "plafond journalier",
@@ -330,6 +334,8 @@ class GeoNamesSource:
                 raise QuotaReached(
                     "Requêtes GeoNames en pause (plafond atteint)", paused
                 )
+            if self._queue.credentials_rejected(GEONAMES):
+                raise CredentialsRejected(REJECTED_TEXT)
         self._count_request()
         self._limiter.wait()
         url = f"{API_URL}{method}?" + urllib.parse.urlencode(
@@ -372,7 +378,7 @@ class GeoNamesSource:
         if code in _DAILY_CODES:
             raise QuotaReached(message, _next_midnight(now))
         if code == 10:
-            raise PermanentSourceError(message)
+            raise CredentialsRejected(message)
         raise SourceError(message)
 
     # -- daily counter ----------------------------------------------------

@@ -71,6 +71,12 @@ class PermanentSourceError(SourceError):
     """A failure that retrying cannot fix (e.g. HTTP 404): the job fails at once."""
 
 
+class CredentialsRejected(SourceError):
+    """The source refuses the account (GeoNames code 10: unknown user or web
+    service not enabled). Nothing can be asked until the user name changes: the
+    worker holds the source's ``match`` jobs instead of failing them."""
+
+
 class QuotaReached(SourceError):
     """A source quota is exhausted: nothing can be asked before ``retry_at``
     (a POSIX timestamp). The worker pauses the source instead of failing the job."""

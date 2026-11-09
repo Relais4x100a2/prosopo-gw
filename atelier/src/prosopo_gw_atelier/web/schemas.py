@@ -329,10 +329,12 @@ class GeoNamesCountry(BaseModel):
 
 
 class GeoNamesApi(BaseModel):
-    """Requests counted today (UTC) and end of the pause (ISO 8601 UTC) if any."""
+    """Requests counted today (UTC), end of the pause (ISO 8601 UTC) if any, and
+    whether GeoNames refused the user name (requests held until it changes)."""
 
     today: int
     paused_until: str | None
+    credentials_rejected: bool = False
 
 
 class GeoNamesStatus(BaseModel):

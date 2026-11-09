@@ -2012,6 +2012,13 @@
             text: `Plafond de l'API atteint : requêtes en pause jusqu'au ${formatDate(quota.paused_until)}.`,
           })
         : null,
+      quota.credentials_rejected
+        ? el("div", {
+            class: "warning",
+            role: "status",
+            text: "GeoNames refuse l'identifiant (compte inconnu ou service web non activé). Les requêtes à l'API attendent un nouvel identifiant.",
+          })
+        : null,
     );
   }
 

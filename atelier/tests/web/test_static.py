@@ -226,3 +226,12 @@ def test_script_follows_geonames_downloads_from_the_queue(client: TestClient) ->
     ):
         assert text in script, text
     assert 'c.mode === "geonames" && !c.downloaded' not in script
+
+
+def test_script_reports_a_rejected_geonames_username(client: TestClient) -> None:
+    script = client.get("/static/app.js").text
+    assert "credentials_rejected" in script
+    assert (
+        "GeoNames refuse l'identifiant (compte inconnu ou service web non activé)"
+        in script
+    )

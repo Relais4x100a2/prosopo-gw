@@ -168,10 +168,15 @@ class SourceRuntime:
         """Set or clear the GeoNames user name; written to ``config.json`` only.
 
         The caller validates the value. The shared ``GeoNamesSource`` reads it from
-        ``config`` at each request.
+        ``config`` at each request. Any change lifts a hold left by a refused
+        user name (GeoNames code 10); with a user name, the failed GeoNames
+        ``match`` jobs are retried too.
         """
         self.config.geonames_username = username or None
         save_config(self.config, self.config_path)
+        self.queue.clear_credentials_rejection(
+            GEONAMES, retry_failed=self.config.geonames_username is not None
+        )
 
     def geonames_size(self, country: str) -> int | None:
         """Size of the cached ``<CC>.zip`` of ``country`` (``None`` if absent)."""

@@ -1803,7 +1803,7 @@ def test_username_is_write_only(
     assert status == {
         "countries": [],
         "username_set": False,
-        "api": {"today": 0, "paused_until": None},
+        "api": {"today": 0, "paused_until": None, "credentials_rejected": False},
     }
     response = geo_client.put(
         "/api/sources/geonames/username", json={"username": DEMO_USER}
@@ -1925,3 +1925,32 @@ def test_accepting_a_renamed_proposal_replaces_the_written_level(
     names = [lv["name"] for lv in response.json()["levels"]]
     assert names == ["Winnipeg", "Manitoba", "Canada"]
     assert registry.place(place_id).levels[0].written == "Ouinipegue"
+
+
+def test_new_username_lifts_a_rejection(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    queue = geo_runtime.queue
+    held = queue.enqueue(GEONAMES, "match", "k1", {}, 5)
+    failed = queue.enqueue(GEONAMES, "match", "k2", {}, 1)
+    queue.fail(failed, "GeoNames a refusé la requête", permanent=True)
+    queue.reject_credentials(GEONAMES)
+    api = geo_client.get("/api/sources").json()["geonames"]["api"]
+    assert api["credentials_rejected"] is True
+    assert queue.next_job() is None
+    response = geo_client.put(
+        "/api/sources/geonames/username", json={"username": DEMO_USER}
+    )
+    assert response.status_code == 200
+    got = geo_client.get("/api/sources")
+    assert got.json()["geonames"]["api"]["credentials_rejected"] is False
+    assert DEMO_USER not in got.text
+    assert queue.counts()[GEONAMES]["failed"] == 0
+    job = queue.next_job()
+    assert job is not None and job.id == held
+    # Clearing the user name lifts the hold too, without retrying failures.
+    queue.fail(failed, "x", permanent=True)
+    queue.reject_credentials(GEONAMES)
+    geo_client.put("/api/sources/geonames/username", json={"username": None})
+    assert not queue.credentials_rejected(GEONAMES)
+    assert queue.counts()[GEONAMES]["failed"] == 1

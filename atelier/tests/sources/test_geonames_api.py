@@ -19,6 +19,7 @@ from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.project import Project
 from prosopo_gw_atelier.refdata import load_refdata
 from prosopo_gw_atelier.sources.base import (
+    CredentialsRejected,
     LevelQuery,
     QuotaReached,
     SourceCandidate,
@@ -418,3 +419,68 @@ def test_hostile_username_is_one_parameter(
     params = api.params()
     assert params["username"] == [hostile]
     assert len(urllib.parse.urlparse(api.urls[0]).query.split("&username=")) == 2
+
+
+def test_rejected_username_holds_geonames_matches(
+    index: GeoNamesIndex, tmp_path: Path
+) -> None:
+    """Code 10 (unknown user, web service off): matches wait, nothing fails."""
+    api = FakeApi({"status": {"value": 10, "message": f"user {SECRET} unknown"}})
+    queue = SourceQueue(tmp_path / "sources.sqlite", clock=lambda: NOON)
+    source = GeoNamesSource(
+        index,
+        config=LocalConfig(geonames_username=SECRET),
+        counter_path=tmp_path / "cache" / "api_counter.json",
+        opener=api,
+        limiter=NoWait(),  # type: ignore[arg-type]
+        clock=lambda: NOON,
+        queue=queue,
+    )
+    with pytest.raises(CredentialsRejected) as raised:
+        make(index, tmp_path, api).search(q("Nowhere", "ZZ"))
+    assert "code 10" in str(raised.value) and SECRET not in str(raised.value)
+    first = queue.enqueue(GEONAMES, "match", "k1", match_payload(q("Nowhere", "ZZ")), 5)
+    queue.enqueue(GEONAMES, "match", "k2", match_payload(q("Ailleurs", "ZZ")), 4)
+    failed = queue.enqueue(GEONAMES, "match", "k3", {}, 1)
+    queue.fail(failed, "ancienne erreur", permanent=True)
+    download = queue.enqueue(GEONAMES, "download", "d", {}, 0)
+    worker = Worker(
+        queue,
+        {
+            (GEONAMES, "match"): lambda job: handle_match(
+                job, source=source, queue=queue
+            ),
+            (GEONAMES, "download"): lambda job: None,
+        },
+    )
+    assert worker.run_once() is True
+    assert queue.credentials_rejected(GEONAMES)
+    assert queue.paused_until(GEONAMES) is None  # not a quota pause
+    requests = len(api.urls)
+    job = queue.next_job()  # the matches wait, the download flows
+    assert job is not None and job.id == download
+    queue.finish(job.id)
+    assert queue.next_job() is None
+    assert len(api.urls) == requests
+    counts = queue.counts()[GEONAMES]
+    assert (counts["pending"], counts["failed"]) == (2, 1)
+    with pytest.raises(CredentialsRejected):  # a direct call asks nothing either
+        source.search(q("Nowhere", "ZZ"))
+    assert len(api.urls) == requests
+    assert source.search(q("Winnipeg"))  # local answers still work
+    # A new user name lifts the hold and retries the failed matches.
+    queue.clear_credentials_rejection(GEONAMES, retry_failed=True)
+    assert not queue.credentials_rejected(GEONAMES)
+    resumed = queue.next_job()
+    assert resumed is not None and resumed.id == first and resumed.attempts == 0
+    assert queue.counts()[GEONAMES]["failed"] == 0
+    assert all(SECRET not in (j.error or "") for j in queue.errors())
+
+
+def test_credentials_rejection_survives_reopening(tmp_path: Path) -> None:
+    path = tmp_path / "q.sqlite"
+    SourceQueue(path).reject_credentials(GEONAMES)
+    assert SourceQueue(path).credentials_rejected(GEONAMES)
+    assert not SourceQueue(path).credentials_rejected("dicotopo")
+    SourceQueue(path).clear_credentials_rejection(GEONAMES)
+    assert not SourceQueue(path).credentials_rejected(GEONAMES)

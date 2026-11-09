@@ -1069,6 +1069,7 @@ def create_app(
                 paused_until=None
                 if paused is None
                 else datetime.fromtimestamp(paused, UTC).isoformat(timespec="seconds"),
+                credentials_rejected=runtime.queue.credentials_rejected(GEONAMES),
             ),
         )
 

@@ -20,6 +20,7 @@ from typing import Literal, cast
 
 from prosopo_gw_atelier.places.levels import Level
 from prosopo_gw_atelier.sources.base import (
+    CredentialsRejected,
     LevelQuery,
     PermanentSourceError,
     QuotaReached,
@@ -53,6 +54,9 @@ CREATE TABLE IF NOT EXISTS epochs (
 );
 CREATE TABLE IF NOT EXISTS pauses (
   source TEXT PRIMARY KEY, until REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rejections (
+  source TEXT PRIMARY KEY
 );
 INSERT OR IGNORE INTO epochs(name, value) VALUES ('stored', 0), ('reset', 0);
 """
@@ -173,7 +177,8 @@ class SourceQueue:
                 "SELECT * FROM jobs WHERE state='pending'"
                 " AND (not_before IS NULL OR not_before<=?)"
                 " AND NOT (kind='match' AND source IN"
-                " (SELECT source FROM pauses WHERE until>?))"
+                " (SELECT source FROM pauses WHERE until>?"
+                " UNION SELECT source FROM rejections))"
                 " ORDER BY priority DESC, id ASC LIMIT 1",
                 (now, self._clock()),
             ).fetchone()
@@ -202,6 +207,33 @@ class SourceQueue:
         if row is None or float(row["until"]) <= self._clock():
             return None
         return float(row["until"])
+
+    def reject_credentials(self, source: str) -> None:
+        """Hold the pending ``match`` jobs of ``source`` until
+        ``clear_credentials_rejection`` (the source refused the account)."""
+        with self._db() as db:
+            db.execute("INSERT OR IGNORE INTO rejections(source) VALUES (?)", (source,))
+
+    def credentials_rejected(self, source: str) -> bool:
+        with self._reader() as db:
+            row = db.execute(
+                "SELECT 1 FROM rejections WHERE source=?", (source,)
+            ).fetchone()
+        return row is not None
+
+    def clear_credentials_rejection(
+        self, source: str, *, retry_failed: bool = False
+    ) -> None:
+        """Lift the hold of ``reject_credentials``; with ``retry_failed``, also
+        put the failed ``match`` jobs of ``source`` back to run now."""
+        with self._db() as db:
+            db.execute("DELETE FROM rejections WHERE source=?", (source,))
+            if retry_failed:
+                db.execute(
+                    "UPDATE jobs SET state='pending', attempts=0, not_before=NULL"
+                    " WHERE source=? AND kind='match' AND state='failed'",
+                    (source,),
+                )
 
     def requeue(self, job_id: int) -> None:
         """Put a running job back to ``pending``: no attempt counted, no error."""
@@ -470,6 +502,9 @@ class Worker:
             handler(job)
         except QuotaReached as exc:
             self._queue.pause(job.source, exc.retry_at)
+            self._queue.requeue(job.id)
+        except CredentialsRejected:
+            self._queue.reject_credentials(job.source)
             self._queue.requeue(job.id)
         except PermanentSourceError as exc:
             self._queue.fail(job.id, str(exc), permanent=True)

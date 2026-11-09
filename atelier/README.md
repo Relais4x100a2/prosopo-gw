@@ -156,7 +156,9 @@ proposé et rien n'est envoyé.
   `config.json` du dossier de données de l'atelier. Il n'est jamais réaffiché (l'écran dit seulement
   « Identifiant enregistré »), exporté, écrit dans un journal ni placé dans le référentiel.
 - **Quota** : l'API gratuite de GeoNames autorise 10 000 requêtes par jour et 1 000 par heure. L'atelier met
-  ses tâches API en pause jusqu'à l'heure suivante ou jusqu'à minuit UTC.
+  ses tâches API en pause jusqu'à l'heure suivante ou jusqu'à minuit UTC. Si GeoNames refuse l'identifiant
+  (compte inconnu, ou service web pas encore activé dans le compte), l'écran Sources le signale et les tâches API
+  attendent qu'un identifiant soit de nouveau enregistré, ce qui relance aussi celles qui avaient échoué.
 - **Propositions** : un niveau proposé par GeoNames (origine `geonames`) reste « proposé » tant que vous ne
   l'avez pas validé ; un niveau écrit que GeoNames ne connaît pas est conservé tel quel.
 - **Licence et export** : GeoNames est publié sous licence CC BY 4.0. Rien de GeoNames n'est dans ce dépôt ni
