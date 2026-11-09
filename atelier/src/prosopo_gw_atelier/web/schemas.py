@@ -360,7 +360,8 @@ class GeoNamesUsernameOut(BaseModel):
 
 class CountryRowOut(BaseModel):
     """A foreign country of the project (``iso`` is ``None`` for a historical one);
-    ``downloaded`` is the extraction date of its indexed GeoNames file."""
+    ``downloaded`` is the extraction date of its indexed GeoNames file;
+    ``download`` the state of its download in the queue (``None``: no job)."""
 
     iso: str | None
     name: str
@@ -368,6 +369,7 @@ class CountryRowOut(BaseModel):
     occurrences: int
     mode: SourceMode
     downloaded: str | None
+    download: Literal["queued", "running", "failed"] | None = None
     overrides: int
 
 
@@ -390,6 +392,13 @@ class CountryModeOut(CountriesOut):
     iso: str
     mode: SourceMode
     queued: bool
+    size: int | None
+
+
+class GeoNamesSizeOut(BaseModel):
+    """Announced size of ``<CC>.zip`` in bytes (``None`` if unknown)."""
+
+    iso: str
     size: int | None
 
 

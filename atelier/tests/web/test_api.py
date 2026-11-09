@@ -1556,6 +1556,7 @@ def test_list_countries(geo_client: TestClient) -> None:
         "occurrences": 2,
         "mode": "written",
         "downloaded": None,
+        "download": None,
         "overrides": 0,
     }
     by_name = {row["name"]: row for row in rows}
@@ -1624,6 +1625,132 @@ def test_remove_country(geo_client: TestClient, geo_runtime: SourceRuntime) -> N
     assert geo_runtime.geonames_index.countries() == {}
     assert not (geo_runtime.cache / "geonames" / "CA.zip").exists()
     assert geo_client.delete("/api/sources/geonames/countries/C1").status_code == 400
+
+
+class FailingGeoServer(GeoServer):
+    """The fixture dump server, without ``CA.zip`` (a permanent 404)."""
+
+    def __call__(self, request: urllib.request.Request, timeout: float) -> BinaryIO:
+        if request.full_url.endswith("/CA.zip") and request.get_method() == "GET":
+            self.requests.append((request.get_method(), request.full_url))
+            raise urllib.error.HTTPError(
+                request.full_url,
+                404,
+                "Not Found",
+                None,  # type: ignore[arg-type]
+                None,
+            )
+        return super().__call__(request, timeout)
+
+
+def country_row(client: TestClient, iso: str) -> dict[str, object]:
+    for row in client.get("/api/countries").json()["countries"]:
+        if row["iso"] == iso:
+            return dict(row)
+    raise AssertionError(iso)
+
+
+def test_geonames_size(geo_client: TestClient, geo_runtime: SourceRuntime) -> None:
+    server = geo_runtime.opener
+    assert isinstance(server, GeoServer)
+    response = geo_client.get("/api/sources/geonames/size/ca")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"iso": "CA", "size": (GEO / "CA.zip").stat().st_size}
+    assert [method for method, _ in server.requests] == ["HEAD"]
+    assert geo_runtime.queue.counts() == {}  # nothing queued
+    # A failed HEAD (here a 404) gives no size, not an error.
+    missing = geo_client.get("/api/sources/geonames/size/ZZ")
+    assert missing.status_code == 200
+    assert missing.json() == {"iso": "ZZ", "size": None}
+    for bad in ("C1", "CAN", "c"):
+        assert geo_client.get(f"/api/sources/geonames/size/{bad}").status_code == 400
+
+
+def test_geonames_size_uses_a_short_timeout(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData
+) -> None:
+    timeouts: list[float] = []
+
+    def broken(request: urllib.request.Request, timeout: float) -> BinaryIO:
+        timeouts.append(timeout)
+        raise OSError("unreachable")
+
+    runtime = SourceRuntime.build(tmp_path / "data", ref, opener=broken)
+    project = open_project(tmp_path, registry, ref, "lieux_geonames.gw")
+    app = create_app(project, registry, ref, sources=runtime, start_worker=False)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    assert client.get("/api/sources/geonames/size/CA").json()["size"] is None
+    response = client.put("/api/countries/CA", json={"mode": "geonames"})
+    assert response.json()["size"] is None
+    assert timeouts and all(t <= 5 for t in timeouts)
+
+
+def test_country_download_failed_then_retried(
+    tmp_path: Path, registry: PlaceRegistry, ref: RefData
+) -> None:
+    server = FailingGeoServer()
+    runtime = SourceRuntime.build(tmp_path / "data", ref, opener=server)
+    project = open_project(tmp_path, registry, ref, "lieux_geonames.gw")
+    app = create_app(project, registry, ref, sources=runtime, start_worker=False)
+    client = TestClient(app, base_url="http://127.0.0.1")
+    first = client.put("/api/countries/CA", json={"mode": "geonames"}).json()
+    assert first["queued"] is True
+    assert first["countries"][0]["download"] == "queued"
+    drain(runtime)
+    row = country_row(client, "CA")
+    assert (row["mode"], row["downloaded"], row["download"]) == (
+        "geonames",
+        None,
+        "failed",
+    )
+    # Same mode again: retries the failed download instead of doing nothing.
+    again = client.put("/api/countries/CA", json={"mode": "geonames"}).json()
+    assert again["queued"] is True
+    assert country_row(client, "CA")["download"] == "queued"
+    gets = [url for method, url in server.requests if method == "GET"]
+    drain(runtime)
+    retried = [url for method, url in server.requests if method == "GET"]
+    assert retried[len(gets) :].count(geo_dl.DUMP_URL + "CA.zip") == 1
+    assert country_row(client, "CA")["download"] == "failed"
+    # Another country is untouched.
+    assert country_row(client, "GB")["download"] is None
+
+
+def test_remove_country_keeps_the_mode_and_allows_a_new_download(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    row = country_row(geo_client, "CA")
+    assert (row["downloaded"], row["download"]) == ("2026-11-08", None)
+    geo_client.delete("/api/sources/geonames/countries/CA")
+    row = country_row(geo_client, "CA")
+    assert (row["mode"], row["downloaded"], row["download"]) == (
+        "geonames",
+        None,
+        None,
+    )
+    again = geo_client.put("/api/countries/CA", json={"mode": "geonames"}).json()
+    assert again["queued"] is True
+    assert country_row(geo_client, "CA")["download"] == "queued"
+    assert geo_runtime.queue.counts()[GEONAMES]["pending"] >= 2
+    drain(geo_runtime)
+    assert country_row(geo_client, "CA")["downloaded"] == "2026-11-08"
+
+
+def test_foreign_place_label_uses_its_finest_level(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    cluster_id = cluster_of(geo_client, WINNIPEG)
+    drain(geo_runtime)
+    levels = detail(geo_client, cluster_id)["levels"]
+    assert levels[0]["status"] == "proposed"
+    assert levels[0]["origin"] == "geonames"
+    labels = {row["id"]: row["label"] for row in geo_client.get("/api/clusters").json()}
+    assert labels[cluster_id] == "Winnipeg"
+    assert detail(geo_client, cluster_id)["label"] == "Winnipeg"
 
 
 def test_cluster_override_then_undo(geo_client: TestClient) -> None:

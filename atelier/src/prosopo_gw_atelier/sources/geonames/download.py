@@ -33,7 +33,7 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 from prosopo_gw_atelier.sources.base import PermanentSourceError, SourceError
 from prosopo_gw_atelier.sources.fetch import (
@@ -51,6 +51,7 @@ DUMP_ENV = "PROSOPO_GW_ATELIER_GEONAMES_DUMP"
 COMMON_FILES = ("admin1CodesASCII.txt", "admin2Codes.txt", "countryInfo.txt")
 MAX_COUNTRY_BYTES = 600 * 1024 * 1024
 MAX_COMMON_BYTES = 50 * 1024 * 1024
+HEAD_TIMEOUT = 5.0
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,41 @@ def request_country(
     ids.append(queue.enqueue(GEONAMES, "download", f"{code}.zip", {}, 0))
     ids.append(queue.enqueue(GEONAMES, "index", code, {}, 0))
     return ids
+
+
+DownloadState = Literal["queued", "running", "failed"]
+
+
+def _job_keys(code: str) -> tuple[str, ...]:
+    return (*COMMON_FILES, f"{code}.zip", code)
+
+
+def download_state(queue: SourceQueue, country: str) -> DownloadState | None:
+    """State of the download and indexing jobs of ``country`` in the queue.
+
+    ``failed`` as soon as one of them failed for good (the country cannot be
+    indexed without a retry), else ``running``, else ``queued`` (pending, maybe
+    waiting before a new attempt); ``None`` when the country has no unfinished job
+    of its own. The common files count only for a country with such a job, since
+    its index needs them.
+    """
+    code = _check_country(country)
+    states = queue.open_states(GEONAMES, (f"{code}.zip", code))
+    if not states:
+        return None
+    states |= queue.open_states(GEONAMES, COMMON_FILES)
+    if "failed" in states:
+        return "failed"
+    if "running" in states:
+        return "running"
+    if "pending" in states:
+        return "queued"
+    return None
+
+
+def retry_country(queue: SourceQueue, country: str) -> int:
+    """Run the failed or waiting jobs of ``country`` again, now."""
+    return queue.retry(GEONAMES, _job_keys(_check_country(country)))
 
 
 def _wrap(opener: Opener | None, seen: dict[str, str] | None = None) -> Opener:
@@ -207,13 +243,16 @@ def handle_index(
         queue.clear_results(GEONAMES, country, field="country")
 
 
-def remote_size(url: str, *, opener: Opener | None = None) -> int | None:
-    """``Content-Length`` of ``url`` via ``HEAD``; ``None`` on any failure."""
+def remote_size(
+    url: str, *, opener: Opener | None = None, timeout: float = HEAD_TIMEOUT
+) -> int | None:
+    """``Content-Length`` of ``url`` via ``HEAD`` (short timeout: a user waits for
+    it); ``None`` on any failure."""
     request = urllib.request.Request(
         url, headers={"User-Agent": USER_AGENT}, method="HEAD"
     )
     try:
-        with (opener or default_opener)(request, 30.0) as response:
+        with (opener or default_opener)(request, timeout) as response:
             headers = getattr(response, "headers", None)
             value = headers.get("Content-Length") if headers is not None else None
             return int(value) if value is not None else None

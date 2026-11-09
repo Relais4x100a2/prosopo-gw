@@ -12,7 +12,7 @@ import logging
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -255,6 +255,37 @@ class SourceQueue:
                 "DELETE FROM jobs WHERE source=? AND key=?"
                 " AND state IN ('pending','failed')",
                 (source, key),
+            )
+            return cur.rowcount
+
+    def open_states(self, source: str, keys: Sequence[str]) -> set[JobState]:
+        """States of the unfinished jobs (pending, running, failed) of ``keys``."""
+        if not keys:
+            return set()
+        marks = ",".join("?" * len(keys))
+        with self._reader() as db:
+            return {
+                cast(JobState, r["state"])
+                for r in db.execute(
+                    "SELECT DISTINCT state FROM jobs WHERE source=?"
+                    f" AND key IN ({marks})"
+                    " AND state IN ('pending','running','failed')",
+                    (source, *keys),
+                )
+            }
+
+    def retry(self, source: str, keys: Sequence[str]) -> int:
+        """Put the failed and waiting jobs of ``keys`` back to run now (attempts
+        reset); running ones are left. Returns the number of jobs touched."""
+        if not keys:
+            return 0
+        marks = ",".join("?" * len(keys))
+        with self._db() as db:
+            cur = db.execute(
+                "UPDATE jobs SET state='pending', attempts=0, not_before=NULL"
+                f" WHERE source=? AND key IN ({marks})"
+                " AND state IN ('pending','failed')",
+                (source, *keys),
             )
             return cur.rowcount
 

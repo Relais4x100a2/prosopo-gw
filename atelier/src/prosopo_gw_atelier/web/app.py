@@ -68,7 +68,6 @@ from ..places.levels import (
     check_chain,
     french_view,
     renumber,
-    validated,
     view_origins,
 )
 from ..places.model import Occurrence
@@ -79,7 +78,13 @@ from ..refdata.arrondissements import name_of
 from ..sources import DICOTOPO, GEONAMES, SourceRuntime
 from ..sources.base import SourceError
 from ..sources.dicotopo.download import remove_department, request_download
-from ..sources.geonames.download import country_size, remove_country, request_country
+from ..sources.geonames.download import (
+    country_size,
+    download_state,
+    remove_country,
+    request_country,
+    retry_country,
+)
 from ..store.exchange import (
     Conflict,
     RegistryFormatError,
@@ -226,14 +231,19 @@ def _label(view: ClusterView) -> str:
 
 
 def _chain_name(levels: Sequence[Level], postal_code: str | None) -> str | None:
-    """Name of a chain: its historical commune, else its commune, else its
-    most precise validated level."""
+    """Name of a chain: its historical commune, else its commune, else its most
+    precise level, whatever its status (a level a source proposes in place of a
+    written one gives its written form, else its name)."""
     view = french_view(levels, postal_code)
     name = view.get("historical_commune") or view.get("commune")
     if name:
         return name
-    kept = validated(levels)
-    return kept[0].name if kept else None
+    finest = min(levels, key=lambda level: level.rank, default=None)
+    if finest is None:
+        return None
+    if finest.status == "validated":
+        return finest.name
+    return finest.written or finest.name
 
 
 def _level_out(level: Level) -> schemas.LevelModel:
@@ -1142,6 +1152,22 @@ def create_app(
             username_set=bool(runtime.config.geonames_username)
         )
 
+    @app.get("/api/sources/geonames/size/{iso}")
+    def geonames_size(iso: str) -> schemas.GeoNamesSizeOut:
+        """Size of ``<CC>.zip`` before a download: the cached file, else one
+        ``HEAD`` request (short timeout, no user name, outside the lock);
+        ``size`` is ``None`` when the server does not answer."""
+        runtime = _runtime()
+        code = iso.strip().upper()
+        try:
+            known = len(code) == 2 and code.isascii() and code.isalpha()
+            size = runtime.geonames_size(code) if known else None
+            if size is None:
+                size = country_size(code, opener=runtime.opener)
+        except SourceError as exc:
+            raise _error(400, str(exc)) from None
+        return schemas.GeoNamesSizeOut(iso=code, size=size)
+
     @app.delete("/api/sources/geonames/countries/{iso}")
     def delete_geonames_country(iso: str) -> schemas.SourcesOut:
         runtime = _runtime()
@@ -1235,6 +1261,15 @@ def create_app(
 
     # -- countries (GeoNames mode) -------------------------------------------
 
+    def _download(iso: str | None) -> Literal["queued", "running", "failed"] | None:
+        """Queue state of the GeoNames download of ``iso`` (not indexed only)."""
+        runtime = sources
+        if runtime is None or iso is None:
+            return None
+        if iso in runtime.geonames_index.countries():
+            return None
+        return download_state(runtime.queue, iso)
+
     def _country_rows() -> list[schemas.CountryRowOut]:
         return [
             schemas.CountryRowOut(
@@ -1244,6 +1279,7 @@ def create_app(
                 occurrences=row.occurrences,
                 mode=row.mode,
                 downloaded=row.downloaded,
+                download=_download(row.iso),
                 overrides=row.overrides,
             )
             for row in project.countries()
@@ -1266,9 +1302,10 @@ def create_app(
     def set_country_mode(iso: str, body: schemas.ModeIn) -> schemas.CountryModeOut:
         """Choose the GeoNames mode of a country (undoable).
 
-        ``geonames`` for a country not indexed yet queues its download; the
-        response then gives the announced size of the file (one ``HEAD`` request,
-        made outside the lock).
+        ``geonames`` for a country not indexed yet queues its download, even when
+        the mode is already ``geonames`` (a removed file, a failed download: its
+        failed or waiting jobs run again now); the response then gives the
+        announced size of the file (one ``HEAD`` request, made outside the lock).
         """
         mode = _mode_in(body.mode)
         if mode is None:
@@ -1286,6 +1323,7 @@ def create_app(
                 and code not in runtime.geonames_index.countries()
             ):
                 try:  # checked before the setting: an error leaves nothing done
+                    retry_country(runtime.queue, code)
                     request_country(runtime.queue, code, cache=runtime.cache)
                 except SourceError as exc:
                     raise _error(400, str(exc)) from None

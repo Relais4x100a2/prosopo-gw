@@ -1807,6 +1807,10 @@
       section.replaceChildren(el("p", { class: state.sourcesError ? "empty error" : "empty", text }));
       return;
     }
+    // Keep an identifier being typed across the redraw (read from the page only).
+    const typed = $("geonames-username");
+    const value = typed ? typed.value : "";
+    const focused = Boolean(typed && typed === document.activeElement);
     section.replaceChildren(
       renderDicotopo(sources.dicotopo),
       renderGeonames(sources.geonames),
@@ -1814,6 +1818,9 @@
       renderCacheCard(),
       renderAttributions(sources),
     );
+    const input = $("geonames-username");
+    if (input && value) input.value = value;
+    if (input && focused) input.focus();
   }
 
   async function downloadDepartments() {
@@ -2028,8 +2035,12 @@
 
   async function removeGeonamesCountry(iso) {
     state.sources = await api("DELETE", `/api/sources/geonames/countries/${encodeURIComponent(iso)}`);
-    await refresh(); // the countries and the places' proposals follow
-    await reloadSources();
+    state.sourcesError = null;
+    try {
+      await refresh(); // the countries and the places' proposals follow
+    } finally {
+      renderAll();
+    }
     showMessage(`Fichier GeoNames du pays ${iso} retiré.`, "info");
   }
 
@@ -2046,16 +2057,52 @@
     }
   }
 
-  /** A country set to GeoNames whose file is not indexed yet. */
-  function countriesDownloading() {
-    return (state.countries || []).some((c) => c.iso && c.mode === "geonames" && !c.downloaded);
+  /** The queue holds a download of this country that is waiting or running. */
+  function downloadActive(country) {
+    return country.download === "queued" || country.download === "running";
   }
 
-  function fileText(country) {
-    if (country.downloaded) return `téléchargé le ${formatDay(country.downloaded)}`;
-    const size = state.countrySizes[country.iso];
-    const sized = size ? ` (${formatSize(size)})` : "";
-    return country.mode === "geonames" ? `téléchargement en cours${sized}` : "non téléchargé";
+  /** A country whose file is neither indexed nor on its way. */
+  function needsDownload(country) {
+    return Boolean(country.iso && !country.downloaded && !downloadActive(country));
+  }
+
+  /** Poll while the queue holds a download of a country (never on mode alone). */
+  function countriesDownloading() {
+    return (state.countries || []).some(downloadActive);
+  }
+
+  function renderFileCell(country) {
+    if (!country.iso) return el("td");
+    if (country.downloaded) return el("td", { text: `téléchargé le ${formatDay(country.downloaded)}` });
+    if (downloadActive(country)) {
+      const size = state.countrySizes[country.iso];
+      const sized = typeof size === "number" ? ` (${formatSize(size)})` : "";
+      return el("td", { text: `téléchargement en cours${sized}` });
+    }
+    const failed = country.download === "failed";
+    const action =
+      country.mode === "geonames"
+        ? el("button", {
+            type: "button",
+            class: "small",
+            text: failed ? "Réessayer" : "Télécharger",
+            title: failed
+              ? "Relancer le téléchargement du fichier GeoNames de ce pays"
+              : "Télécharger le fichier GeoNames de ce pays",
+            onclick: () => run(() => setCountryMode(country, "geonames")),
+          })
+        : null;
+    return el(
+      "td",
+      null,
+      el("span", {
+        class: failed ? "error" : null,
+        text: failed ? "échec du téléchargement (voir la file des sources)" : "non téléchargé",
+      }),
+      action ? " " : null,
+      action,
+    );
   }
 
   function renderCountryMode(country) {
@@ -2076,8 +2123,13 @@
     );
   }
 
-  /** Before the first download of a country: what it costs, and a second click. */
+  /** Before a download of a country: its exact size when known, and a second click. */
   function renderCountryConfirm(country) {
+    const size = state.countrySizes[country.iso];
+    const cost =
+      typeof size === "number"
+        ? `${formatSize(size)} à télécharger.`
+        : "taille inconnue pour l'instant : quelques Mo pour un petit pays, plusieurs centaines de Mo pour les plus grands.";
     return el(
       "tr",
       { class: "confirm" },
@@ -2088,16 +2140,13 @@
           "div",
           { class: "warning", role: "status" },
           el("span", {
-            text:
-              `Proposer avec GeoNames télécharge le fichier de ce pays (${country.name}) : ` +
-              "quelques Mo pour un petit pays, plusieurs centaines de Mo pour les plus grands. " +
-              "Sa taille exacte s'affiche dès la demande.",
+            text: `Proposer avec GeoNames télécharge le fichier de ce pays (${country.name}) : ${cost}`,
           }),
           el("button", {
             type: "button",
             class: "primary",
             text: "Télécharger et proposer",
-            onclick: () => run(() => setCountryMode(country, "geonames")),
+            onclick: () => run(() => setCountryMode(country, "geonames", true)),
           }),
           el("button", {
             type: "button",
@@ -2122,7 +2171,7 @@
         el("td", { class: "num", text: String(country.writings) }),
         el("td", { class: "num", text: String(country.occurrences) }),
         el("td", null, renderCountryMode(country)),
-        el("td", { text: country.iso ? fileText(country) : "" }),
+        renderFileCell(country),
         el("td", {
           class: "num",
           text: country.overrides ? plural(country.overrides, "écriture corrigée", "écritures corrigées") : "",
@@ -2181,10 +2230,25 @@
     );
   }
 
-  async function setCountryMode(country, mode) {
-    if (mode === country.mode) return;
-    if (mode === "geonames" && !country.downloaded && state.confirmCountry !== country.iso) {
-      state.confirmCountry = country.iso; // first download: ask a second click
+  /** The announced size of a country's file (null when the server does not say). */
+  async function fetchCountrySize(iso) {
+    try {
+      const result = await api("GET", `/api/sources/geonames/size/${encodeURIComponent(iso)}`);
+      return typeof result.size === "number" ? result.size : null;
+    } catch (_error) {
+      return null; // the confirmation then gives a range
+    }
+  }
+
+  /** `confirmed`: the second click of the confirmation row. Choosing GeoNames for a
+   * country not downloaded (again, after a removal) queues its download; a failed
+   * download is retried at once, the size having been shown already. */
+  async function setCountryMode(country, mode, confirmed) {
+    const download = mode === "geonames" && needsDownload(country);
+    if (mode === country.mode && !download) return;
+    if (download && !confirmed && country.download !== "failed") {
+      state.countrySizes[country.iso] = await fetchCountrySize(country.iso);
+      state.confirmCountry = country.iso;
       renderCountries();
       return;
     }
@@ -2270,11 +2334,17 @@
       api("GET", "/api/clusters"),
       api("GET", "/api/registry/conflicts"),
       api("GET", "/api/precisions"),
-      api("GET", "/api/countries"),
+      // The Pays screen only: its failure must not break the rest of the page.
+      api("GET", "/api/countries").catch((error) => {
+        console.warn("Pays non rechargés :", error.message);
+        return null;
+      }),
     ]);
     state.precisions = precisions.groups;
-    state.countries = countries.countries;
-    state.countriesError = null;
+    if (countries) {
+      state.countries = countries.countries;
+      state.countriesError = null;
+    }
     state.project = project;
     state.clusters = clusters;
     state.conflicts = conflicts.conflicts;

@@ -292,3 +292,23 @@ def test_clear_drops_finished_and_failed_downloads(queue: SourceQueue) -> None:
     assert "s" not in queue.counts() or queue.counts()["s"].get("pending", 0) == 0
     queue.clear("s")
     assert "s" not in queue.counts()
+
+
+def test_open_states_and_retry_by_key(queue: SourceQueue) -> None:
+    assert queue.open_states("s", ["a", "b"]) == set()
+    assert queue.retry("s", []) == 0
+    a = queue.enqueue("s", "download", "a", {}, 1)
+    queue.enqueue("s", "index", "b", {}, 0)
+    queue.enqueue("s", "download", "c", {}, 0)
+    queue.fail(a, "gone", permanent=True)
+    job = queue.next_job()  # "b" before "c": same priority, lower id
+    assert job is not None and job.key == "b"
+    queue.fail(job.id, "later")  # waits before a new attempt
+    assert queue.open_states("s", ["a", "b"]) == {"failed", "pending"}
+    assert queue.next_job() is not None  # "c" runs
+    assert queue.open_states("s", ["c"]) == {"running"}
+    assert queue.open_states("t", ["a"]) == set()
+    assert queue.retry("s", ["a", "b", "c"]) == 2  # the running job is left
+    assert queue.open_states("s", ["a", "b"]) == {"pending"}
+    job = queue.next_job()
+    assert job is not None and job.key == "a" and job.attempts == 0

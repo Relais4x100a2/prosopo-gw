@@ -211,3 +211,18 @@ def test_script_treats_geonames_as_a_source(client: TestClient) -> None:
     assert 'geonames: "GeoNames"' in script
     assert "type proposé : " in script
     assert "https://www.geonames.org/" in script
+
+
+def test_script_follows_geonames_downloads_from_the_queue(client: TestClient) -> None:
+    """The Pays screen asks the size first and reads the download state."""
+    script = client.get("/static/app.js").text
+    for text in (
+        "/api/sources/geonames/size/",
+        "country.download",
+        "échec du téléchargement",
+        "Réessayer",
+        "Télécharger",
+        "non téléchargé",
+    ):
+        assert text in script, text
+    assert 'c.mode === "geonames" && !c.downloaded' not in script

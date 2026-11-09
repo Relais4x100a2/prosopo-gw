@@ -345,3 +345,4 @@ button.small { font-size: 12px; padding: 2px 8px; }
 .sources .username { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 8px 0; }
 .sources .username .saved { color: var(--ok); font-weight: 600; }
 .geonames-mode { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.countries td .error { color: var(--bad); }
