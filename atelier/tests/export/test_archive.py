@@ -282,3 +282,104 @@ def test_readme_cites_dicotopo_only_when_used(
         .decode("utf-8")
     )
     assert "CC BY-NC-ND 3.0 FR" in bare and "Département 62" not in bare
+
+
+GEONAMES_COUNTRIES = {"CA": "2026-11-08"}
+
+
+@pytest.fixture
+def geonames_project(tmp_path: Path, registry: PlaceRegistry, ref: RefData) -> Project:
+    gw = tmp_path / "bases" / "lieux_geonames.gw"
+    gw.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(FIXTURES / "lieux_geonames.gw", gw)
+    registry.validate(
+        ["Winnipeg, Manitoba, Canada"],
+        [
+            Level(
+                0,
+                "Winnipeg",
+                type="localite",
+                identifier="9000001",
+                source="GeoNames 2026-11-08",
+                latitude=49.9,
+                longitude=-97.1,
+                origin="geonames",
+            ),
+            Level(1, "Manitoba", type="province", origin="geonames"),
+            Level(2, "Canada", type="pays", origin="written"),
+        ],
+        None,
+        None,
+        project="p",
+    )
+    return Project.open(gw, registry, ref, tmp_path / "data" / "projects")
+
+
+def test_geonames_level_exported(
+    geonames_project: Project, registry: PlaceRegistry, ref: RefData
+) -> None:
+    archive = open_zip(
+        build_archive(
+            geonames_project,
+            registry,
+            ref,
+            GENERATED_AT,
+            geonames_countries=GEONAMES_COUNTRIES,
+        )
+    )
+    rows = [
+        r
+        for r in json.loads(archive.read("lieux_geonames.json"))["tables"][
+            "niveaux_lieux"
+        ]
+        if r["origine"] == "geonames" and r["rang"] == 0
+    ]
+    assert len(rows) == 1
+    assert rows[0]["identifiant"] == "9000001"
+    assert rows[0]["source"] == "GeoNames 2026-11-08"
+
+
+def test_readme_cites_geonames_only_when_used(
+    project: Project,
+    geonames_project: Project,
+    registry: PlaceRegistry,
+    ref: RefData,
+    lyon: str,
+) -> None:
+    used = (
+        open_zip(
+            build_archive(
+                geonames_project,
+                registry,
+                ref,
+                GENERATED_AT,
+                geonames_countries=GEONAMES_COUNTRIES,
+            )
+        )
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "GeoNames" in used and "CC BY 4.0" in used
+    assert "https://www.geonames.org/" in used
+    assert "CA : téléchargé le 2026-11-08." in used
+    assert "{" not in used
+    unused = (
+        open_zip(
+            build_archive(
+                project,
+                registry,
+                ref,
+                GENERATED_AT,
+                geonames_countries=GEONAMES_COUNTRIES,
+            )
+        )
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "CC BY 4.0" not in unused and "geonames.org" not in unused
+    bare = (
+        open_zip(build_archive(geonames_project, registry, ref, GENERATED_AT))
+        .read("LISEZMOI.txt")
+        .decode("utf-8")
+    )
+    assert "CC BY 4.0" in bare and "téléchargé le" not in bare

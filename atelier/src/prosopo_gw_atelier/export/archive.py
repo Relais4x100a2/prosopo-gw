@@ -45,6 +45,14 @@ _DICOTOPO_NOTICE = """\
   niveau est celui que vous avez validé : les formes anciennes et les commentaires
   de DicoTopo ne sont pas exportés.{departments}"""
 
+_GEONAMES_ORIGIN = "geonames"
+_GEONAMES_NOTICE = """\
+
+  GeoNames, https://www.geonames.org/, sous licence Creative Commons
+  Attribution 4.0 (CC BY 4.0). Des niveaux de niveaux_lieux (origine geonames)
+  portent l'identifiant GeoNames (geonameid) du lieu ; la colonne source donne
+  la date des données. Le nom du niveau est celui que vous avez validé.{countries}"""
+
 
 def readme(
     gw_name: str,
@@ -53,11 +61,13 @@ def readme(
     generated_at: datetime,
     paris: ParisTable,
     dicotopo: Mapping[str, str] | None = None,
+    geonames: Mapping[str, str] | None = None,
 ) -> str:
     """The ``LISEZMOI.txt`` of the archive.
 
     ``dicotopo`` is ``None`` when no DicoTopo level is exported (the notice is
     then left out), else the downloaded departments with their download date.
+    ``geonames`` works the same way with the indexed countries.
     """
     notice = ""
     if dicotopo is not None:
@@ -66,6 +76,13 @@ def readme(
             for code, date in sorted(dicotopo.items())
         )
         notice = _DICOTOPO_NOTICE.format(departments=listing)
+    geo_notice = ""
+    if geonames is not None:
+        listing = "".join(
+            f"\n  Pays {code} : téléchargé le {date}."
+            for code, date in sorted(geonames.items())
+        )
+        geo_notice = _GEONAMES_NOTICE.format(countries=listing)
     template = files(__package__).joinpath("LISEZMOI.txt").read_text("utf-8")
     return template.format(
         gw=gw_name,
@@ -76,6 +93,7 @@ def readme(
         paris_extraction=paris.extraction,
         paris_attribution=textwrap.indent(paris.attribution.strip(), "  "),
         dicotopo=notice,
+        geonames=geo_notice,
     )
 
 
@@ -85,19 +103,24 @@ def build_archive(
     ref: RefData,
     generated_at: datetime,
     dicotopo_departments: Mapping[str, str] | None = None,
+    geonames_countries: Mapping[str, str] | None = None,
 ) -> bytes:
     """Zip of the pivot of ``project``: README, dictionary, CSV, JSON, SQLite.
 
     ``dicotopo_departments`` (code to download date, from the local index) is
     cited in the README when a DicoTopo level is exported; it needs no network.
+    ``geonames_countries`` (country code to extraction date) is cited likewise
+    when a GeoNames level is exported.
     """
     tables = build_pivot(project.tables, registry, project.precisions())
-    used = any(
-        row.get("origine") == _DICOTOPO_ORIGIN
+    origins = {
+        row.get("origine")
         for t in tables
         if t.spec.name == "niveaux_lieux"
         for row in t.rows
-    )
+    }
+    used = _DICOTOPO_ORIGIN in origins
+    geo_used = _GEONAMES_ORIGIN in origins
     base = base_stem(project.gw_path.name)
     entries: list[tuple[str, bytes]] = [
         (
@@ -109,6 +132,7 @@ def build_archive(
                 generated_at,
                 project.paris_table,
                 dict(dicotopo_departments or {}) if used else None,
+                dict(geonames_countries or {}) if geo_used else None,
             ).encode("utf-8"),
         ),
         (

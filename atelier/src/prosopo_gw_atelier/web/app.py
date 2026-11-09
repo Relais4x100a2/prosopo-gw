@@ -1480,6 +1480,7 @@ def create_app(
                 ref,
                 datetime.now(UTC),
                 sources.index.departments() if sources is not None else None,
+                sources.geonames_index.countries() if sources is not None else None,
             )
         name = f"{base_stem(project.gw_path.name)}_atelier.zip"
         return Response(

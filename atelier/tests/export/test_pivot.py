@@ -664,3 +664,54 @@ def test_precision_lieu_id_follows_the_validated_decision(
         ],
     )
     assert [r["lieu_id"] for r in rows] == [paris, None]
+
+
+def test_geonames_level_exported(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    add(
+        registry,
+        ["Lille"],
+        [
+            Level(
+                0,
+                "Winnipeg",
+                type="localite",
+                identifier="9000001",
+                source="GeoNames 2026-11-08",
+                latitude=49.9,
+                longitude=-97.1,
+                origin="geonames",
+            ),
+            Level(1, "Manitoba", type="province", origin="geonames"),
+        ],
+    )
+    levels = by_name(build_pivot(core_tables, registry))["niveaux_lieux"]
+    first = next(r for r in levels.rows if r["rang"] == 0)
+    assert first["origine"] == "geonames"
+    assert first["identifiant"] == "9000001"
+    assert first["source"] == "GeoNames 2026-11-08"
+    assert (first["latitude"], first["longitude"]) == (49.9, -97.1)
+
+
+def test_place_coordinates_from_geonames_level(
+    core_tables: list[Table], registry: PlaceRegistry
+) -> None:
+    add(
+        registry,
+        ["Lille"],
+        [
+            Level(0, "Winnipeg", type="localite", origin="geonames"),
+            Level(
+                1,
+                "Manitoba",
+                type="province",
+                identifier="9000002",
+                latitude=55.0,
+                longitude=-97.0,
+                origin="geonames",
+            ),
+        ],
+    )
+    lieu = by_name(build_pivot(core_tables, registry))["lieux"].rows[0]
+    assert (lieu["latitude"], lieu["longitude"]) == (55.0, -97.0)

@@ -62,7 +62,7 @@ Référentiels
   délégations) viennent du COG.
   Table des rues de Paris (arrondissements et quartiers), extraite le
   {paris_extraction}, sous licence ODbL 1.0. Attribution :
-{paris_attribution}{dicotopo}
+{paris_attribution}{dicotopo}{geonames}
 
 Les identifiants (personne_id, famille_id, evenement_id…) ne valent que pour ce
 fichier .gw. Les lieu_id sont ceux de votre référentiel personnel, stables d'un
