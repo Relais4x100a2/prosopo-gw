@@ -103,6 +103,26 @@ def test_countries_and_remove(idx: GeoNamesIndex) -> None:
     assert idx.lookup("CA", "winnipeg") == []
 
 
+def test_countries_scan_racing_a_remove_is_not_cached(
+    idx: GeoNamesIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A remove during the directory scan must not leave the stale list cached."""
+    connect = idx._connect_ro
+    raced: list[bool] = []
+
+    def racing(path: Path) -> sqlite3.Connection:
+        db = connect(path)
+        if not raced:
+            raced.append(True)
+            idx.remove("CA")  # as the worker would, between glob and store
+        return db
+
+    monkeypatch.setattr(idx, "_connect_ro", racing)
+    idx.countries()
+    monkeypatch.setattr(idx, "_connect_ro", connect)
+    assert idx.countries() == {"GB": "2026-11-09"}
+
+
 def test_invalid_country(idx: GeoNamesIndex, tmp_path: Path) -> None:
     for bad in ("ca", "CAN", "../x", "C", ""):
         with pytest.raises(SourceError):

@@ -100,6 +100,7 @@ Import
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -137,6 +138,7 @@ _STATUSES = frozenset(get_args(Status))
 _LEVEL_ORIGINS = frozenset(get_args(LevelOrigin))
 _LEVEL_STATUSES = frozenset(get_args(LevelStatus))
 _NATURES = frozenset(get_args(HistoricalNature))
+_COUNTRY_CODE = re.compile(r"[A-Z]{2}")  # ISO 3166-1 alpha-2, ASCII only
 _POSTAL_ORIGINS = frozenset(get_args(PostalOrigin))
 _LEVEL_FIELDS = (
     "rank",
@@ -484,6 +486,8 @@ def _parse_country_settings(raw: object) -> list[tuple[str, SourceMode]]:
         if not isinstance(item, Mapping):
             raise _fail(f"{where} must be an object")
         country = _text(_get(item, "pays", where), f"{where}.pays").upper()
+        if not _COUNTRY_CODE.fullmatch(country):
+            raise _fail(f"{where}.pays: two-letter ISO code expected, got {country!r}")
         if country in seen:
             raise _fail(f"{where}: duplicate country {country!r}")
         seen.add(country)

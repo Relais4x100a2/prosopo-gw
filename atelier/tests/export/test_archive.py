@@ -361,7 +361,8 @@ def test_readme_cites_geonames_only_when_used(
     )
     assert "GeoNames" in used and "CC BY 4.0" in used
     assert "https://www.geonames.org/" in used
-    assert "CA : téléchargé le 2026-11-08." in used
+    assert "Pays CA : données du 2026-11-08." in used
+    assert "Pays CA : téléchargé le" not in used
     assert "{" not in used
     unused = (
         open_zip(
@@ -382,4 +383,4 @@ def test_readme_cites_geonames_only_when_used(
         .read("LISEZMOI.txt")
         .decode("utf-8")
     )
-    assert "CC BY 4.0" in bare and "téléchargé le" not in bare
+    assert "CC BY 4.0" in bare and "données du" not in bare

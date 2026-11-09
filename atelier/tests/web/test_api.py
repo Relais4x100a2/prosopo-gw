@@ -1954,3 +1954,63 @@ def test_new_username_lifts_a_rejection(
     geo_client.put("/api/sources/geonames/username", json={"username": None})
     assert not queue.credentials_rejected(GEONAMES)
     assert queue.counts()[GEONAMES]["failed"] == 1
+
+
+def test_export_cites_the_geonames_countries(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    cluster_id = cluster_of(geo_client, WINNIPEG)
+    drain(geo_runtime)
+    data = detail(geo_client, cluster_id)
+    proposed = next(lv for lv in data["levels"] if lv["origin"] == "geonames")
+    validated = geo_client.post(
+        cluster_url(cluster_id, "validate"),
+        json={
+            "levels": data["levels"],
+            "postal_code": None,
+            "checked": writings_of(data),
+        },
+    )
+    place_id = validated.json()["place_id"]
+    accepted = geo_client.post(
+        f"/api/places/{place_id}/source-proposals/accept", json={"level": proposed}
+    )
+    assert accepted.status_code == 200, accepted.text
+    response = geo_client.get("/api/export")
+    assert response.status_code == 200
+    readme = zipfile.ZipFile(io.BytesIO(response.content)).read("LISEZMOI.txt")
+    text = readme.decode("utf-8")
+    assert "CC BY 4.0" in text
+    assert "Pays CA : données du 2026-11-08." in text
+
+
+def test_removing_a_country_drops_its_geonames_levels(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    geo_client.put("/api/countries/CA", json={"mode": "geonames"})
+    drain(geo_runtime)
+    cluster_id = cluster_of(geo_client, WINNIPEG)
+    drain(geo_runtime)
+    levels = detail(geo_client, cluster_id)["levels"]
+    assert any(lv["origin"] == "geonames" for lv in levels)
+    assert geo_client.delete("/api/sources/geonames/countries/CA").status_code == 200
+    drain(geo_runtime)
+    levels = detail(geo_client, cluster_id)["levels"]
+    assert all(lv["origin"] != "geonames" for lv in levels)
+
+
+def test_country_already_queued_asks_no_size_again(
+    geo_client: TestClient, geo_runtime: SourceRuntime
+) -> None:
+    server = geo_runtime.opener
+    assert isinstance(server, GeoServer)
+    first = geo_client.put("/api/countries/CA", json={"mode": "geonames"}).json()
+    assert first["queued"] is True and first["size"] is not None
+    heads = [method for method, _ in server.requests].count("HEAD")
+    assert heads == 1
+    again = geo_client.put("/api/countries/CA", json={"mode": "geonames"}).json()
+    assert again["queued"] is True
+    assert again["size"] is None  # the first answer already gave it
+    assert [method for method, _ in server.requests].count("HEAD") == heads

@@ -221,6 +221,7 @@ class GeoNamesIndex:
         self._directory = directory
         self._lock = threading.Lock()
         self._countries: dict[str, str] | None = None
+        self._generation = 0  # bumped by every build or remove
         directory.mkdir(parents=True, exist_ok=True)
 
     def _file(self, country: str) -> Path:
@@ -239,6 +240,7 @@ class GeoNamesIndex:
     def _invalidate(self) -> None:
         with self._lock:
             self._countries = None
+            self._generation += 1
 
     def build(
         self, country: str, zip_path: Path, admin1: Path, admin2: Path, extracted: str
@@ -305,6 +307,7 @@ class GeoNamesIndex:
         with self._lock:
             if self._countries is not None:
                 return dict(self._countries)
+            generation = self._generation
         found: dict[str, str] = {}
         for path in sorted(self._directory.glob("??.sqlite")):
             country = path.stem
@@ -321,7 +324,10 @@ class GeoNamesIndex:
             if row:
                 found[country] = str(row[0])
         with self._lock:
-            self._countries = found
+            # A build or remove during the scan makes ``found`` possibly stale:
+            # return it, but let the next call scan again.
+            if self._generation == generation:
+                self._countries = found
         return dict(found)
 
     def _query(

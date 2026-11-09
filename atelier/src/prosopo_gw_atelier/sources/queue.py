@@ -411,11 +411,11 @@ class SourceQueue:
             }
 
     def clear_results(
-        self, source: str, department: str, *, field: str = "department"
+        self, source: str, value: str, *, field: str = "department"
     ) -> int:
-        """Delete the cached results of ``source`` whose query has ``department``
-        as its ``field`` (``"country"`` for GeoNames); returns how many. Always
-        bumps the reset epoch."""
+        """Delete the cached results of ``source`` whose query has ``value`` as
+        its ``field`` (a department for DicoTopo, ``"country"`` for GeoNames);
+        returns how many. Always bumps the reset epoch."""
         with self._db() as db:
             doomed = []
             for row in db.execute(
@@ -425,7 +425,7 @@ class SourceQueue:
                     found = json.loads(row["query_key"]).get(field)
                 except (ValueError, AttributeError):
                     continue
-                if found == department:
+                if found == value:
                     doomed.append(row["query_key"])
             db.executemany(
                 "DELETE FROM results WHERE source=? AND query_key=?",

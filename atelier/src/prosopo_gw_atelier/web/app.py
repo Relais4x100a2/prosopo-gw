@@ -1306,7 +1306,8 @@ def create_app(
         ``geonames`` for a country not indexed yet queues its download, even when
         the mode is already ``geonames`` (a removed file, a failed download: its
         failed or waiting jobs run again now); the response then gives the
-        announced size of the file (one ``HEAD`` request, made outside the lock).
+        announced size of the file (one ``HEAD`` request, made outside the lock,
+        and not made again while that download is already queued or running).
         """
         mode = _mode_in(body.mode)
         if mode is None:
@@ -1315,30 +1316,32 @@ def create_app(
         unknown = f"Code pays inconnu : « {code} » (code ISO à deux lettres attendu)."
         runtime = sources
         queued = False
+        known_size = False  # the size was given when this download was asked
         with state.lock:
             if code not in {row.iso for row in project.countries() if row.iso}:
-                raise _error(400, unknown)
+                raise _error(400, unknown)  # also what set_country_mode checks
             if (
                 runtime is not None
                 and mode == "geonames"
                 and code not in runtime.geonames_index.countries()
             ):
-                try:  # checked before the setting: an error leaves nothing done
-                    retry_country(runtime.queue, code)
+                known_size = download_state(runtime.queue, code) in (
+                    "queued",
+                    "running",
+                )
+                try:  # request_country checks the code before queueing anything
                     request_country(runtime.queue, code, cache=runtime.cache)
                 except SourceError as exc:
                     raise _error(400, str(exc)) from None
+                retry_country(runtime.queue, code)
                 queued = True
-            try:
-                entry = project.set_country_mode(code, mode)
-            except ValueError:
-                raise _error(400, unknown) from None
+            entry = project.set_country_mode(code, mode)
             _push_correct(entry)
             rows = _country_rows()
         size: int | None = None
         if runtime is not None and mode == "geonames":
             size = runtime.geonames_size(code)
-            if size is None and queued:
+            if size is None and queued and not known_size:
                 size = country_size(code, opener=runtime.opener)
         return schemas.CountryModeOut(
             iso=code, mode=mode, queued=queued, size=size, countries=rows

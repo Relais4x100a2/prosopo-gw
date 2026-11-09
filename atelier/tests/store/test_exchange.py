@@ -1180,6 +1180,9 @@ def test_import_without_settings_keys_and_bad_ones(target: PlaceRegistry) -> Non
         ("reglages_pays", [{"pays": "GB", "mode": "bad"}]),
         ("reglages_pays", [{"pays": "GB", "mode": "geonames"}] * 2),
         ("reglages_pays", {}),
+        ("reglages_pays", [{"pays": "FRANCE", "mode": "geonames"}]),
+        ("reglages_pays", [{"pays": "G1", "mode": "geonames"}]),
+        ("reglages_pays", [{"pays": "gé", "mode": "geonames"}]),
         ("corrections_sources", [{"ecriture": "a", "source": "s"}]),
         ("corrections_sources", [{"ecriture": "a", "source": "s", "mode": "x"}]),
     ):

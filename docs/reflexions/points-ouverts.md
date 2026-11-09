@@ -131,7 +131,11 @@ sources, événements « Autre », organisations) reste dans :
 
 - Les types `ADM1` / `ADM2` de GeoNames sont à compléter pays par pays (libellé et type de niveau).
 - Le fichier `cities500` n'est pas utilisé.
-- Les tâches GeoNames déjà en file ne sont pas annulées quand un pays repasse en « Garder tel qu'écrit ».
+- Les tâches GeoNames déjà en file ne sont pas annulées quand un pays repasse en « Garder tel qu'écrit » : avec
+  un identifiant saisi, elles dépensent encore des requêtes de l'API (et du quota) pour des résultats masqués.
+- Coût de l'écran Pays : la liste des pays indexés est relue pour chaque ligne et l'état des téléchargements
+  interroge la file sans index (`open_states`). Sans effet aux tailles actuelles (peu de pays) ; à revoir si la
+  file ou le nombre de pays grossit.
 - Les pays historiques absents de la liste de l'INSEE n'apparaissent pas sur l'écran Pays : ils restent tels
   qu'écrits.
 - Les limites de l'API (10 000 requêtes par jour, 1 000 par heure) viennent de la documentation de GeoNames ;

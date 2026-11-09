@@ -79,7 +79,7 @@ def readme(
     geo_notice = ""
     if geonames is not None:
         listing = "".join(
-            f"\n  Pays {code} : téléchargé le {date}."
+            f"\n  Pays {code} : données du {date}."
             for code, date in sorted(geonames.items())
         )
         geo_notice = _GEONAMES_NOTICE.format(countries=listing)

@@ -165,7 +165,7 @@ proposé et rien n'est envoyé.
   dans le paquet ; les tests utilisent de petits fichiers synthétiques. À l'export, un niveau d'origine
   `geonames` porte son `geonameid` dans `identifiant`, `GeoNames <date>` dans `source` et ses coordonnées ; les
   coordonnées de `lieux` sont celles du niveau le plus précis qui en a. Le `LISEZMOI.txt` de l'archive cite
-  GeoNames, la licence et les pays téléchargés avec leur date seulement si un niveau `geonames` est exporté.
+  GeoNames, la licence et les pays téléchargés avec la date de leurs données seulement si un niveau `geonames` est exporté.
 - **Test ou miroir** : la variable `PROSOPO_GW_ATELIER_GEONAMES_DUMP` remplace l'adresse de téléchargement
   (URL http(s) terminée par `/`).
 
