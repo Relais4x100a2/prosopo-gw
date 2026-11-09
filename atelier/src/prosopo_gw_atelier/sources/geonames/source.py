@@ -14,8 +14,9 @@ in it:
 
 Quotas: one request every 4 seconds (``RateLimiter``), at most 10 000 per UTC day
 (counter kept in ``api_counter.json``: date and number only). A reached quota raises
-``QuotaReached``: the hourly limit (19) waits for the next full hour UTC, HTTP 429 for one hour from now, daily
-ones for the next UTC midnight; the worker pauses the GeoNames jobs until then.
+``QuotaReached``: the hourly limit (19) waits for the next full hour UTC, HTTP 429
+for one hour from now, daily ones for the next UTC midnight; the worker pauses the
+GeoNames ``match`` jobs until then.
 
 The user name is in the query string. It is never logged, never put in a message,
 a cache key, a result or the counter file, and errors raised from API calls are built

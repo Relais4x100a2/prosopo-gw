@@ -21,7 +21,7 @@ def config_path() -> Path:
 @dataclass
 class LocalConfig:
     dicotopo_api: bool = False
-    geonames_username: str | None = None
+    geonames_username: str | None = field(default=None, repr=False)
     extra: dict[str, object] = field(default_factory=dict)
 
 

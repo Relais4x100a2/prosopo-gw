@@ -61,3 +61,9 @@ def test_default_path_uses_home(atelier_home: Path) -> None:
 def test_network_is_forbidden_in_tests() -> None:
     with pytest.raises(RuntimeError):
         urllib.request.urlopen("http://example.invalid")
+
+
+def test_repr_hides_geonames_username() -> None:
+    assert "user-secret-123" not in repr(
+        LocalConfig(geonames_username="user-secret-123")
+    )

@@ -363,6 +363,9 @@ def test_username_never_leaks(
     with zipfile.ZipFile(io.BytesIO(archive)) as zf:
         for name in zf.namelist():
             assert SECRET.encode() not in zf.read(name), name
+    assert SECRET not in caplog.text
+    for record in caplog.records:
+        assert SECRET not in repr(record.args)
 
 
 def test_pause_only_holds_match_jobs(tmp_path: Path) -> None:
