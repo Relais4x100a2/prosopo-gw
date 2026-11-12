@@ -639,13 +639,15 @@ def proposals(
         return (), ()
     keys = {name_key(lv.name) for lv in _above(levels)}
     first = name_key(levels[0].name)
+    ours = [c for c in candidates if c.source == GEONAMES]
+    # Before deduplicating: one division may answer several written levels.
+    known = _known_as(ours)
     pool: list[SourceCandidate] = []
     seen: set[tuple[str, str]] = set()
-    for c in candidates:
-        if c.source == GEONAMES and (c.role, c.identifier) not in seen:
+    for c in ours:
+        if (c.role, c.identifier) not in seen:
             seen.add((c.role, c.identifier))
             pool.append(c)
-    known = _known_as(pool)
     divisions = {
         name_key(c.name)
         for c in pool

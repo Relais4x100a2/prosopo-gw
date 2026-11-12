@@ -418,3 +418,27 @@ def test_translated_division_picks_its_homonym() -> None:
     county = proposed(chain)["Greater North"]
     assert county.written == "Grand Nord" and county.rank == 1
     assert len(chain) == 3
+
+
+def test_division_found_for_two_written_names_keeps_both() -> None:
+    """A division returned for two written levels names both, whatever the order."""
+    levels = [
+        Level(0, "Bourg", origin="written"),
+        Level(1, "Beta", origin="written"),
+        Level(2, "Alpha", origin="written"),
+        Level(3, "Pays", type="pays", origin="written"),
+    ]
+    ten = Level(1, "Division Ten", type="comte", identifier="10")
+    twenty = Level(1, "Division Twenty", type="comte", identifier="20")
+    for alpha_first in (True, False):
+        alpha = [
+            _division("10", "Division Ten", "Alpha"),
+            _division("20", "Division Twenty", "Alpha"),
+        ]
+        beta = [_division("10", "Division Ten", "Beta")]
+        uppers = alpha + beta if alpha_first else beta + alpha
+        chain, alternatives = proposals(
+            levels, [_town("1", ten), _town("2", twenty), *uppers]
+        )
+        assert alternatives == ()
+        assert proposed(chain)["Bourg"].identifier == "1", alpha_first
