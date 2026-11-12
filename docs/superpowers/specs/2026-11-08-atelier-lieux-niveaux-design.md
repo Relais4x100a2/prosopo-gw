@@ -112,7 +112,7 @@ niveau sans type.
 
 ### 4.2 Types
 
-Une liste fermée pour la France (`lieu_dit`, `quartier`, `arrondissement`, `commune_historique`,
+Une liste fermée pour la France (`lieu_dit`, `hameau`, `quartier`, `arrondissement`, `commune_historique`,
 `commune`, `departement`, `region`, `ancienne_region`, `pays`) et une liste ouverte pour
 l'étranger (`localite`, `comte`, `province`, `etat`, `nation_constitutive`, `oblast`…), que
 l'utilisateur peut compléter. Le constructeur fixe la liste initiale **(choix de conception)**.
@@ -268,7 +268,8 @@ Lyon et Marseille n'utilisent que le code et le numéro, pas la rue **(choix de 
 
 **Rôle.** DicoTopo prime sur les **noms anciens** : formes anciennes d'une commune, lieux-dits,
 hameaux, écarts, anciennes paroisses **(décision de l'auteur)**. Il propose un niveau
-`lieu_dit` sous une commune, ou reconnaît un nom ancien d'une commune.
+`lieu_dit` sous une commune (`hameau` quand sa typologie le dit), ou reconnaît un nom ancien
+d'une commune.
 
 **Codes INSEE de 2011.** DicoTopo localise ses articles avec le code INSEE de 2011. L'atelier les
 **ramène toujours à la commune actuelle** par l'historique du COG ; l'ancienne commune de 2011,

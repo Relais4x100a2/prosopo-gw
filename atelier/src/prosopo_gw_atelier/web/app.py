@@ -233,11 +233,20 @@ def _label(view: ClusterView) -> str:
 def _chain_name(levels: Sequence[Level], postal_code: str | None) -> str | None:
     """Name of a chain: its historical commune, else its commune, else its most
     precise level, whatever its status (a level a source proposes in place of a
-    written one gives its written form, else its name)."""
+    written one gives its written form, else its name).
+
+    A commune split into arrondissements is followed by the short name of its
+    arrondissement (``Paris 16e``), so that its places read apart in the list."""
     view = french_view(levels, postal_code)
     name = view.get("historical_commune") or view.get("commune")
     if name:
-        return name
+        district = next(
+            (level for level in levels if level.type == "arrondissement"), None
+        )
+        if district is None:
+            return name
+        short = district.name.strip().removesuffix(" arrondissement").strip()
+        return f"{name} {short or district.name.strip()}"
     finest = min(levels, key=lambda level: level.rank, default=None)
     if finest is None:
         return None

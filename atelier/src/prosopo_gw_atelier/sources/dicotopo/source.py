@@ -57,6 +57,15 @@ __all__ = [
 ]
 
 
+SUB_TYPES = ("lieu_dit", "hameau")
+"""Level types of a DicoTopo article below its commune."""
+
+
+def _sub_type(kind: str | None) -> str:
+    """Level type of a non-commune article: ``hameau`` when its typology says so."""
+    return "hameau" if kind == "hameau" else "lieu_dit"
+
+
 def article_link(identifier: str) -> str:
     """Public page of an article."""
     return f"{LINK_URL}{identifier}"
@@ -185,7 +194,7 @@ class DicoTopoSource:
             source=DICOTOPO,
             identifier=article.id,
             name=name,
-            type="commune" if article.insee else "lieu_dit",
+            type="commune" if article.insee else _sub_type(article.kind),
             parents=parents,
             link=article_link(article.id),
             insee=insee,
@@ -366,11 +375,11 @@ def _reading(
     """
     source = _source_text(candidate.identifier)
     if commune is not None:
-        if candidate.type != "lieu_dit" or candidate.insee != commune.identifier:
+        if candidate.type not in SUB_TYPES or candidate.insee != commune.identifier:
             return None
         place = replace(
             target,
-            type="lieu_dit",
+            type=candidate.type,
             identifier=candidate.identifier,
             source=source,
             origin="dicotopo",
@@ -380,11 +389,11 @@ def _reading(
     if not candidate.parents:
         return None
     parents = [replace(p, status="proposed") for p in candidate.parents]
-    if candidate.type == "lieu_dit":
+    if candidate.type in SUB_TYPES:
         block = [
             replace(
                 target,
-                type="lieu_dit",
+                type=candidate.type,
                 identifier=candidate.identifier,
                 source=source,
                 origin="dicotopo",

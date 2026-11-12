@@ -134,6 +134,12 @@ def test_every_listed_type_has_a_label() -> None:
     assert all(TYPE_PATTERN.fullmatch(t) for t in TYPE_LABELS)
 
 
+def test_hamlet_is_a_french_type_finer_than_quartier() -> None:
+    assert TYPE_LABELS["hameau"] == "Hameau"
+    assert FRENCH_TYPES.index("lieu_dit") < FRENCH_TYPES.index("hameau")
+    assert FRENCH_TYPES.index("hameau") < FRENCH_TYPES.index("quartier")
+
+
 def test_french_view_falls_back_to_old_region() -> None:
     chain = (
         Level(0, "Roubaix", type="commune", identifier="59512"),

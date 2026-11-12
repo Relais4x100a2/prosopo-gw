@@ -52,6 +52,7 @@ ViewField = Literal[
 
 FRENCH_TYPES: tuple[str, ...] = (
     "lieu_dit",
+    "hameau",
     "quartier",
     "arrondissement",
     "commune_historique",
@@ -73,6 +74,7 @@ FOREIGN_TYPES: tuple[str, ...] = (
 )
 TYPE_LABELS: dict[str, str] = {
     "lieu_dit": "Lieu-dit",
+    "hameau": "Hameau",
     "quartier": "Quartier",
     "arrondissement": "Arrondissement",
     "commune_historique": "Commune historique",

@@ -1232,7 +1232,7 @@ def test_project_overlays_dicotopo_proposal(
     first = view.cluster.levels[0]
     assert (first.name, first.type, first.origin, first.status) == (
         "Fictimont",
-        "lieu_dit",
+        "hameau",
         "dicotopo",
         "proposed",
     )

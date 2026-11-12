@@ -75,7 +75,7 @@ def test_hamlet_under_resolved_commune(source: DicoTopoSource, ref: RefData) -> 
     chain, alternatives = run(source, ref, "Fictimont, Hesdin-la-Forêt")
     hamlet = chain[0]
     assert (hamlet.type, hamlet.origin, hamlet.status) == (
-        "lieu_dit",
+        "hameau",
         "dicotopo",
         "proposed",
     )
@@ -88,7 +88,7 @@ def test_hamlet_under_resolved_commune(source: DicoTopoSource, ref: RefData) -> 
 
 def test_ancient_form_without_commune(source: DicoTopoSource, ref: RefData) -> None:
     chain, alternatives = run(source, ref, "Fictimontem, Pas-de-Calais")
-    assert [lv.type for lv in chain] == ["lieu_dit", "commune", "departement"]
+    assert [lv.type for lv in chain] == ["hameau", "commune", "departement"]
     assert chain[0].name == "Fictimontem" and chain[0].identifier == "P90000002"
     assert (chain[1].identifier, chain[1].origin) == ("62447", "insee")
     assert chain[1].name == "Hesdin-la-Forêt"
@@ -159,7 +159,7 @@ def test_covers_and_article(source: DicoTopoSource) -> None:
     assert source.covers(LevelQuery("x", department="62"))
     assert not source.covers(LevelQuery("x", department="05"))
     found = source.article("P90000002")
-    assert found is not None and found.insee == "62447" and found.type == "lieu_dit"
+    assert found is not None and found.insee == "62447" and found.type == "hameau"
     assert found.link == article_link("P90000002")
     assert source.article("P1") is None
 
