@@ -361,3 +361,60 @@ def test_upper_query_never_uses_the_api(tmp_path: Path, ref: RefData) -> None:
     chain, _ = proposals(levels, [winnipeg])
     check_chain(chain)
     assert "Manitoba" in proposed(chain)
+
+
+def test_written_division_in_another_language_is_matched(
+    source: GeoNamesSource, ref: RefData
+) -> None:
+    # "Angleterre" is an alternate name of England: it is typed in place, not doubled.
+    levels = rule_levels(decompose("Storrington, Angleterre, Royaume-Uni", ref), ref)
+    chain, _ = proposals(levels, search_all(source, levels, "GB"))
+    untouched(chain, levels)
+    england = proposed(chain)["England"]
+    assert england.written == "Angleterre"
+    assert [lv.name for lv in chain].count("England") == 1
+    assert "Angleterre" not in [lv.name for lv in chain]
+
+
+def _division(identifier: str, name: str, asked: str) -> SourceCandidate:
+    return SourceCandidate(
+        source="geonames",
+        identifier=identifier,
+        name=name,
+        type="comte",
+        feature_code="ADM2",
+        role="upper",
+        asked=asked,
+    )
+
+
+def _town(identifier: str, county: Level) -> SourceCandidate:
+    return SourceCandidate(
+        source="geonames",
+        identifier=identifier,
+        name="Bourg",
+        type="localite",
+        feature_code="PPL",
+        parents=(county,),
+    )
+
+
+def test_translated_division_picks_its_homonym() -> None:
+    levels = [
+        Level(0, "Bourg", origin="written"),
+        Level(1, "Grand Nord", origin="written"),
+        Level(2, "Pays", type="pays", origin="written"),
+    ]
+    north = Level(1, "Greater North", type="comte", identifier="10")
+    south = Level(1, "Greater South", type="comte", identifier="20")
+    candidates = [
+        _town("1", north),
+        _town("2", south),
+        _division("10", "Greater North", "Grand Nord"),
+    ]
+    chain, alternatives = proposals(levels, candidates)
+    assert alternatives == ()
+    assert proposed(chain)["Bourg"].identifier == "1"
+    county = proposed(chain)["Greater North"]
+    assert county.written == "Grand Nord" and county.rank == 1
+    assert len(chain) == 3

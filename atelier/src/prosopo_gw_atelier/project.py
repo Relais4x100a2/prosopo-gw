@@ -1171,6 +1171,11 @@ class Project:
                             name, "match", query_key, match_payload(query), occurrences
                         )
                         self._enqueued.add((name, query_key))
+                elif query.role == "upper":
+                    # Results cached before ``asked`` existed: it is the query's name.
+                    candidates += [
+                        c if c.asked else replace(c, asked=query.name) for c in resolved
+                    ]
                 else:
                     candidates += resolved
             if waiting:

@@ -61,6 +61,7 @@ class SourceCandidate:
     population: int | None = None  # to order homonyms (GeoNames)
     feature_code: str | None = None  # GeoNames feature code, e.g. PPLA, ADM1
     role: Literal["level", "upper"] = "level"  # role of the query that found it
+    asked: str | None = None  # written name an "upper" query searched (GeoNames)
 
 
 class SourceError(Exception):

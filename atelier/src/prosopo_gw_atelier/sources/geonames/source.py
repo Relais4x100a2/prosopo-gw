@@ -179,7 +179,11 @@ class GeoNamesSource:
                 local = []
             if local:
                 return [
-                    replace(self._local_candidate(p, date), role=query.role)
+                    replace(
+                        self._local_candidate(p, date),
+                        role=query.role,
+                        asked=query.name if query.role == "upper" else None,
+                    )
                     for p in local
                 ]
         if not self._api_allowed or query.role == "upper":
@@ -502,8 +506,30 @@ def _own_parents(candidate: SourceCandidate) -> list[Level]:
     ]
 
 
-def _confirmations(candidate: SourceCandidate, keys: set[str]) -> int:
-    return sum(1 for p in _own_parents(candidate) if name_key(p.name) in keys)
+def _known_as(pool: Sequence[SourceCandidate]) -> dict[str, set[str]]:
+    """Identifiers of the divisions each written upper level names, by its
+    ``name_key``: found by its own name or an alternate one (``Angleterre`` for
+    England), so a written level in another language still matches."""
+    out: dict[str, set[str]] = {}
+    for c in pool:
+        if c.role == "upper" and c.asked and _is_admin(c):
+            out.setdefault(name_key(c.asked), set()).add(c.identifier)
+    return out
+
+
+def _matches(parent: Level, key: str, known: dict[str, set[str]]) -> bool:
+    """Whether the written level of ``name_key`` ``key`` names ``parent``."""
+    return name_key(parent.name) == key or (
+        parent.identifier is not None and parent.identifier in known.get(key, ())
+    )
+
+
+def _confirmations(
+    candidate: SourceCandidate, keys: set[str], known: dict[str, set[str]]
+) -> int:
+    return sum(
+        1 for p in _own_parents(candidate) if any(_matches(p, k, known) for k in keys)
+    )
 
 
 def _is_admin(candidate: SourceCandidate) -> bool:
@@ -535,7 +561,11 @@ def _typed(level: Level, name: str, proposal: Level, source: str | None) -> Leve
     )
 
 
-def _reading(levels: Sequence[Level], candidate: SourceCandidate) -> tuple[Level, ...]:
+def _reading(
+    levels: Sequence[Level],
+    candidate: SourceCandidate,
+    known: dict[str, set[str]] | None = None,
+) -> tuple[Level, ...]:
     """``levels`` with the confirmed levels proposed and the missing ones inserted."""
     own = Level(
         0,
@@ -552,8 +582,14 @@ def _reading(levels: Sequence[Level], candidate: SourceCandidate) -> tuple[Level
     free = [i for i in range(1, len(levels)) if _is_above(levels[i])]
     anchor = 0
     for parent in _own_parents(candidate):
-        key = name_key(parent.name)
-        found = next((i for i in free if name_key(levels[i].name) == key), None)
+        found = next(
+            (
+                i
+                for i in free
+                if _matches(parent, name_key(levels[i].name), known or {})
+            ),
+            None,
+        )
         if found is None:
             # Missing division: right above the lowest level it contains.
             inserted.setdefault(anchor, []).append(replace(parent, status="proposed"))
@@ -609,15 +645,17 @@ def proposals(
         if c.source == GEONAMES and (c.role, c.identifier) not in seen:
             seen.add((c.role, c.identifier))
             pool.append(c)
+    known = _known_as(pool)
     divisions = {
         name_key(c.name)
         for c in pool
         if c.role == "upper" and _is_admin(c) and name_key(c.name) in keys
-    }
+    } | (set(known) & keys)
 
     def foreign(c: SourceCandidate) -> bool:
-        mine = {name_key(p.name) for p in _own_parents(c)} | {name_key(c.name)}
-        return bool((divisions & keys) - mine - {first})
+        own = [*_own_parents(c), Level(0, c.name, identifier=c.identifier)]
+        named = {k for k in divisions if any(_matches(p, k, known) for p in own)}
+        return bool(divisions - named - {first})
 
     for readings in (
         [c for c in pool if _is_populated(c) and c.role == "level"],
@@ -626,10 +664,10 @@ def proposals(
         stage = [c for c in readings if not foreign(c)]
         if not stage:
             continue
-        confirmed = [c for c in stage if _confirmations(c, keys) > 0]
+        confirmed = [c for c in stage if _confirmations(c, keys, known) > 0]
         kept = confirmed or stage
         if len(kept) == 1:
-            return _reading(levels, kept[0]), ()
+            return _reading(levels, kept[0], known), ()
         ordered = sorted(kept, key=lambda c: -(c.population or 0))
-        return (), tuple(_reading(levels, c) for c in ordered[:MAX_ALTERNATIVES])
+        return (), tuple(_reading(levels, c, known) for c in ordered[:MAX_ALTERNATIVES])
     return (), ()

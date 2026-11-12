@@ -23,6 +23,7 @@ from prosopo_gw_atelier.project import (
 )
 from prosopo_gw_atelier.refdata import RefData, load_refdata
 from prosopo_gw_atelier.refdata.paris_table import ParisTable, load_paris_table
+from prosopo_gw_atelier.sources.base import LevelQuery, SourceCandidate
 from prosopo_gw_atelier.sources.geonames.index import GeoNamesIndex
 from prosopo_gw_atelier.sources.geonames.source import GEONAMES, GeoNamesSource
 from prosopo_gw_atelier.store.config import LocalConfig
@@ -1820,3 +1821,35 @@ def test_revert_refused_is_generic_over_sources() -> None:
     # another source's refusal does not touch it
     other = _revert_refused(DICOTOPO, original, levels, frozenset({(GEONAMES, "P1")}))
     assert other == levels
+
+
+def test_cached_upper_results_without_asked_name_still_match(
+    tmp_path: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    geo_source: GeoNamesSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gw = tmp_path / "bases" / "anglais.gw"
+    gw.parent.mkdir(parents=True)
+    gw.write_text(
+        "encoding: utf-8\ngwplus\n\n"
+        "fam DUPONT Jean 1850 #bp Storrington,_Angleterre,_Royaume-Uni"
+        " + MARTIN Marie 1852\n",
+        encoding="utf-8",
+    )
+    search = geo_source.search
+
+    def before_asked(query: LevelQuery) -> list[SourceCandidate]:
+        return [dataclasses.replace(c, asked=None) for c in search(query)]
+
+    monkeypatch.setattr(geo_source, "search", before_asked)
+    project = geo_project(gw, registry, ref, projects_dir, queue, geo_source)
+    project.set_country_mode("GB", "geonames")
+    drain(geo_worker(queue, geo_source))
+    levels = view_of(project, "Storrington, Angleterre, Royaume-Uni").cluster.levels
+    names = [lv.name for lv in levels]
+    assert names.count("England") == 1 and "Angleterre" not in names
+    assert next(lv for lv in levels if lv.name == "England").written == "Angleterre"
