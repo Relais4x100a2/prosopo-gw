@@ -204,7 +204,7 @@ from .refdata import RefData
 from .refdata.arrondissements import level_name
 from .refdata.paris_table import ParisTable, load_paris_table
 from .sources.base import LevelQuery, Source, SourceCandidate
-from .sources.dicotopo.source import DICOTOPO
+from .sources.dicotopo.source import DICOTOPO, DicoTopoSource
 from .sources.dicotopo.source import proposals as dicotopo_proposals
 from .sources.dicotopo.source import queries_for as dicotopo_queries
 from .sources.geonames.index import GeoNamesIndex
@@ -317,6 +317,9 @@ class ClusterView:
     """Sources whose result is still awaited for this cluster."""
     failed_sources: tuple[str, ...] = ()
     """Sources whose job failed for good (see the Sources screen); not pending."""
+    dicotopo_missing: tuple[str, ...] = ()
+    """Departments DicoTopo would be asked about for this cluster but cannot
+    answer yet (not downloaded, API off): the screen offers to download them."""
     geonames_mode: SourceMode = "written"
     """Effective GeoNames mode of the cluster (see "GeoNames mode")."""
     geonames_mode_origin: ModeOrigin = "country"
@@ -414,6 +417,7 @@ class _Overlay:
     alternatives: tuple[tuple[Level, ...], ...]
     pending: tuple[str, ...]
     failed: tuple[str, ...]
+    dicotopo_missing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1100,6 +1104,7 @@ class Project:
                     historical_writings=historical,
                     pending_sources=overlay.pending,
                     failed_sources=overlay.failed,
+                    dicotopo_missing=overlay.dicotopo_missing,
                     base_levels=levels,
                     geonames_mode=mode,
                     geonames_mode_origin=origin,
@@ -1136,6 +1141,7 @@ class Project:
         pending: list[str] = []
         failing: list[str] = []
         asked: list[tuple[str, LevelQuery]] = []
+        missing: set[str] = set()
         for name, source_adapter in _ADAPTERS.items():
             if name not in self._sources:
                 continue
@@ -1148,6 +1154,12 @@ class Project:
                 ):
                     wanted.setdefault(query.key(), query)
             live = self._sources[name]
+            if isinstance(live, DicoTopoSource):
+                missing.update(
+                    department
+                    for q in wanted.values()
+                    if not live.can_answer(q) and (department := live.department(q))
+                )
             wanted = {k: q for k, q in wanted.items() if live.can_answer(q)}
             known_pending = self._pending.get(name, set())
             unknown = [
@@ -1195,7 +1207,9 @@ class Project:
                 r for r in readings if r not in (before, chain)
             )
         queries[cluster.id] = asked
-        result = _Overlay(chain, alternatives, tuple(pending), tuple(failing))
+        result = _Overlay(
+            chain, alternatives, tuple(pending), tuple(failing), tuple(sorted(missing))
+        )
         if not pending and not failing:
             overlays[key] = result
         return result

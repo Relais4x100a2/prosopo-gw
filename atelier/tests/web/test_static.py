@@ -235,3 +235,10 @@ def test_script_reports_a_rejected_geonames_username(client: TestClient) -> None
         "GeoNames refuse l'identifiant (compte inconnu ou service web non activé)"
         in script
     )
+
+
+def test_script_offers_dicotopo_download_on_the_place(client: TestClient) -> None:
+    script = client.get("/static/app.js").text
+    assert "dicotopo_missing" in script
+    assert "/api/sources/dicotopo/download" in script
+    assert "Télécharger le département" in script

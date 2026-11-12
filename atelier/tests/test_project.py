@@ -1853,3 +1853,23 @@ def test_cached_upper_results_without_asked_name_still_match(
     names = [lv.name for lv in levels]
     assert names.count("England") == 1 and "Angleterre" not in names
     assert next(lv for lv in levels if lv.name == "England").written == "Angleterre"
+
+
+def test_view_names_the_dicotopo_departments_to_download(
+    tmp_path: Path,
+    hamlet_gw: Path,
+    registry: PlaceRegistry,
+    ref: RefData,
+    projects_dir: Path,
+    queue: SourceQueue,
+    dicotopo: DicoTopoSource,
+) -> None:
+    empty = DicoTopoSource(
+        DicoTopoIndex(tmp_path / "empty.sqlite"), ref, api_enabled=False
+    )
+    project = attached(hamlet_gw, registry, ref, projects_dir, queue, empty)
+    view = hamlet_view(project)
+    assert view.dicotopo_missing == ("62",)
+    assert view.pending_sources == ()
+    indexed = attached(hamlet_gw, registry, ref, projects_dir, queue, dicotopo)
+    assert hamlet_view(indexed).dicotopo_missing == ()

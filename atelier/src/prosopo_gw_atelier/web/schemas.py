@@ -123,6 +123,7 @@ class ClusterDetail(BaseModel):
     historical_writings: dict[str, str]
     pending_sources: list[str]
     failed_sources: list[str]
+    dicotopo_missing: list[str] = []
     complements: list[Complement]
     writings: list[WritingOut]
     geonames_mode: SourceMode

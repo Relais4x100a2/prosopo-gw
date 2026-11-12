@@ -130,6 +130,7 @@
     countriesError: null, // message when the countries could not be loaded
     confirmCountry: null, // ISO code whose first download awaits a second click
     countrySizes: {}, // ISO code -> announced size of its GeoNames file (bytes)
+    dicotopoAwaited: null, // place whose DicoTopo departments were just requested from its page
     confirmClear: false, // "Vider le cache" asks a second click
   };
 
@@ -404,6 +405,7 @@
       renderHistorical(detail),
       renderAlternatives(detail),
       renderPendingSources(detail),
+      renderDicotopoHint(detail),
       renderGeonamesMode(detail),
       renderChain(detail),
     );
@@ -424,6 +426,41 @@
       pending.length ? el("div", { text: `recherche en cours (${pending.map(sourceName).join(", ")})` }) : null,
       failed.length ? el("div", { text: `recherche échouée (${failed.map(sourceName).join(", ")})` }) : null,
     );
+  }
+
+  /**
+   * DicoTopo could type this place's lieux-dits and hamlets, but its department is
+   * not downloaded yet: say so where the need is felt, with a one-click download.
+   */
+  function renderDicotopoHint(detail) {
+    const missing = detail.dicotopo_missing || [];
+    if (!missing.length) return null;
+    const awaited = state.dicotopoAwaited === state.currentId;
+    const list = missing.join(", ");
+    return el(
+      "div",
+      { class: "warning", role: "status" },
+      el("span", {
+        text: awaited
+          ? `Téléchargement DicoTopo demandé (département ${list}) : les propositions apparaîtront ici une fois le département indexé.`
+          : `DicoTopo pourrait proposer le type des lieux-dits et hameaux de ce lieu, mais le département ${list} `
+            + "n'est pas téléchargé (données gardées sur cet ordinateur, quelques Mo).",
+      }),
+      awaited
+        ? null
+        : el("button", {
+            type: "button",
+            text: missing.length > 1 ? `Télécharger les départements ${list}` : `Télécharger le département ${list}`,
+            onclick: () => run(() => downloadForPlace(missing)),
+          }),
+    );
+  }
+
+  async function downloadForPlace(departments) {
+    await api("POST", "/api/sources/dicotopo/download", { departments });
+    state.dicotopoAwaited = state.currentId;
+    renderDetail();
+    schedulePoll();
   }
 
   /** The foreign country of a place (its French view), null for France or none. */
@@ -2147,7 +2184,10 @@
           "div",
           { class: "warning", role: "status" },
           el("span", {
-            text: `Proposer avec GeoNames télécharge le fichier de ce pays (${country.name}) : ${cost}`,
+            text:
+              `Proposer avec GeoNames télécharge une fois le fichier des lieux de ce pays (${country.name}), `
+              + `gardé sur cet ordinateur : ${cost} Il sert à proposer, pour ses ${country.writings} écritures, `
+              + "le type de chaque niveau, les niveaux manquants et l'identifiant GeoNames ; rien n'est validé sans vous.",
           }),
           el("button", {
             type: "button",
@@ -2285,7 +2325,10 @@
     if (state.view === "sources") return queueActive(state.sources);
     if (state.view === "countries") return countriesDownloading();
     if (state.view === "places") {
-      return Boolean(state.detail && (state.detail.pending_sources || []).length);
+      const detail = state.detail;
+      if (!detail) return false;
+      const awaited = state.dicotopoAwaited === state.currentId && (detail.dicotopo_missing || []).length;
+      return Boolean((detail.pending_sources || []).length || awaited);
     }
     return false;
   }

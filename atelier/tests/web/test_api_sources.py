@@ -374,3 +374,12 @@ def test_stale_dicotopo_results_are_dropped_on_start(
     runtime.queue.store_result(DICOTOPO, "new", [])
     again = SourceRuntime.build(tmp_path / "data", ref, opener=FakeServer())
     assert again.queue.result(DICOTOPO, "new") == []
+
+
+def test_detail_names_dicotopo_departments_until_indexed(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    client.get("/api/clusters")
+    assert cluster(client, hamlet_id(client))["dicotopo_missing"] == ["62"]
+    data = proposed_detail(client, runtime)
+    assert data["dicotopo_missing"] == []

@@ -113,12 +113,12 @@ class DicoTopoSource:
     # -- Source interface -------------------------------------------------
 
     def covers(self, query: LevelQuery) -> bool:
-        department = self._department(query)
+        department = self.department(query)
         return department is not None and self._indexed(department)
 
     def can_answer(self, query: LevelQuery) -> bool:
         """Department indexed, or the API allowed (and a department known)."""
-        department = self._department(query)
+        department = self.department(query)
         return department is not None and (
             self._api_enabled or self._indexed(department)
         )
@@ -132,7 +132,7 @@ class DicoTopoSource:
             return False
 
     def search(self, query: LevelQuery) -> list[SourceCandidate]:
-        department = self._department(query)
+        department = self.department(query)
         if department is None:
             return []
         key = form_key(query.name)
@@ -162,7 +162,8 @@ class DicoTopoSource:
 
     # -- helpers ----------------------------------------------------------
 
-    def _department(self, query: LevelQuery) -> str | None:
+    def department(self, query: LevelQuery) -> str | None:
+        """Department a query is about (given, or from its INSEE code)."""
         if query.department:
             return _dept(query.department)
         if query.insee:

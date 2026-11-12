@@ -494,6 +494,7 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
         historical_writings=dict(view.historical_writings),
         pending_sources=list(view.pending_sources),
         failed_sources=list(view.failed_sources),
+        dicotopo_missing=list(view.dicotopo_missing),
         complements=[
             schemas.Complement(text=text, occurrences=count)
             for text, count in sorted(complements.items(), key=lambda i: (-i[1], i[0]))
