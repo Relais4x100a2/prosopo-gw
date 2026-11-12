@@ -1159,8 +1159,9 @@ def create_app(
             request_download(runtime.queue, codes, covered=runtime.coverage())
         except SourceError as exc:
             raise _error(400, str(exc)) from None
-        # Asking again for a department whose download failed retries it.
-        runtime.queue.retry(DICOTOPO, [f"DT{code}" for code in codes])
+        # Asking again for a department whose download failed retries it; a failed
+        # indexing runs again only once the new file is there (``handle_download``).
+        runtime.queue.retry(DICOTOPO, [f"DT{code}" for code in codes], kind="download")
         return schemas.DownloadOut(queued=codes)
 
     @app.post("/api/sources/dicotopo/coverage/refresh")

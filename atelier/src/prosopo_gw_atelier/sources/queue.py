@@ -142,13 +142,25 @@ class SourceQueue:
         key: str,
         payload: dict[str, object],
         priority: int,
+        *,
+        revive: bool = False,
     ) -> int:
+        """Queue a job, or return the open one (pending, running, failed) of the
+        same source, kind and key, raising its priority. ``revive``: a failed one
+        is put back to run now with ``payload`` (its cause has been dealt with)."""
         with self._db() as db:
             row = db.execute(
-                "SELECT id, priority FROM jobs WHERE source=? AND kind=? AND key=?"
-                " AND state IN ('pending','running','failed')",
+                "SELECT id, priority, state FROM jobs WHERE source=? AND kind=?"
+                " AND key=? AND state IN ('pending','running','failed')",
                 (source, kind, key),
             ).fetchone()
+            if row is not None and revive and row["state"] == "failed":
+                db.execute(
+                    "UPDATE jobs SET state='pending', attempts=0, not_before=NULL,"
+                    " payload=?, priority=MAX(priority, ?) WHERE id=?",
+                    (json.dumps(payload), priority, row["id"]),
+                )
+                return int(row["id"])
             if row is not None:
                 if priority > row["priority"]:
                     db.execute(
@@ -306,19 +318,26 @@ class SourceQueue:
                 )
             }
 
-    def retry(self, source: str, keys: Sequence[str]) -> int:
-        """Put the failed and waiting jobs of ``keys`` back to run now (attempts
-        reset); running ones are left. Returns the number of jobs touched."""
+    def retry(
+        self, source: str, keys: Sequence[str], kind: JobKind | None = None
+    ) -> int:
+        """Put the failed and waiting jobs of ``keys`` (of ``kind`` only, when
+        given) back to run now (attempts reset); running ones are left. Returns the
+        number of jobs touched."""
         if not keys:
             return 0
         marks = ",".join("?" * len(keys))
+        sql = (
+            "UPDATE jobs SET state='pending', attempts=0, not_before=NULL"
+            f" WHERE source=? AND key IN ({marks})"
+            " AND state IN ('pending','failed')"
+        )
+        args: tuple[str, ...] = (source, *keys)
+        if kind is not None:
+            sql += " AND kind=?"
+            args += (kind,)
         with self._db() as db:
-            cur = db.execute(
-                "UPDATE jobs SET state='pending', attempts=0, not_before=NULL"
-                f" WHERE source=? AND key IN ({marks})"
-                " AND state IN ('pending','failed')",
-                (source, *keys),
-            )
+            cur = db.execute(sql, args)
             return cur.rowcount
 
     def retry_failed(self, source: str | None = None) -> None:

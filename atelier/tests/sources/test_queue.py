@@ -344,3 +344,27 @@ def test_open_states_and_retry_by_key(queue: SourceQueue) -> None:
     assert queue.open_states("s", ["a", "b"]) == {"pending"}
     job = queue.next_job()
     assert job is not None and job.key == "a" and job.attempts == 0
+
+
+def test_enqueue_revives_a_failed_job_only_when_asked(queue: SourceQueue) -> None:
+    first = queue.enqueue("s", "index", "a", {"at": 1}, 0)
+    job = queue.next_job()
+    assert job is not None
+    queue.fail(job.id, "x", permanent=True)
+    assert queue.enqueue("s", "index", "a", {"at": 2}, 0) == first
+    assert queue.next_job() is None  # still failed
+    assert queue.enqueue("s", "index", "a", {"at": 2}, 0, revive=True) == first
+    job = queue.next_job()
+    assert job is not None and job.payload == {"at": 2} and job.attempts == 0
+
+
+def test_retry_of_one_kind_leaves_the_others(queue: SourceQueue) -> None:
+    for kind in ("download", "index"):
+        queue.enqueue("s", kind, "a", {}, 0)  # type: ignore[arg-type]
+        job = queue.next_job()
+        assert job is not None
+        queue.fail(job.id, "x", permanent=True)
+    assert queue.retry("s", ["a"], kind="download") == 1
+    job = queue.next_job()
+    assert job is not None and job.kind == "download"
+    assert queue.next_job() is None

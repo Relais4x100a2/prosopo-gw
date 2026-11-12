@@ -406,3 +406,21 @@ def test_detail_follows_the_dicotopo_download_of_its_department(
     data = cluster(client, hamlet)
     assert data["dicotopo_downloading"] == ["62"]
     assert data["dicotopo_download_failed"] == []
+
+
+def test_asking_again_after_a_failed_indexing_downloads_then_indexes(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    hamlet = hamlet_id(client)
+    assert client.post("/api/sources/dicotopo/download", json={"departments": ["62"]})
+    assert runtime.worker.run_once()  # the download, which queues the indexing
+    job = runtime.queue.next_job()
+    assert job is not None and job.kind == "index"
+    runtime.queue.fail(job.id, "fichier illisible", permanent=True)
+    assert cluster(client, hamlet)["dicotopo_download_failed"] == ["62"]
+    assert client.post("/api/sources/dicotopo/download", json={"departments": ["62"]})
+    job = runtime.queue.next_job()
+    assert job is not None and job.kind == "download"  # not the stale indexing first
+    runtime.queue.resume()
+    drain(runtime)
+    assert cluster(client, hamlet)["dicotopo_missing"] == []

@@ -166,7 +166,10 @@ def handle_download(
         max_bytes=MAX_DEPARTMENT_BYTES,
     )
     stamp = datetime.now(UTC).isoformat(timespec="seconds")
-    queue.enqueue(DICOTOPO, "index", f"DT{department}", {"downloaded_at": stamp}, 0)
+    # A new file: an indexing that failed on the previous one runs again.
+    queue.enqueue(
+        DICOTOPO, "index", f"DT{department}", {"downloaded_at": stamp}, 0, revive=True
+    )
 
 
 def handle_index(
