@@ -243,3 +243,13 @@ def test_script_offers_dicotopo_download_on_the_place(client: TestClient) -> Non
     assert "dicotopo_downloading" in script  # polls while the queue works
     assert "/api/sources/dicotopo/download" in script
     assert "Télécharger le département" in script
+
+
+def test_script_offers_every_detected_country_at_once(client: TestClient) -> None:
+    """One button for all the countries, with the total size shown first and the
+    big files (or the ones of unknown size) left to be asked one by one."""
+    script = client.get("/static/app.js").text
+    assert "Proposer avec GeoNames pour tous les pays" in script
+    assert "BULK_COUNTRY_LIMIT = 50 * 1024 * 1024" in script
+    assert "au total" in script
+    assert "à télécharger un par un" in script

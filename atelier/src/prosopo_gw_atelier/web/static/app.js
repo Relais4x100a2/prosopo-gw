@@ -96,6 +96,8 @@
     ["failed", "échouées"],
   ];
   const POLL_MS = 3000;
+  // Above it, a country's file is left out of "all the countries": asked one by one.
+  const BULK_COUNTRY_LIMIT = 50 * 1024 * 1024;
   const JOURNAL_LIMIT = 50;
   const FLASH_MS = 1700;
   const INFO_MS = 6000;
@@ -130,6 +132,7 @@
     countriesError: null, // message when the countries could not be loaded
     confirmCountry: null, // ISO code whose first download awaits a second click
     countrySizes: {}, // ISO code -> announced size of its GeoNames file (bytes)
+    bulkCountries: null, // {take, left} while "all the countries" awaits its confirmation
     confirmClear: false, // "Vider le cache" asks a second click
   };
 
@@ -2224,6 +2227,110 @@
     );
   }
 
+  /** Countries "all the countries" would set to GeoNames: not set yet, or not downloaded. */
+  function bulkCandidates() {
+    return (state.countries || []).filter(
+      (country) => country.iso && (country.mode !== "geonames" || needsDownload(country)),
+    );
+  }
+
+  /** First click: the sizes, so that the confirmation tells the total. */
+  async function prepareBulkCountries() {
+    const candidates = bulkCandidates();
+    const sizes = await Promise.all(
+      candidates.map((country) => (country.downloaded ? 0 : fetchCountrySize(country.iso))),
+    );
+    const take = [];
+    const left = [];
+    candidates.forEach((country, i) => {
+      const size = sizes[i];
+      if (typeof size === "number" && !country.downloaded) state.countrySizes[country.iso] = size;
+      (typeof size === "number" && size <= BULK_COUNTRY_LIMIT ? take : left).push({ country, size });
+    });
+    state.confirmCountry = null;
+    state.bulkCountries = { take, left };
+    renderCountries();
+  }
+
+  /** Second click: each country is set as with its own button (one undo step each). */
+  async function confirmBulkCountries() {
+    const bulk = state.bulkCountries;
+    state.bulkCountries = null;
+    if (!bulk || !bulk.take.length) return renderCountries();
+    let queued = 0;
+    for (const { country } of bulk.take) {
+      const result = await api("PUT", `/api/countries/${encodeURIComponent(country.iso)}`, { mode: "geonames" });
+      if (result.queued) queued += 1;
+      state.history.push(state.currentId);
+    }
+    await refreshPlaces();
+    showMessage(
+      `${plural(bulk.take.length, "pays réglé", "pays réglés")} sur « Proposer avec GeoNames » ; `
+        + `${plural(queued, "téléchargement demandé", "téléchargements demandés")}.`,
+      "info",
+    );
+  }
+
+  function renderBulkCountries() {
+    const candidates = bulkCandidates();
+    const bulk = state.bulkCountries;
+    if (!bulk) {
+      if (!candidates.length) return null;
+      return el(
+        "p",
+        null,
+        el("button", {
+          type: "button",
+          text: "Proposer avec GeoNames pour tous les pays…",
+          title: "Affiche d'abord la taille totale à télécharger",
+          onclick: () => run(prepareBulkCountries),
+        }),
+      );
+    }
+    const total = bulk.take.reduce((sum, item) => sum + item.size, 0);
+    const named = (items) =>
+      items
+        .map(({ country, size }) => `${country.name} (${typeof size === "number" ? formatSize(size) : "taille inconnue"})`)
+        .join(", ");
+    const parts = [];
+    if (bulk.take.length) {
+      parts.push(
+        `${plural(bulk.take.length, "pays", "pays")} : ${formatSize(total)} au total à télécharger, `
+          + "une fois, gardés sur cet ordinateur ; rien n'est validé sans vous. "
+          + `${named(bulk.take)}.`,
+      );
+    } else {
+      parts.push("Aucun pays à moins de " + formatSize(BULK_COUNTRY_LIMIT) + " à télécharger.");
+    }
+    if (bulk.left.length) {
+      parts.push(
+        `Laissés de côté, à télécharger un par un (plus de ${formatSize(BULK_COUNTRY_LIMIT)} ou taille inconnue) : `
+          + `${named(bulk.left)}.`,
+      );
+    }
+    return el(
+      "div",
+      { class: "warning", role: "status" },
+      el("span", { text: parts.join(" ") }),
+      bulk.take.length
+        ? el("button", {
+            type: "button",
+            class: "primary",
+            text: "Télécharger et proposer",
+            onclick: () => run(confirmBulkCountries),
+          })
+        : null,
+      el("button", {
+        type: "button",
+        text: "Annuler",
+        onclick: () => {
+          state.bulkCountries = null;
+          renderCountries();
+        },
+      }),
+    );
+  }
+
   function renderCountryRows(countries) {
     return countries.flatMap((country) => {
       const row = el(
@@ -2270,6 +2377,7 @@
     }
     section.replaceChildren(
       ...intro,
+      ...[renderBulkCountries()].filter(Boolean),
       el(
         "table",
         null,
@@ -2311,6 +2419,7 @@
     if (mode === country.mode && !download) return;
     if (download && !confirmed && country.download !== "failed") {
       state.countrySizes[country.iso] = await fetchCountrySize(country.iso);
+      state.bulkCountries = null;
       state.confirmCountry = country.iso;
       renderCountries();
       return;
