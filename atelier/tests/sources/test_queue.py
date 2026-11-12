@@ -140,6 +140,22 @@ def test_results_of_an_older_format_are_forgotten(tmp_path: Path) -> None:
     assert reopened.result("s", "k") is None
 
 
+def test_interrupted_expiry_is_redone(tmp_path: Path) -> None:
+    queue = SourceQueue(tmp_path / "sources.sqlite")
+    queue.store_result("s", "k", [])
+
+    def broken(db: object, source: str) -> None:
+        raise RuntimeError("interrupted")
+
+    queue._clear = broken  # type: ignore[method-assign,assignment]
+    with pytest.raises(RuntimeError):
+        queue.expire_results("s", 1)
+    del queue._clear
+    assert queue.result("s", "k") == []  # nothing was stamped either
+    assert queue.expire_results("s", 1) is True
+    assert queue.result("s", "k") is None
+
+
 def test_rate_limiter_waits() -> None:
     now = [0.0]
     slept: list[float] = []

@@ -70,3 +70,19 @@ def test_finest_arrondissement_wins_whatever_the_order() -> None:
 def test_arrondissement_named_with_its_city_is_not_doubled() -> None:
     chain = _city("Paris 16e arrondissement", "Paris", "75056")
     assert _chain_name(chain, None) == "Paris 16e"
+
+
+def test_current_arrondissement_does_not_show_its_open_period() -> None:
+    chain = (
+        Level(0, "7e arrondissement", type="arrondissement", start="1860-01-01"),
+        Level(1, "Paris", type="commune", identifier="75056"),
+    )
+    assert _chain_name(chain, None) == "Paris 7e"
+
+
+def test_former_arrondissement_without_start_shows_its_end() -> None:
+    chain = (
+        Level(0, "7e arrondissement", type="arrondissement", end="1859-12-31"),
+        Level(1, "Paris", type="commune", identifier="75056"),
+    )
+    assert _chain_name(chain, None) == "Paris 7e (-1859)"

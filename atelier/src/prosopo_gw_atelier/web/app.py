@@ -269,8 +269,9 @@ def _district_label(levels: Sequence[Level], commune: str) -> str | None:
     if short.casefold().startswith(commune.casefold() + " "):
         short = short[len(commune) + 1 :].strip()
     short = short or full
-    if district.start and district.end:
-        return f"{short} ({district.start[:4]}-{district.end[:4]})"
+    if district.end:  # a former arrondissement: its period sets it apart
+        start = district.start[:4] if district.start else ""
+        return f"{short} ({start}-{district.end[:4]})"
     return short
 
 

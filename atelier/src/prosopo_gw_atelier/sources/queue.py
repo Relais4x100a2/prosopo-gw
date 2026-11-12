@@ -446,7 +446,8 @@ class SourceQueue:
         """Forget the match jobs and results of ``source`` if they were stored in
         a format older than ``version`` (a source bumps its version when the
         candidates it returns change); returns whether they were forgotten.
-        The version is recorded in ``epochs`` as ``format:<source>``."""
+        The version is recorded in ``epochs`` as ``format:<source>``, in the
+        same transaction as the purge: an interrupted purge is redone."""
         name = f"format:{source}"
         with self._db() as db:
             row = db.execute(
@@ -454,24 +455,28 @@ class SourceQueue:
             ).fetchone()
             if row is not None and row["value"] >= version:
                 return False
+            self._clear(db, source)
             db.execute(
                 "INSERT OR REPLACE INTO epochs(name, value) VALUES (?, ?)",
                 (name, version),
             )
-        self.clear(source)
         return True
 
     def clear(self, source: str) -> None:
         """Forget the match jobs and results of ``source``; downloads and indexing
         that are pending or running are kept (they are the user's own requests)."""
         with self._db() as db:
-            db.execute(
-                "DELETE FROM jobs WHERE source=? AND NOT"
-                " (kind IN ('download','index') AND state IN ('pending','running'))",
-                (source,),
-            )
-            db.execute("DELETE FROM results WHERE source=?", (source,))
-            db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'reset'")
+            self._clear(db, source)
+
+    @staticmethod
+    def _clear(db: sqlite3.Connection, source: str) -> None:
+        db.execute(
+            "DELETE FROM jobs WHERE source=? AND NOT"
+            " (kind IN ('download','index') AND state IN ('pending','running'))",
+            (source,),
+        )
+        db.execute("DELETE FROM results WHERE source=?", (source,))
+        db.execute("UPDATE epochs SET value = value + 1 WHERE name = 'reset'")
 
 
 class RateLimiter:
