@@ -470,14 +470,17 @@
   }
 
   async function downloadForPlace(departments) {
-    await api("POST", "/api/sources/dicotopo/download", { departments });
     const id = state.currentId;
-    const fresh = await api("GET", clusterPath(id));
+    await api("POST", "/api/sources/dicotopo/download", { departments });
     if (state.currentId !== id || !state.detail) return;
-    // Only the download state: the chain may hold unsaved edits.
-    state.detail.dicotopo_missing = fresh.dicotopo_missing;
-    state.detail.dicotopo_downloading = fresh.dicotopo_downloading;
-    state.detail.dicotopo_download_failed = fresh.dicotopo_download_failed;
+    // Shown as under way at once; the poll then follows the queue (the chain may
+    // hold unsaved edits: only these fields change here).
+    const asked = new Set(departments);
+    const downloading = state.detail.dicotopo_downloading || [];
+    state.detail.dicotopo_downloading = [...new Set([...downloading, ...departments])];
+    state.detail.dicotopo_download_failed = (state.detail.dicotopo_download_failed || []).filter(
+      (code) => !asked.has(code),
+    );
     renderDetail();
     schedulePoll();
   }
@@ -2256,14 +2259,18 @@
   async function confirmBulkCountries() {
     const bulk = state.bulkCountries;
     state.bulkCountries = null;
-    if (!bulk || !bulk.take.length) return renderCountries();
+    renderCountries(); // the confirmation goes: nothing left to cancel
+    if (!bulk || !bulk.take.length) return;
     let queued = 0;
-    for (const { country } of bulk.take) {
-      const result = await api("PUT", `/api/countries/${encodeURIComponent(country.iso)}`, { mode: "geonames" });
-      if (result.queued) queued += 1;
-      state.history.push(state.currentId);
+    try {
+      for (const { country } of bulk.take) {
+        const result = await api("PUT", `/api/countries/${encodeURIComponent(country.iso)}`, { mode: "geonames" });
+        if (result.queued) queued += 1;
+        state.history.push(state.currentId);
+      }
+    } finally {
+      await refreshPlaces(); // also after a failure: what was set is shown, and followed
     }
-    await refreshPlaces();
     showMessage(
       `${plural(bulk.take.length, "pays réglé", "pays réglés")} sur « Proposer avec GeoNames » ; `
         + `${plural(queued, "téléchargement demandé", "téléchargements demandés")}.`,
