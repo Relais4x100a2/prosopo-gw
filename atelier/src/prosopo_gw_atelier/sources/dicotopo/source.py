@@ -57,6 +57,9 @@ __all__ = [
 ]
 
 
+RESULTS_VERSION = 2
+"""Format of the cached DicoTopo candidates; version 2 types hamlets ``hameau``."""
+
 SUB_TYPES = ("lieu_dit", "hameau")
 """Level types of a DicoTopo article below its commune."""
 

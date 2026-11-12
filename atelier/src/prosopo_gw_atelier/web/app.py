@@ -236,23 +236,42 @@ def _chain_name(levels: Sequence[Level], postal_code: str | None) -> str | None:
     written one gives its written form, else its name).
 
     A commune split into arrondissements is followed by the short name of its
-    arrondissement (``Paris 16e``), so that its places read apart in the list."""
+    finest validated arrondissement (``Paris 16e``), with its period when it has
+    one (``Paris 7e (1795-1859)``), so that its places read apart in the list."""
     view = french_view(levels, postal_code)
     name = view.get("historical_commune") or view.get("commune")
     if name:
-        district = next(
-            (level for level in levels if level.type == "arrondissement"), None
-        )
-        if district is None:
-            return name
-        short = district.name.strip().removesuffix(" arrondissement").strip()
-        return f"{name} {short or district.name.strip()}"
+        district = _district_label(levels, name)
+        return f"{name} {district}" if district else name
     finest = min(levels, key=lambda level: level.rank, default=None)
     if finest is None:
         return None
     if finest.status == "validated":
         return finest.name
     return finest.written or finest.name
+
+
+def _district_label(levels: Sequence[Level], commune: str) -> str | None:
+    """Short name of the finest validated arrondissement of a chain, if any."""
+    district = min(
+        (
+            level
+            for level in levels
+            if level.type == "arrondissement" and level.status == "validated"
+        ),
+        key=lambda level: level.rank,
+        default=None,
+    )
+    if district is None:
+        return None
+    full = district.name.strip()
+    short = full.removesuffix(" arrondissement").strip()
+    if short.casefold().startswith(commune.casefold() + " "):
+        short = short[len(commune) + 1 :].strip()
+    short = short or full
+    if district.start and district.end:
+        return f"{short} ({district.start[:4]}-{district.end[:4]})"
+    return short
 
 
 def _level_out(level: Level) -> schemas.LevelModel:

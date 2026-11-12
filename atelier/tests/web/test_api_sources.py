@@ -15,8 +15,9 @@ from fastapi.testclient import TestClient
 
 from prosopo_gw_atelier.project import Project
 from prosopo_gw_atelier.refdata import RefData, load_refdata
-from prosopo_gw_atelier.sources import DICOTOPO, SourceRuntime
+from prosopo_gw_atelier.sources import DICOTOPO, GEONAMES, SourceRuntime
 from prosopo_gw_atelier.sources.dicotopo import download as dl
+from prosopo_gw_atelier.sources.queue import SourceQueue
 from prosopo_gw_atelier.store.config import load_config
 from prosopo_gw_atelier.store.registry import PlaceRegistry
 from prosopo_gw_atelier.web.app import create_app
@@ -357,3 +358,19 @@ def test_accept_requires_a_source_level(
 def test_attribution_names_the_upstream_licence(client: TestClient) -> None:
     attributions = client.get("/api/sources").json()["attributions"]
     assert any("CC BY-NC-ND 3.0 FR" in line for line in attributions)
+
+
+def test_stale_dicotopo_results_are_dropped_on_start(
+    tmp_path: Path, ref: RefData
+) -> None:
+    cache = tmp_path / "data" / "cache"
+    cache.mkdir(parents=True)
+    old = SourceQueue(cache / "queue.sqlite")  # a cache from before versioning
+    old.store_result(DICOTOPO, "old", [])
+    old.store_result(GEONAMES, "kept", [])
+    runtime = SourceRuntime.build(tmp_path / "data", ref, opener=FakeServer())
+    assert runtime.queue.result(DICOTOPO, "old") is None
+    assert runtime.queue.result(GEONAMES, "kept") == []
+    runtime.queue.store_result(DICOTOPO, "new", [])
+    again = SourceRuntime.build(tmp_path / "data", ref, opener=FakeServer())
+    assert again.queue.result(DICOTOPO, "new") == []

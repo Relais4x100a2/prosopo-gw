@@ -124,6 +124,22 @@ def test_clear_source(queue: SourceQueue) -> None:
     assert queue.counts()["t"]["pending"] == 1
 
 
+def test_results_of_an_older_format_are_forgotten(tmp_path: Path) -> None:
+    path = tmp_path / "sources.sqlite"
+    queue = SourceQueue(path)
+    queue.store_result("s", "k", [])
+    queue.store_result("t", "k", [])
+    assert queue.expire_results("s", 1) is True  # first stamp: older format
+    assert queue.result("s", "k") is None
+    assert queue.result("t", "k") == []
+    queue.store_result("s", "k", [])
+    reopened = SourceQueue(path)
+    assert reopened.expire_results("s", 1) is False  # same format: kept
+    assert reopened.result("s", "k") == []
+    assert reopened.expire_results("s", 2) is True
+    assert reopened.result("s", "k") is None
+
+
 def test_rate_limiter_waits() -> None:
     now = [0.0]
     slept: list[float] = []

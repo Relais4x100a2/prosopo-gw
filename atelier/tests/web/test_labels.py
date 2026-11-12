@@ -33,3 +33,40 @@ def test_other_finer_levels_are_not_shown() -> None:
         Level(1, "Hesdin-la-Forêt", type="commune", identifier="62447"),
     )
     assert _chain_name(chain, None) == "Hesdin-la-Forêt"
+
+
+def test_proposed_arrondissement_is_not_shown() -> None:
+    chain = (
+        Level(0, "16e arrondissement", type="arrondissement", status="proposed"),
+        Level(1, "Paris", type="commune", identifier="75056"),
+    )
+    assert _chain_name(chain, None) == "Paris"
+
+
+def test_former_paris_arrondissement_shows_its_period() -> None:
+    chain = (
+        Level(
+            0,
+            "7e arrondissement",
+            type="arrondissement",
+            identifier="paris-1795-07",
+            start="1795-10-11",
+            end="1859-12-31",
+        ),
+        Level(1, "Paris", type="commune", identifier="75056"),
+    )
+    assert _chain_name(chain, None) == "Paris 7e (1795-1859)"
+
+
+def test_finest_arrondissement_wins_whatever_the_order() -> None:
+    chain = (
+        Level(2, "3e arrondissement", type="arrondissement"),
+        Level(0, "7e arrondissement", type="arrondissement"),
+        Level(3, "Paris", type="commune", identifier="75056"),
+    )
+    assert _chain_name(chain, None) == "Paris 7e"
+
+
+def test_arrondissement_named_with_its_city_is_not_doubled() -> None:
+    chain = _city("Paris 16e arrondissement", "Paris", "75056")
+    assert _chain_name(chain, None) == "Paris 16e"

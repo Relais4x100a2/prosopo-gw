@@ -24,6 +24,9 @@ from prosopo_gw_atelier.refdata import RefData
 from prosopo_gw_atelier.sources.base import Source
 from prosopo_gw_atelier.sources.dicotopo import download as dicotopo_download
 from prosopo_gw_atelier.sources.dicotopo.index import DicoTopoIndex
+from prosopo_gw_atelier.sources.dicotopo.source import (
+    RESULTS_VERSION as DICOTOPO_RESULTS_VERSION,
+)
 from prosopo_gw_atelier.sources.dicotopo.source import DicoTopoSource
 from prosopo_gw_atelier.sources.fetch import Opener
 from prosopo_gw_atelier.sources.geonames import download as geonames_download
@@ -71,6 +74,8 @@ class SourceRuntime:
     _refreshing: threading.Lock = field(init=False, default_factory=threading.Lock)
 
     def __post_init__(self) -> None:
+        # Candidates cached in an older format would bypass the source's current rules.
+        self.queue.expire_results(DICOTOPO, DICOTOPO_RESULTS_VERSION)
         if self.geonames_limiter is None:
             self.geonames_limiter = RateLimiter(MIN_INTERVAL)
         self.geonames = GeoNamesSource(

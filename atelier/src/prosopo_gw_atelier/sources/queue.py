@@ -442,6 +442,25 @@ class SourceQueue:
             ).fetchone()
         return None if row is None else _decode(row["candidates"])
 
+    def expire_results(self, source: str, version: int) -> bool:
+        """Forget the match jobs and results of ``source`` if they were stored in
+        a format older than ``version`` (a source bumps its version when the
+        candidates it returns change); returns whether they were forgotten.
+        The version is recorded in ``epochs`` as ``format:<source>``."""
+        name = f"format:{source}"
+        with self._db() as db:
+            row = db.execute(
+                "SELECT value FROM epochs WHERE name=?", (name,)
+            ).fetchone()
+            if row is not None and row["value"] >= version:
+                return False
+            db.execute(
+                "INSERT OR REPLACE INTO epochs(name, value) VALUES (?, ?)",
+                (name, version),
+            )
+        self.clear(source)
+        return True
+
     def clear(self, source: str) -> None:
         """Forget the match jobs and results of ``source``; downloads and indexing
         that are pending or running are kept (they are the user's own requests)."""
