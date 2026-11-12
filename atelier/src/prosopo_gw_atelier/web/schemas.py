@@ -124,6 +124,8 @@ class ClusterDetail(BaseModel):
     pending_sources: list[str]
     failed_sources: list[str]
     dicotopo_missing: list[str] = []
+    dicotopo_downloading: list[str] = []
+    dicotopo_download_failed: list[str] = []
     complements: list[Complement]
     writings: list[WritingOut]
     geonames_mode: SourceMode

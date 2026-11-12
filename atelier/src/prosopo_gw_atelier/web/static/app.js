@@ -130,7 +130,6 @@
     countriesError: null, // message when the countries could not be loaded
     confirmCountry: null, // ISO code whose first download awaits a second click
     countrySizes: {}, // ISO code -> announced size of its GeoNames file (bytes)
-    dicotopoAwaited: null, // place whose DicoTopo departments were just requested from its page
     confirmClear: false, // "Vider le cache" asks a second click
   };
 
@@ -435,30 +434,47 @@
   function renderDicotopoHint(detail) {
     const missing = detail.dicotopo_missing || [];
     if (!missing.length) return null;
-    const awaited = state.dicotopoAwaited === state.currentId;
-    const list = missing.join(", ");
+    const downloading = detail.dicotopo_downloading || [];
+    const failed = detail.dicotopo_download_failed || [];
+    const toAsk = missing.filter((code) => !downloading.includes(code));
+    const parts = [];
+    if (downloading.length) {
+      parts.push(
+        `Téléchargement DicoTopo en cours (département ${downloading.join(", ")}) : `
+          + "les propositions apparaîtront ici une fois le département indexé.",
+      );
+    }
+    if (failed.length) {
+      parts.push(`Le téléchargement du département ${failed.join(", ")} a échoué (détail dans Sources).`);
+    }
+    const idle = toAsk.filter((code) => !failed.includes(code));
+    if (idle.length) {
+      parts.push(
+        `DicoTopo pourrait proposer le type des lieux-dits et hameaux de ce lieu, mais le département ${idle.join(", ")} `
+          + "n'est pas téléchargé (données gardées sur cet ordinateur, quelques Mo).",
+      );
+    }
+    const list = toAsk.join(", ");
+    const label = failed.length && !idle.length ? "Réessayer" : toAsk.length > 1 ? `Télécharger les départements ${list}` : `Télécharger le département ${list}`;
     return el(
       "div",
       { class: "warning", role: "status" },
-      el("span", {
-        text: awaited
-          ? `Téléchargement DicoTopo demandé (département ${list}) : les propositions apparaîtront ici une fois le département indexé.`
-          : `DicoTopo pourrait proposer le type des lieux-dits et hameaux de ce lieu, mais le département ${list} `
-            + "n'est pas téléchargé (données gardées sur cet ordinateur, quelques Mo).",
-      }),
-      awaited
-        ? null
-        : el("button", {
-            type: "button",
-            text: missing.length > 1 ? `Télécharger les départements ${list}` : `Télécharger le département ${list}`,
-            onclick: () => run(() => downloadForPlace(missing)),
-          }),
+      el("span", { text: parts.join(" ") }),
+      toAsk.length
+        ? el("button", { type: "button", text: label, onclick: () => run(() => downloadForPlace(toAsk)) })
+        : null,
     );
   }
 
   async function downloadForPlace(departments) {
     await api("POST", "/api/sources/dicotopo/download", { departments });
-    state.dicotopoAwaited = state.currentId;
+    const id = state.currentId;
+    const fresh = await api("GET", clusterPath(id));
+    if (state.currentId !== id || !state.detail) return;
+    // Only the download state: the chain may hold unsaved edits.
+    state.detail.dicotopo_missing = fresh.dicotopo_missing;
+    state.detail.dicotopo_downloading = fresh.dicotopo_downloading;
+    state.detail.dicotopo_download_failed = fresh.dicotopo_download_failed;
     renderDetail();
     schedulePoll();
   }
@@ -2327,8 +2343,7 @@
     if (state.view === "places") {
       const detail = state.detail;
       if (!detail) return false;
-      const awaited = state.dicotopoAwaited === state.currentId && (detail.dicotopo_missing || []).length;
-      return Boolean((detail.pending_sources || []).length || awaited);
+      return Boolean((detail.pending_sources || []).length || (detail.dicotopo_downloading || []).length);
     }
     return false;
   }

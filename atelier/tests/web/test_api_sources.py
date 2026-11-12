@@ -383,3 +383,26 @@ def test_detail_names_dicotopo_departments_until_indexed(
     assert cluster(client, hamlet_id(client))["dicotopo_missing"] == ["62"]
     data = proposed_detail(client, runtime)
     assert data["dicotopo_missing"] == []
+
+
+def test_detail_follows_the_dicotopo_download_of_its_department(
+    client: TestClient, runtime: SourceRuntime
+) -> None:
+    hamlet = hamlet_id(client)
+    assert cluster(client, hamlet)["dicotopo_downloading"] == []
+    assert client.post("/api/sources/dicotopo/download", json={"departments": ["62"]})
+    data = cluster(client, hamlet)
+    assert data["dicotopo_missing"] == ["62"]
+    assert data["dicotopo_downloading"] == ["62"]
+    assert data["dicotopo_download_failed"] == []
+    job = runtime.queue.next_job()
+    assert job is not None and job.key == "DT62"
+    runtime.queue.fail(job.id, "département absent", permanent=True)
+    data = cluster(client, hamlet)
+    assert data["dicotopo_downloading"] == []
+    assert data["dicotopo_download_failed"] == ["62"]
+    # asking again retries it
+    assert client.post("/api/sources/dicotopo/download", json={"departments": ["62"]})
+    data = cluster(client, hamlet)
+    assert data["dicotopo_downloading"] == ["62"]
+    assert data["dicotopo_download_failed"] == []

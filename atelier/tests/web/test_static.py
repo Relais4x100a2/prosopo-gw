@@ -240,5 +240,6 @@ def test_script_reports_a_rejected_geonames_username(client: TestClient) -> None
 def test_script_offers_dicotopo_download_on_the_place(client: TestClient) -> None:
     script = client.get("/static/app.js").text
     assert "dicotopo_missing" in script
+    assert "dicotopo_downloading" in script  # polls while the queue works
     assert "/api/sources/dicotopo/download" in script
     assert "Télécharger le département" in script

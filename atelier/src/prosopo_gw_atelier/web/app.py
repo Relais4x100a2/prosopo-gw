@@ -449,6 +449,24 @@ def _hint(project: Project, writing: str) -> tuple[str, list[schemas.ElementOut]
     return (" + ".join(hints) or "aucun indice reconnu"), elements
 
 
+def _department_downloads(
+    state: AppState, departments: Sequence[str]
+) -> tuple[list[str], list[str]]:
+    """Missing DicoTopo departments whose download (or indexing) is under way, and
+    those whose download failed for good: read from the queue at each request."""
+    downloading: list[str] = []
+    failed: list[str] = []
+    if state.sources is None:
+        return downloading, failed
+    for department in departments:
+        states = state.sources.queue.open_states(DICOTOPO, [f"DT{department}"])
+        if states & {"pending", "running"}:
+            downloading.append(department)
+        elif "failed" in states:
+            failed.append(department)
+    return downloading, failed
+
+
 def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
     project, registry = state.project, state.registry
     writings = view.cluster.writings
@@ -472,6 +490,7 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
     levels = view.cluster.levels
     postal_code = view.cluster.postal_code
     summary = _summary(view)
+    downloading, download_failed = _department_downloads(state, view.dicotopo_missing)
     return schemas.ClusterDetail(
         id=summary.id,
         label=summary.label,
@@ -495,6 +514,8 @@ def _detail(state: AppState, view: ClusterView) -> schemas.ClusterDetail:
         pending_sources=list(view.pending_sources),
         failed_sources=list(view.failed_sources),
         dicotopo_missing=list(view.dicotopo_missing),
+        dicotopo_downloading=downloading,
+        dicotopo_download_failed=download_failed,
         complements=[
             schemas.Complement(text=text, occurrences=count)
             for text, count in sorted(complements.items(), key=lambda i: (-i[1], i[0]))
@@ -1138,6 +1159,8 @@ def create_app(
             request_download(runtime.queue, codes, covered=runtime.coverage())
         except SourceError as exc:
             raise _error(400, str(exc)) from None
+        # Asking again for a department whose download failed retries it.
+        runtime.queue.retry(DICOTOPO, [f"DT{code}" for code in codes])
         return schemas.DownloadOut(queued=codes)
 
     @app.post("/api/sources/dicotopo/coverage/refresh")
